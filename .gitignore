@@ -1,0 +1,15 @@
+# Foundry
+cache/
+out/
+lib/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
