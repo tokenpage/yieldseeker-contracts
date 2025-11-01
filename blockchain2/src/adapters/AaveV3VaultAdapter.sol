@@ -29,7 +29,17 @@ interface IAToken {
  * @dev This adapter is called via DELEGATECALL from AgentWallet
  *      Aave V3 has a single Pool contract that manages multiple assets
  *      Each asset has its own aToken. This adapter enforces security per asset.
- *      Via delegatecall: address(this) = agentWallet, allowing direct interactions
+ *
+ *      When executed via delegatecall:
+ *      - address(this) = agentWallet address
+ *      - msg.sender = original caller (operator)
+ *      - Storage/balance context = agentWallet
+ *
+ *      Security guarantees:
+ *      1. Only approves pool (which must be pre-approved in AccessController)
+ *      2. Only transfers tokens to pool via pool.supply() call
+ *      3. All deposits/withdrawals use address(this) as recipient (= agentWallet)
+ *      4. No way to redirect tokens to arbitrary addresses
  */
 contract AaveV3PoolAdapter is IVaultAdapter {
     using SafeERC20 for IERC20;
@@ -39,18 +49,15 @@ contract AaveV3PoolAdapter is IVaultAdapter {
      * @param pool Address of the Aave V3 pool
      * @param asset Address of the asset to deposit
      * @param amount Amount to deposit
-     * @param agentWallet Address of the agent wallet (enforced as recipient)
      * @return shares Amount deposited (Aave is 1:1 with aTokens)
-     * @dev Via delegatecall:
-     *      1. Approve pool to spend agentWallet's tokens
-     *      2. Call pool.supply with agentWallet as onBehalfOf
-     *      3. Pool transfers from agentWallet, mints aTokens to agentWallet
-     *      Security: Hardcodes agentWallet as onBehalfOf parameter
+     * @dev Via delegatecall, this runs in agentWallet context (address(this) = agentWallet):
+     *      1. Approve pool to spend tokens (pool must be pre-approved in AccessController)
+     *      2. Call pool.supply with address(this) as onBehalfOf
+     *      3. Pool transfers from address(this), mints aTokens to address(this)
      */
-    function deposit(address pool, address asset, uint256 amount, address agentWallet) external override returns (uint256 shares) {
+    function deposit(address pool, address asset, uint256 amount) external override returns (uint256 shares) {
         IERC20(asset).forceApprove(pool, amount);
-        IAaveV3Pool(pool).supply(asset, amount, agentWallet, 0);
-
+        IAaveV3Pool(pool).supply(asset, amount, address(this), 0);
         return amount;
     }
 
@@ -59,14 +66,12 @@ contract AaveV3PoolAdapter is IVaultAdapter {
      * @param pool Address of the Aave V3 pool
      * @param asset Address of the asset to withdraw
      * @param amount Amount to withdraw (use type(uint256).max for full balance)
-     * @param agentWallet Address of the agent wallet (enforced as recipient)
      * @return actualAmount Amount withdrawn
-     * @dev Via delegatecall:
-     *      Pool burns aTokens from agentWallet, sends assets to agentWallet
-     *      Security: Hardcodes agentWallet as to parameter
+     * @dev Via delegatecall, this runs in agentWallet context (address(this) = agentWallet):
+     *      Pool burns aTokens from address(this), sends assets to address(this)
      */
-    function withdraw(address pool, address asset, uint256 amount, address agentWallet) external override returns (uint256 actualAmount) {
-        return IAaveV3Pool(pool).withdraw(asset, amount, agentWallet);
+    function withdraw(address pool, address asset, uint256 amount) external override returns (uint256 actualAmount) {
+        return IAaveV3Pool(pool).withdraw(asset, amount, address(this));
     }
 
     /**

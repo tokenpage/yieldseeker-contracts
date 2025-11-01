@@ -26,7 +26,12 @@ interface IERC4626 {
  *      - msg.sender = original caller (operator)
  *      - Storage/balance context = agentWallet
  *      This allows direct vault interactions without intermediate token transfers
- *      Security: Hardcodes agentWallet parameter to prevent fund theft
+ *
+ *      Security guarantees:
+ *      1. Only approves vault (which must be pre-approved in AccessController)
+ *      2. Only transfers tokens to vault via vault.deposit() call
+ *      3. All deposits/withdrawals use address(this) as recipient (= agentWallet)
+ *      4. No way to redirect tokens to arbitrary addresses
  */
 contract ERC4626VaultAdapter is IVaultAdapter {
     using SafeERC20 for IERC20;
@@ -36,31 +41,27 @@ contract ERC4626VaultAdapter is IVaultAdapter {
      * @param vault Address of the ERC4626 vault
      * @param asset Address of the asset to deposit
      * @param amount Amount of base asset to deposit
-     * @param agentWallet Address of the agent wallet (enforced as recipient)
      * @return shares Amount of vault shares received
-     * @dev Via delegatecall, this runs in agentWallet context:
-     *      1. Approve vault to spend agentWallet's tokens
-     *      2. Call vault.deposit(amount, agentWallet) - vault transfers from agentWallet
-     *      3. Shares are minted directly to agentWallet
-     *      No intermediate transfers needed!
+     * @dev Via delegatecall, this runs in agentWallet context (address(this) = agentWallet):
+     *      1. Approve vault to spend tokens (vault must be pre-approved in AccessController)
+     *      2. Call vault.deposit(amount, address(this))
+     *      3. Vault transfers tokens from address(this), mints shares to address(this)
      */
-    function deposit(address vault, address asset, uint256 amount, address agentWallet) external override returns (uint256 shares) {
+    function deposit(address vault, address asset, uint256 amount) external override returns (uint256 shares) {
         IERC20(asset).forceApprove(vault, amount);
-        shares = IERC4626(vault).deposit(amount, agentWallet);
+        shares = IERC4626(vault).deposit(amount, address(this));
     }
 
     /**
      * @notice Withdraw base asset from ERC4626 vault
      * @param vault Address of the ERC4626 vault
      * @param shares Amount of vault shares to redeem (amount parameter for interface compatibility)
-     * @param agentWallet Address of the agent wallet (enforced as recipient)
      * @return actualAmount Amount of base asset received
-     * @dev Via delegatecall, this runs in agentWallet context:
-     *      Shares are burned from agentWallet, assets sent to agentWallet
-     *      For ERC4626, the amount parameter represents shares to redeem
+     * @dev Via delegatecall, this runs in agentWallet context (address(this) = agentWallet):
+     *      Vault burns shares from address(this), sends assets to address(this)
      */
-    function withdraw(address vault, address, uint256 shares, address agentWallet) external override returns (uint256 actualAmount) {
-        actualAmount = IERC4626(vault).redeem(shares, agentWallet, agentWallet);
+    function withdraw(address vault, address, uint256 shares) external override returns (uint256 actualAmount) {
+        actualAmount = IERC4626(vault).redeem(shares, address(this), address(this));
     }
 
     /**

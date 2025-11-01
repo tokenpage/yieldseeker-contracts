@@ -10,6 +10,19 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
  * @dev Manages operators, pause state, and approved vaults/swaps
  */
 contract YieldSeekerAccessController is AccessControl, Pausable {
+    /**
+     * @notice Validate a call via the YieldSeekerCallValidator
+     * @param wallet The agent wallet making the call
+     * @param target The contract being called
+     * @param data The calldata for the call
+     * @return True if call is allowed
+     */
+    function isCallAllowed(address wallet, address target, bytes calldata data) external view returns (bool) {
+        require(callValidator != address(0), "Validator not set");
+        (bool success, bytes memory result) = callValidator.staticcall(abi.encodeWithSignature("isCallAllowed(address,address,bytes)", wallet, target, data));
+        require(success && result.length >= 32, "Validator call failed");
+        return abi.decode(result, (bool));
+    }
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
@@ -32,6 +45,9 @@ contract YieldSeekerAccessController is AccessControl, Pausable {
     /// @notice List of all approved adapters
     address[] public approvedAdapters;
 
+    /// @notice YieldSeekerCallValidator contract address
+    address public callValidator;
+
     event OperatorAdded(address indexed operator);
     event OperatorRemoved(address indexed operator);
     event VaultApproved(address indexed vault);
@@ -41,8 +57,12 @@ contract YieldSeekerAccessController is AccessControl, Pausable {
     event AdapterApproved(address indexed adapter);
     event AdapterRemoved(address indexed adapter);
 
+    event CallValidatorSet(address indexed validator);
+
     error AlreadyApproved();
     error NotApproved();
+
+    error NotAdmin();
 
     constructor(address admin) {
         if (admin == address(0)) {
@@ -52,6 +72,33 @@ contract YieldSeekerAccessController is AccessControl, Pausable {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(REGISTRY_ADMIN_ROLE, admin);
+        callValidator = address(0);
+    }
+
+    /**
+     * @notice Set the YieldSeekerCallValidator contract address
+     * @param validator Address of the validator contract
+     */
+    function setCallValidator(address validator) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        callValidator = validator;
+        emit CallValidatorSet(validator);
+    }
+
+    /**
+     * @notice Get the YieldSeekerCallValidator contract address
+     * @return Address of the validator contract
+     */
+    function getCallValidator() external view returns (address) {
+        return callValidator;
+    }
+
+    /**
+     * @notice Check if an address is an admin (for validator)
+     * @param user Address to check
+     * @return True if user is admin
+     */
+    function isAdmin(address user) external view returns (bool) {
+        return hasRole(REGISTRY_ADMIN_ROLE, user);
     }
 
     // ============ OPERATOR MANAGEMENT ============

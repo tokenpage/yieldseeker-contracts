@@ -101,7 +101,7 @@ contract YieldSeekerAgentWallet {
      *      4. Adapters are called via delegatecall for efficiency
      */
     function executeCall(address target, uint256 value, bytes calldata data) external onlyOperator returns (bool success, bytes memory result) {
-        _validateCall(target, data);
+        if (!operator.isCallAllowed(address(this), target, data)) revert TargetNotApproved();
 
         if (operator.isApprovedAdapter(target)) {
             (success, result) = target.delegatecall(data);
@@ -123,7 +123,7 @@ contract YieldSeekerAgentWallet {
     function executeBatch(CallOperation[] calldata calls) external onlyOperator {
         for (uint256 i = 0; i < calls.length; i++) {
             CallOperation calldata call = calls[i];
-            _validateCall(call.target, call.data);
+            if (!operator.isCallAllowed(address(this), call.target, call.data)) revert TargetNotApproved();
 
             bool success;
             bytes memory result;
@@ -140,80 +140,6 @@ contract YieldSeekerAgentWallet {
         }
 
         emit BatchExecuted(msg.sender, calls.length);
-    }
-
-    /**
-     * @notice Validate a call is safe to execute
-     * @param target Contract being called
-     * @param data Calldata being sent
-     * @dev Security validation:
-     *      1. Target must be approved (vault or swap)
-     *      2. If target is ERC20, check it's not an unsafe operation
-     */
-    function _validateCall(address target, bytes calldata data) internal view {
-        // Check 1: Target must be approved
-        if (!operator.isContractApproved(target)) {
-            revert TargetNotApproved();
-        }
-
-        // Check 2: If calling an ERC20 token, validate the operation
-        if (_isERC20(target)) {
-            _validateERC20Call(target, data);
-        }
-    }
-
-    /**
-     * @notice Check if a contract is likely an ERC20 token
-     * @param target Contract to check
-     * @return True if contract appears to be ERC20
-     * @dev Simple heuristic: has totalSupply() function
-     */
-    function _isERC20(address target) internal view returns (bool) {
-        // Try to call totalSupply() - if it succeeds, likely ERC20
-        (bool success,) = target.staticcall(abi.encodeWithSignature("totalSupply()"));
-        return success;
-    }
-
-    /**
-     * @notice Validate ERC20 call is safe
-     * @param token ERC20 token being called
-     * @param data Calldata being sent
-     * @dev Prevents:
-     *      - transfer(attacker, amount) stealing baseAsset
-     *      - approve(attacker, amount) allowing theft
-     *      Only allows:
-     *      - transfer/approve to approved contracts (vaults/swaps)
-     *      - Other safe operations (balanceOf, allowance, etc.)
-     */
-    function _validateERC20Call(address token, bytes calldata data) internal view {
-        if (data.length < 4) return; // Too short to be a dangerous call
-
-        bytes4 selector = bytes4(data[0:4]);
-
-        // Check for transfer(address,uint256)
-        if (selector == IERC20.transfer.selector) {
-            address recipient = abi.decode(data[4:36], (address));
-
-            // If transferring baseAsset, recipient must be approved contract
-            if (token == address(baseAsset)) {
-                if (!operator.isContractApproved(recipient)) {
-                    revert UnsafeERC20Operation();
-                }
-            }
-        }
-        // Check for approve(address,uint256)
-        else if (selector == IERC20.approve.selector) {
-            address spender = abi.decode(data[4:36], (address));
-
-            // If approving baseAsset, spender must be approved contract
-            if (token == address(baseAsset)) {
-                if (!operator.isContractApproved(spender)) {
-                    revert UnsafeERC20Operation();
-                }
-            }
-        }
-        // transferFrom is allowed if target is approved
-        // Other functions (balanceOf, allowance, etc.) are safe
     }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============
