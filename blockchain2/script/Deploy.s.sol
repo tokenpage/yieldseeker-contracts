@@ -26,15 +26,15 @@ contract Deploy is Script {
         YieldSeekerAccessController accessController = new YieldSeekerAccessController(admin);
         console2.log("AccessController deployed at:", address(accessController));
 
-        // 2. Deploy AgentWallet Implementation
-        console2.log("\n2. Deploying AgentWallet implementation...");
-        YieldSeekerAgentWallet agentWalletImpl = new YieldSeekerAgentWallet(address(accessController));
-        console2.log("AgentWallet implementation deployed at:", address(agentWalletImpl));
-
-        // 3. Deploy AgentWalletFactory
-        console2.log("\n3. Deploying AgentWalletFactory...");
-        YieldSeekerAgentWalletFactory factory = new YieldSeekerAgentWalletFactory(admin, address(agentWalletImpl));
+        // 2. Deploy AgentWalletFactory
+        console2.log("\n2. Deploying AgentWalletFactory...");
+        YieldSeekerAgentWalletFactory factory = new YieldSeekerAgentWalletFactory(admin);
         console2.log("AgentWalletFactory deployed at:", address(factory));
+
+        // 3. Deploy AgentWallet Implementation with factory address
+        console2.log("\n3. Deploying AgentWallet implementation...");
+        YieldSeekerAgentWallet agentWalletImpl = new YieldSeekerAgentWallet(address(accessController), address(factory));
+        console2.log("AgentWallet implementation deployed at:", address(agentWalletImpl));
 
         vm.stopBroadcast();
 
@@ -44,8 +44,9 @@ contract Deploy is Script {
         console2.log("AgentWallet Implementation:", address(agentWalletImpl));
         console2.log("AgentWalletFactory:", address(factory));
         console2.log("\nNext steps:");
-        console2.log("1. Grant OPERATOR_ROLE to backend operator");
-        console2.log("2. Approve vault contracts in AccessController");
-        console2.log("3. Approve swap provider contracts in AccessController");
+        console2.log("1. Call factory.setImplementation(", address(agentWalletImpl), ") as admin");
+        console2.log("2. Grant OPERATOR_ROLE to backend operator in AccessController");
+        console2.log("3. Approve vault contracts in AccessController");
+        console2.log("4. Approve swap provider contracts in AccessController");
     }
 }

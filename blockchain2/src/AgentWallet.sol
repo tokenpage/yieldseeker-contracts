@@ -3,31 +3,34 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {YieldSeekerAccessController} from "./AccessController.sol";
+import {AgentWalletStorageV1} from "./AgentWalletStorage.sol";
+
+interface IAgentWalletFactory {
+    function currentImplementation() external view returns (address);
+}
 
 /**
  * @title YieldSeekerAgentWallet
- * @notice Agent wallet with secure calldata execution
- * @dev Allows backend to generate arbitrary calldata but enforces strict security:
+ * @notice UUPS upgradeable agent wallet with secure calldata execution
+ * @dev Deployed as ERC1967 proxy by AgentWalletFactory
+ *      Allows backend to generate arbitrary calldata but enforces strict security:
  *      - Only approved contracts can be called
  *      - ERC20 transfers/approvals are monitored and validated
  *      - User can always withdraw their funds
  *      - No way for operator to steal funds even with compromised keys
+ *      - Only owner can upgrade wallet to factory-approved implementations
  */
-contract YieldSeekerAgentWallet {
+contract YieldSeekerAgentWallet is Initializable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
-    /// @notice Access controller
+    /// @notice Access controller (immutable in implementation, not in proxy storage)
     YieldSeekerAccessController public immutable operator;
 
-    /// @notice User who owns this agent wallet
-    address public owner;
-
-    /// @notice Agent index for this owner
-    uint256 public ownerAgentIndex;
-
-    /// @notice Base asset token (e.g., USDC)
-    IERC20 public baseAsset;
+    /// @notice Factory that deployed this wallet (immutable in implementation, not in proxy storage)
+    address public immutable FACTORY;
 
     /// @notice Struct for a single call operation
     struct CallOperation {
@@ -41,6 +44,7 @@ contract YieldSeekerAgentWallet {
     event BatchExecuted(address indexed operator, uint256 callCount);
     event WithdrewBaseAssetToUser(address indexed owner, address indexed recipient, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     error NotOperator();
     error NotOwner();
@@ -53,22 +57,27 @@ contract YieldSeekerAgentWallet {
     error CallFailed();
     error InsufficientBalance();
     error TransferFailed();
+    error NotApprovedImplementation();
 
     modifier onlyOperator() {
         if (!operator.isAuthorizedOperator(msg.sender)) revert NotOperator();
-        if (owner == address(0)) revert NotInitialized();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        if ($.owner == address(0)) revert NotInitialized();
         if (operator.paused()) revert SystemPaused();
         _;
     }
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        if (msg.sender != owner()) revert NotOwner();
         _;
     }
 
-    constructor(address _operator) {
+    constructor(address _operator, address _factory) {
         if (_operator == address(0)) revert InvalidAddress();
+        if (_factory == address(0)) revert InvalidAddress();
         operator = YieldSeekerAccessController(_operator);
+        FACTORY = _factory;
+        _disableInitializers();
     }
 
     /**
@@ -77,41 +86,54 @@ contract YieldSeekerAgentWallet {
      * @param _ownerAgentIndex Agent index for this owner
      * @param _baseAsset Base asset token address (e.g., USDC)
      */
-    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) external {
-        if (owner != address(0)) revert AlreadyInitialized();
+    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) external initializer {
         if (_owner == address(0)) revert InvalidAddress();
         if (_baseAsset == address(0)) revert InvalidAddress();
-        owner = _owner;
-        ownerAgentIndex = _ownerAgentIndex;
-        baseAsset = IERC20(_baseAsset);
+
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        $.owner = _owner;
+        $.ownerAgentIndex = _ownerAgentIndex;
+        $.baseAsset = IERC20(_baseAsset);
+
         emit Initialized(_owner, _ownerAgentIndex);
     }
 
-    // ============ SECURE CALLDATA EXECUTION ============
+    /**
+     * @notice Get the owner of this wallet
+     * @return Owner address
+     */
+    function owner() public view returns (address) {
+        return AgentWalletStorageV1.layout().owner;
+    }
 
     /**
-     * @notice Execute a single call with security checks
-     * @param target Contract to call
-     * @param value ETH value to send
-     * @param data Calldata to execute
-     * @dev Security checks:
-     *      1. Target must be approved contract (vault, swap, or adapter)
-     *      2. If calling ERC20, validate the operation is safe
-     *      3. Cannot directly transfer baseAsset to arbitrary addresses
-     *      4. Adapters are called via delegatecall for efficiency
+     * @notice Get the owner agent index
+     * @return Owner agent index
      */
-    function executeCall(address target, uint256 value, bytes calldata data) external onlyOperator returns (bool success, bytes memory result) {
-        if (!operator.isCallAllowed(address(this), target, data)) revert TargetNotApproved();
+    function ownerAgentIndex() public view returns (uint256) {
+        return AgentWalletStorageV1.layout().ownerAgentIndex;
+    }
 
-        if (operator.isApprovedAdapter(target)) {
-            (success, result) = target.delegatecall(data);
-        } else {
-            (success, result) = target.call{value: value}(data);
-        }
+    /**
+     * @notice Get the base asset
+     * @return Base asset token
+     */
+    function baseAsset() public view returns (IERC20) {
+        return AgentWalletStorageV1.layout().baseAsset;
+    }
 
-        emit CallExecuted(target, value, data, success, result);
+    /**
+     * @notice Transfer ownership to a new address
+     * @param newOwner New owner address
+     */
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
 
-        if (!success) revert CallFailed();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        address previousOwner = $.owner;
+        $.owner = newOwner;
+
+        emit OwnershipTransferred(previousOwner, newOwner);
     }
 
     /**
@@ -130,8 +152,6 @@ contract YieldSeekerAgentWallet {
 
             if (operator.isApprovedAdapter(call.target)) {
                 (success, result) = call.target.delegatecall(call.data);
-            } else {
-                (success, result) = call.target.call{value: call.value}(call.data);
             }
 
             emit CallExecuted(call.target, call.value, call.data, success, result);
@@ -150,7 +170,8 @@ contract YieldSeekerAgentWallet {
      * @param amount Amount to withdraw
      */
     function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
-        uint256 balance = baseAsset.balanceOf(address(this));
+        IERC20 asset = baseAsset();
+        uint256 balance = asset.balanceOf(address(this));
         if (balance < amount) revert InsufficientBalance();
         _withdrawBaseAsset(recipient, amount);
     }
@@ -160,7 +181,8 @@ contract YieldSeekerAgentWallet {
      * @param recipient Address to send the base asset to
      */
     function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
-        uint256 balance = baseAsset.balanceOf(address(this));
+        IERC20 asset = baseAsset();
+        uint256 balance = asset.balanceOf(address(this));
         _withdrawBaseAsset(recipient, balance);
     }
 
@@ -191,8 +213,9 @@ contract YieldSeekerAgentWallet {
      */
     function _withdrawBaseAsset(address recipient, uint256 amount) internal {
         if (recipient == address(0)) revert InvalidAddress();
-        baseAsset.safeTransfer(recipient, amount);
-        emit WithdrewBaseAssetToUser(owner, recipient, amount);
+        IERC20 asset = baseAsset();
+        asset.safeTransfer(recipient, amount);
+        emit WithdrewBaseAssetToUser(owner(), recipient, amount);
     }
 
     /**
@@ -204,7 +227,27 @@ contract YieldSeekerAgentWallet {
         if (recipient == address(0)) revert InvalidAddress();
         (bool success,) = recipient.call{value: amount}("");
         if (!success) revert TransferFailed();
-        emit WithdrewEthToUser(owner, recipient, amount);
+        emit WithdrewEthToUser(owner(), recipient, amount);
+    }
+
+    /**
+     * @notice Upgrade to latest approved implementation from factory
+     * @dev Convenience function that upgrades to current factory implementation
+     */
+    function upgradeToLatest() external onlyOwner {
+        address latest = IAgentWalletFactory(FACTORY).currentImplementation();
+        upgradeToAndCall(latest, "");
+    }
+
+    /**
+     * @notice UUPS upgrade authorization
+     * @dev Only owner can upgrade, and only to current factory implementation (no downgrades)
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+        address currentImpl = IAgentWalletFactory(FACTORY).currentImplementation();
+        if (newImplementation != currentImpl) {
+            revert NotApprovedImplementation();
+        }
     }
 
     /**
