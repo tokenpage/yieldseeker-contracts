@@ -330,4 +330,133 @@ contract AgentWalletTest is Test {
         assertEq(YieldSeekerAgentWallet(payable(walletAddr)).owner(), ownerBefore, "Owner should be preserved");
         assertEq(YieldSeekerAgentWallet(payable(walletAddr)).ownerAgentIndex(), indexBefore, "Index should be preserved");
     }
+
+    // ===== Factory-Specific Tests =====
+
+    function test_FactoryConstructorSetsRoles() public {
+        assertTrue(factory.hasRole(factory.DEFAULT_ADMIN_ROLE(), admin), "Admin should have DEFAULT_ADMIN_ROLE");
+        assertTrue(factory.hasRole(factory.AGENT_CREATOR_ROLE(), admin), "Admin should have AGENT_CREATOR_ROLE");
+    }
+
+    function test_RevertFactoryConstructorZeroAddress() public {
+        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        new YieldSeekerAgentWalletFactory(address(0));
+    }
+
+    function test_RevertSetImplementationZeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        factory.setImplementation(address(0));
+    }
+
+    function test_RevertSetImplementationNotAdmin() public {
+        YieldSeekerAgentWallet newImpl = new YieldSeekerAgentWallet(address(accessController), address(factory));
+
+        vm.prank(user);
+        vm.expectRevert();
+        factory.setImplementation(address(newImpl));
+    }
+
+    function test_SetImplementationEmitsEvent() public {
+        YieldSeekerAgentWallet newImpl = new YieldSeekerAgentWallet(address(accessController), address(factory));
+
+        vm.prank(admin);
+        vm.expectEmit(true, false, false, false);
+        emit YieldSeekerAgentWalletFactory.ImplementationSet(address(newImpl));
+        factory.setImplementation(address(newImpl));
+    }
+
+    function test_RevertCreateAgentWalletZeroUser() public {
+        vm.prank(admin);
+        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        factory.createAgentWallet(address(0), 0, address(usdc));
+    }
+
+    function test_RevertCreateAgentWalletZeroBaseAsset() public {
+        vm.prank(admin);
+        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        factory.createAgentWallet(user, 0, address(0));
+    }
+
+    function test_RevertCreateAgentWalletNoImplementation() public {
+        // Create new factory without setting implementation
+        YieldSeekerAgentWalletFactory newFactory = new YieldSeekerAgentWalletFactory(admin);
+
+        vm.prank(admin);
+        vm.expectRevert(YieldSeekerAgentWalletFactory.NoImplementationSet.selector);
+        newFactory.createAgentWallet(user, 0, address(usdc));
+    }
+
+    function test_RevertCreateAgentWalletNotCreator() public {
+        vm.prank(user);
+        vm.expectRevert();
+        factory.createAgentWallet(user, 0, address(usdc));
+    }
+
+    function test_CreateAgentWalletEmitsEvent() public {
+        address predicted = factory.predictAgentWalletAddress(user, 0, address(usdc));
+
+        vm.expectEmit(true, true, true, true);
+        emit YieldSeekerAgentWalletFactory.AgentWalletCreated(user, 0, predicted, address(usdc));
+
+        vm.prank(admin);
+        factory.createAgentWallet(user, 0, address(usdc));
+    }
+
+    function test_GrantAndRevokeCreatorRole() public {
+        address newCreator = address(0x5);
+
+        // Initially doesn't have role
+        assertFalse(factory.hasRole(factory.AGENT_CREATOR_ROLE(), newCreator), "Should not have creator role initially");
+
+        // Grant role as admin
+        vm.startPrank(admin);
+        factory.grantRole(factory.AGENT_CREATOR_ROLE(), newCreator);
+        vm.stopPrank();
+
+        assertTrue(factory.hasRole(factory.AGENT_CREATOR_ROLE(), newCreator), "Should have creator role after grant");
+
+        // New creator can create wallet
+        vm.prank(newCreator);
+        address wallet = factory.createAgentWallet(user, 5, address(usdc));
+        assertNotEq(wallet, address(0), "New creator should be able to create wallet");
+
+        // Revoke role as admin
+        vm.startPrank(admin);
+        factory.revokeRole(factory.AGENT_CREATOR_ROLE(), newCreator);
+        vm.stopPrank();
+
+        assertFalse(factory.hasRole(factory.AGENT_CREATOR_ROLE(), newCreator), "Should not have creator role after revoke");
+
+        // Cannot create wallet anymore
+        vm.prank(newCreator);
+        vm.expectRevert();
+        factory.createAgentWallet(user, 6, address(usdc));
+    }
+
+    function test_UserWalletsMapping() public {
+        vm.startPrank(admin);
+
+        address wallet1 = factory.createAgentWallet(user, 0, address(usdc));
+        address wallet2 = factory.createAgentWallet(user, 1, address(usdc));
+        address wallet3 = factory.createAgentWallet(user2, 0, address(usdc));
+
+        vm.stopPrank();
+
+        // Verify userWallets mapping
+        assertEq(factory.userWallets(user, 0), wallet1, "User wallet at index 0 should match");
+        assertEq(factory.userWallets(user, 1), wallet2, "User wallet at index 1 should match");
+        assertEq(factory.userWallets(user2, 0), wallet3, "User2 wallet at index 0 should match");
+        assertEq(factory.userWallets(user, 2), address(0), "Non-existent wallet should be zero address");
+    }
+
+    function test_CurrentImplementationGetter() public {
+        assertEq(factory.currentImplementation(), address(implementation), "Should return current implementation");
+
+        YieldSeekerAgentWallet newImpl = new YieldSeekerAgentWallet(address(accessController), address(factory));
+        vm.prank(admin);
+        factory.setImplementation(address(newImpl));
+
+        assertEq(factory.currentImplementation(), address(newImpl), "Should return new implementation");
+    }
 }
