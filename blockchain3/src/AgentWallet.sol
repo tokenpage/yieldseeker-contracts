@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC7579Account} from "@openzeppelin/contracts/account/ERC7579/ERC7579Account.sol";
+import {ERC7579Account} from "./lib/ERC7579Account.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -41,7 +41,6 @@ contract YieldSeekerAgentWallet is ERC7579Account, Initializable, UUPSUpgradeabl
     function initialize(address _user, uint256 _userAgentIndex, address _baseAsset) external initializer {
         // Initialize UUPS and Ownable
         __Ownable_init(_user);
-        __UUPSUpgradeable_init();
 
         userAgentIndex = _userAgentIndex;
         baseAsset = _baseAsset;
@@ -69,6 +68,20 @@ contract YieldSeekerAgentWallet is ERC7579Account, Initializable, UUPSUpgradeabl
      * @dev Only the owner can upgrade the wallet implementation
      */
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    // ============ ERC7579 OVERRIDES ============
+
+    function execute(bytes32 mode, bytes calldata executionCalldata) external payable override onlyEntryPointOrSelf {
+        _execute(mode, executionCalldata);
+    }
+
+    function installModule(uint256 moduleTypeId, address module, bytes calldata initData) public payable override onlyOwner {
+        super.installModule(moduleTypeId, module, initData);
+    }
+
+    function uninstallModule(uint256 moduleTypeId, address module, bytes calldata deInitData) public payable override onlyOwner {
+        super.uninstallModule(moduleTypeId, module, deInitData);
+    }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============
 

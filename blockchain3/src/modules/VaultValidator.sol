@@ -14,6 +14,7 @@ contract VaultValidator is IPolicyValidator {
     }
 
     function validateAction(
+        address, // wallet
         address, // target
         bytes4 selector,
         bytes calldata data
