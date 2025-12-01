@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import "../interfaces/IPolicyValidator.sol";
 
 interface IERC4626 {
@@ -35,12 +35,16 @@ interface IAgentWallet {
  *      2. If valid, Router triggers wallet.executeFromExecutor() → wallet CALLs this.deposit()
  *      3. This contract pulls tokens from wallet, deposits to vault, shares go to wallet
  */
-contract ERC4626VaultWrapper is IPolicyValidator, Ownable {
+contract ERC4626VaultWrapper is IPolicyValidator, AccessControl {
     using SafeERC20 for IERC20;
+
+    bytes32 public constant VAULT_ADMIN_ROLE = keccak256("VAULT_ADMIN_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     mapping(address => bool) public allowedVaults;
 
-    event VaultAllowed(address indexed vault, bool allowed);
+    event VaultAdded(address indexed vault);
+    event VaultRemoved(address indexed vault);
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
@@ -52,13 +56,31 @@ contract ERC4626VaultWrapper is IPolicyValidator, Ownable {
     bytes4 public constant DEPOSIT_SELECTOR = bytes4(keccak256("deposit(address,uint256)"));
     bytes4 public constant WITHDRAW_SELECTOR = bytes4(keccak256("withdraw(address,uint256)"));
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _admin) {
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(VAULT_ADMIN_ROLE, _admin);
+        _grantRole(EMERGENCY_ROLE, _admin);
+    }
 
-    // ============ Admin ============
+    // ============ Admin (Timelocked) ============
 
-    function setVaultAllowed(address vault, bool allowed) external onlyOwner {
-        allowedVaults[vault] = allowed;
-        emit VaultAllowed(vault, allowed);
+    /**
+     * @notice Add a vault to the whitelist (should go through timelock)
+     */
+    function addVault(address vault) external onlyRole(VAULT_ADMIN_ROLE) {
+        allowedVaults[vault] = true;
+        emit VaultAdded(vault);
+    }
+
+    // ============ Emergency (Instant) ============
+
+    /**
+     * @notice Remove a vault from whitelist immediately (for emergencies)
+     * @dev This bypasses timelock for fast response to compromised vaults
+     */
+    function removeVault(address vault) external onlyRole(EMERGENCY_ROLE) {
+        allowedVaults[vault] = false;
+        emit VaultRemoved(vault);
     }
 
     // ============ IPolicyValidator ============
@@ -68,7 +90,12 @@ contract ERC4626VaultWrapper is IPolicyValidator, Ownable {
         address, // target (this contract)
         bytes4 selector,
         bytes calldata data
-    ) external view override returns (bool) {
+    )
+        external
+        view
+        override
+        returns (bool)
+    {
         if (selector != DEPOSIT_SELECTOR && selector != WITHDRAW_SELECTOR) {
             revert InvalidSelector(selector);
         }

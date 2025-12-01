@@ -14,21 +14,15 @@ interface IAgentWallet {
  *      (e.g., "Only allow swaps that result in USDC")
  */
 contract ZeroExValidator is IPolicyValidator {
-
     // transformERC20(address,address,uint256,uint256,(uint32,bytes)[])
     bytes4 public constant TRANSFORM_ERC20_SELECTOR = 0x415565b0;
 
-    function validateAction(
-        address wallet,
-        address target,
-        bytes4 selector,
-        bytes calldata data
-    ) external view override returns (bool) {
+    function validateAction(address wallet, address target, bytes4 selector, bytes calldata data) external view override returns (bool) {
         if (selector != TRANSFORM_ERC20_SELECTOR) return false;
 
         // Decode arguments
         // transformERC20(address inputToken, address outputToken, ...)
-        ( , address outputToken, , , ) = abi.decode(data[4:], (address, address, uint256, uint256, bytes[]));
+        (, address outputToken,,,) = abi.decode(data[4:], (address, address, uint256, uint256, bytes[]));
 
         // Get the wallet's base asset
         address baseAsset = IAgentWallet(wallet).baseAsset();

@@ -15,7 +15,6 @@ import {YieldSeekerAgentWallet} from "./AgentWallet.sol";
  *      - Users must manually upgrade their wallet to the new implementation.
  */
 contract YieldSeekerAgentWalletFactory is AccessControl {
-
     bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
 
     // Current recommended implementation version
@@ -66,10 +65,7 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
     function createAgentWallet(address user, uint256 userAgentIndex, address baseAsset) external onlyRole(AGENT_CREATOR_ROLE) returns (address agentWallet) {
         require(defaultExecutorModule != address(0), "Default executor not set");
         bytes32 salt = keccak256(abi.encodePacked(user, userAgentIndex));
-        bytes memory walletInitData = abi.encodeCall(
-            YieldSeekerAgentWallet.initialize,
-            (user, userAgentIndex, baseAsset, defaultExecutorModule)
-        );
+        bytes memory walletInitData = abi.encodeCall(YieldSeekerAgentWallet.initialize, (user, userAgentIndex, baseAsset, defaultExecutorModule));
         ERC1967Proxy proxy = new ERC1967Proxy{salt: salt}(currentImplementation, walletInitData);
         agentWallet = address(proxy);
         emit AgentWalletCreated(agentWallet, user);
@@ -82,28 +78,11 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @param baseAsset Base asset address (needed for accurate prediction)
      * @return predicted Predicted agent wallet address
      */
-    function predictAgentWalletAddress(
-        address user,
-        uint256 userAgentIndex,
-        address baseAsset
-    ) external view returns (address predicted) {
+    function predictAgentWalletAddress(address user, uint256 userAgentIndex, address baseAsset) external view returns (address predicted) {
         bytes32 salt = keccak256(abi.encodePacked(user, userAgentIndex));
-        bytes memory walletInitData = abi.encodeCall(
-            YieldSeekerAgentWallet.initialize,
-            (user, userAgentIndex, baseAsset, defaultExecutorModule)
-        );
-        bytes memory bytecode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(currentImplementation, walletInitData)
-        );
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                bytes1(0xff),
-                address(this),
-                salt,
-                keccak256(bytecode)
-            )
-        );
+        bytes memory walletInitData = abi.encodeCall(YieldSeekerAgentWallet.initialize, (user, userAgentIndex, baseAsset, defaultExecutorModule));
+        bytes memory bytecode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(currentImplementation, walletInitData));
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(bytecode)));
         return address(uint160(uint256(hash)));
     }
 }

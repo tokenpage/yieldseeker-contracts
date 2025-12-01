@@ -7,7 +7,9 @@ import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {AgentActionRouter} from "../src/modules/AgentActionRouter.sol";
 import {AgentActionPolicy} from "../src/modules/AgentActionPolicy.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockTarget} from "./mocks/MockTarget.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -27,33 +29,37 @@ contract MockEntryPoint {
     }
 
     function getUserOpHash(PackedUserOperation calldata userOp) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            userOp.sender,
-            userOp.nonce,
-            keccak256(userOp.initCode),
-            keccak256(userOp.callData),
-            userOp.accountGasLimits,
-            userOp.preVerificationGas,
-            userOp.gasFees,
-            keccak256(userOp.paymasterAndData),
-            block.chainid,
-            address(this)
-        ));
+        return keccak256(
+            abi.encode(
+                userOp.sender,
+                userOp.nonce,
+                keccak256(userOp.initCode),
+                keccak256(userOp.callData),
+                userOp.accountGasLimits,
+                userOp.preVerificationGas,
+                userOp.gasFees,
+                keccak256(userOp.paymasterAndData),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     function getUserOpHashMemory(PackedUserOperation memory userOp) public view returns (bytes32) {
-        return keccak256(abi.encode(
-            userOp.sender,
-            userOp.nonce,
-            keccak256(userOp.initCode),
-            keccak256(userOp.callData),
-            userOp.accountGasLimits,
-            userOp.preVerificationGas,
-            userOp.gasFees,
-            keccak256(userOp.paymasterAndData),
-            block.chainid,
-            address(this)
-        ));
+        return keccak256(
+            abi.encode(
+                userOp.sender,
+                userOp.nonce,
+                keccak256(userOp.initCode),
+                keccak256(userOp.callData),
+                userOp.accountGasLimits,
+                userOp.preVerificationGas,
+                userOp.gasFees,
+                keccak256(userOp.paymasterAndData),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     receive() external payable {}
@@ -79,13 +85,13 @@ contract ERC4337Test is Test {
         vm.startPrank(admin);
         implementation = new YieldSeekerAgentWallet();
         factory = new YieldSeekerAgentWalletFactory(address(implementation), admin);
-        policy = new AgentActionPolicy();
-        router = new AgentActionRouter(address(policy));
-        router.setOperator(operator, true);
+        policy = new AgentActionPolicy(admin);
+        router = new AgentActionRouter(address(policy), admin);
+        router.addOperator(operator);
         factory.setDefaultExecutor(address(router));
         usdc = new MockERC20("USDC", "USDC");
         target = new MockTarget();
-        policy.setPolicy(address(target), MockTarget.swap.selector, address(1));
+        policy.addPolicy(address(target), MockTarget.swap.selector, address(1));
         vm.stopPrank();
     }
 
@@ -98,18 +104,10 @@ contract ERC4337Test is Test {
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         bytes memory swapData = abi.encodeWithSelector(MockTarget.swap.selector, address(usdc), address(0), 100);
         bytes memory routerCall = abi.encodeCall(router.executeAction, (walletAddr, address(target), 0, swapData));
-        bytes memory executionCalldata = abi.encode(address(router), uint256(0), routerCall);
-        bytes memory callData = abi.encodeCall(YieldSeekerAgentWallet.execute, (bytes32(0), executionCalldata));
+        bytes memory executionCalldata = abi.encodePacked(address(router), uint256(0), routerCall);
+        bytes memory callData = abi.encodeCall(IERC7579Execution.execute, (bytes32(0), executionCalldata));
         PackedUserOperation memory userOp = PackedUserOperation({
-            sender: walletAddr,
-            nonce: 0,
-            initCode: "",
-            callData: callData,
-            accountGasLimits: bytes32(0),
-            preVerificationGas: 0,
-            gasFees: bytes32(0),
-            paymasterAndData: "",
-            signature: ""
+            sender: walletAddr, nonce: 0, initCode: "", callData: callData, accountGasLimits: bytes32(0), preVerificationGas: 0, gasFees: bytes32(0), paymasterAndData: "", signature: ""
         });
         bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);
         bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
@@ -124,20 +122,9 @@ contract ERC4337Test is Test {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         bytes4 unauthorizedSelector = bytes4(keccak256("unauthorizedMethod()"));
-        bytes memory callData = abi.encodeCall(
-            router.executeAction,
-            (walletAddr, address(target), 0, abi.encodeWithSelector(unauthorizedSelector))
-        );
+        bytes memory callData = abi.encodeCall(router.executeAction, (walletAddr, address(target), 0, abi.encodeWithSelector(unauthorizedSelector)));
         PackedUserOperation memory userOp = PackedUserOperation({
-            sender: walletAddr,
-            nonce: 0,
-            initCode: "",
-            callData: callData,
-            accountGasLimits: bytes32(0),
-            preVerificationGas: 0,
-            gasFees: bytes32(0),
-            paymasterAndData: "",
-            signature: ""
+            sender: walletAddr, nonce: 0, initCode: "", callData: callData, accountGasLimits: bytes32(0), preVerificationGas: 0, gasFees: bytes32(0), paymasterAndData: "", signature: ""
         });
         bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);
         bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
@@ -155,15 +142,7 @@ contract ERC4337Test is Test {
         bytes memory swapData = abi.encodeWithSelector(MockTarget.swap.selector, address(usdc), address(0), 100);
         bytes memory callData = abi.encodeCall(router.executeAction, (walletAddr, address(target), 0, swapData));
         PackedUserOperation memory userOp = PackedUserOperation({
-            sender: walletAddr,
-            nonce: 0,
-            initCode: "",
-            callData: callData,
-            accountGasLimits: bytes32(0),
-            preVerificationGas: 0,
-            gasFees: bytes32(0),
-            paymasterAndData: "",
-            signature: ""
+            sender: walletAddr, nonce: 0, initCode: "", callData: callData, accountGasLimits: bytes32(0), preVerificationGas: 0, gasFees: bytes32(0), paymasterAndData: "", signature: ""
         });
         uint256 wrongPrivateKey = 0x999;
         bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);

@@ -58,9 +58,7 @@ contract MockAaveV3Pool {
     }
 
     function withdraw(address asset, uint256 amount, address to) external returns (uint256) {
-        uint256 actualAmount = amount == type(uint256).max
-            ? MockAToken(assetToAToken[asset]).balanceOf(msg.sender)
-            : amount;
+        uint256 actualAmount = amount == type(uint256).max ? MockAToken(assetToAToken[asset]).balanceOf(msg.sender) : amount;
         MockAToken(assetToAToken[asset]).burn(msg.sender, actualAmount);
         IERC20(asset).transfer(to, actualAmount);
         return actualAmount;

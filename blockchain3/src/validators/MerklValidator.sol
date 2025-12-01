@@ -9,23 +9,17 @@ import "../interfaces/IPolicyValidator.sol";
  * @dev Enforces that the agent can only claim rewards for itself.
  */
 contract MerklValidator is IPolicyValidator {
-
     // claim(address[],address[],uint256[],bytes32[][])
     bytes4 public constant CLAIM_SELECTOR = 0x3d13f874;
 
-    function validateAction(
-        address wallet,
-        address target,
-        bytes4 selector,
-        bytes calldata data
-    ) external pure override returns (bool) {
+    function validateAction(address wallet, address target, bytes4 selector, bytes calldata data) external pure override returns (bool) {
         // 1. Check Selector (redundant if Policy maps correctly, but good for safety)
         if (selector != CLAIM_SELECTOR) return false;
 
         // 2. Decode Arguments
         // claim(address[] users, address[] tokens, uint256[] amounts, bytes32[][] proofs)
         // We only care about the first argument: address[] users
-        (address[] memory users, , , ) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));
+        (address[] memory users,,,) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));
 
         // 3. Validate Logic
         // Ensure the agent is only claiming for itself

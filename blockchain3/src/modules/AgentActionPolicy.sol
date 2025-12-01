@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import "../interfaces/IPolicyValidator.sol";
 
 /**
@@ -11,43 +11,51 @@ import "../interfaces/IPolicyValidator.sol";
  *      - Maps (Target, Selector) -> Validator
  *      - Can be swapped out globally by updating the AgentActionRouter.
  */
-contract AgentActionPolicy is Ownable {
+contract AgentActionPolicy is AccessControl {
+    bytes32 public constant POLICY_SETTER_ROLE = keccak256("POLICY_SETTER_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     // target contract -> function selector -> validator
     mapping(address => mapping(bytes4 => address)) public functionValidators;
 
-    // Global allowed targets (allow all functions)
-    mapping(address => bool) public allowedTargets;
+    event PolicyAdded(address indexed target, bytes4 indexed selector, address validator);
+    event PolicyRemoved(address indexed target, bytes4 indexed selector);
 
-    event PolicySet(address target, bytes4 selector, address validator);
-    event TargetAllowed(address target, bool status);
-
-    constructor() Ownable(msg.sender) {}
-
-    // ============ Admin ============
-
-    function setPolicy(address target, bytes4 selector, address validator) external onlyOwner {
-        functionValidators[target][selector] = validator;
-        emit PolicySet(target, selector, validator);
+    constructor(address _admin) {
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(POLICY_SETTER_ROLE, _admin);
+        _grantRole(EMERGENCY_ROLE, _admin);
     }
 
-    function setTargetAllowed(address target, bool status) external onlyOwner {
-        allowedTargets[target] = status;
-        emit TargetAllowed(target, status);
+    // ============ Admin (Timelocked) ============
+
+    /**
+     * @notice Add or update a policy rule (should go through timelock)
+     * @param target The target contract address
+     * @param selector The function selector
+     * @param validator The validator address (address(1) for allow-all, or validator contract)
+     */
+    function addPolicy(address target, bytes4 selector, address validator) external onlyRole(POLICY_SETTER_ROLE) {
+        require(validator != address(0), "Policy: use removePolicy to remove");
+        functionValidators[target][selector] = validator;
+        emit PolicyAdded(target, selector, validator);
+    }
+
+    // ============ Emergency (Instant) ============
+
+    /**
+     * @notice Remove a policy rule immediately (for emergencies)
+     * @dev This bypasses timelock for fast response to discovered vulnerabilities
+     */
+    function removePolicy(address target, bytes4 selector) external onlyRole(EMERGENCY_ROLE) {
+        functionValidators[target][selector] = address(0);
+        emit PolicyRemoved(target, selector);
     }
 
     // ============ Validation ============
 
-    function validateAction(
-        address wallet,
-        address target,
-        uint256 value,
-        bytes calldata data
-    ) external view {
-        // Check 1: Is target allowed globally?
-        if (allowedTargets[target]) return;
-
-        // Check 2: Is function selector allowed?
+    function validateAction(address wallet, address target, uint256 value, bytes calldata data) external view {
+        // Extract function selector
         bytes4 selector;
         if (data.length >= 4) {
             selector = bytes4(data[0:4]);
@@ -56,12 +64,11 @@ contract AgentActionPolicy is Ownable {
         }
 
         address validator = functionValidators[target][selector];
-
         require(validator != address(0), "Policy: action not allowed");
 
-        // Check 3: Parameter Validation
+        // Parameter Validation
         if (validator == address(1)) {
-            // Allowed without checks
+            // Allowed without parameter checks
             return;
         } else {
             // Call external validator

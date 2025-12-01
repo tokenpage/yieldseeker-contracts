@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import "../interfaces/IPolicyValidator.sol";
 
 interface IAaveV3Pool {
@@ -42,14 +42,18 @@ interface IAgentWallet {
  *      2. If valid, Router triggers wallet.executeFromExecutor() → wallet CALLs this.deposit()
  *      3. This contract pulls tokens from wallet, supplies to Aave, aTokens go to wallet
  */
-contract AaveV3VaultWrapper is IPolicyValidator, Ownable {
+contract AaveV3VaultWrapper is IPolicyValidator, AccessControl {
     using SafeERC20 for IERC20;
+
+    bytes32 public constant VAULT_ADMIN_ROLE = keccak256("VAULT_ADMIN_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     address public immutable pool;
     mapping(address => address) public assetToAToken;
     mapping(address => bool) public allowedAssets;
 
-    event AssetConfigured(address indexed asset, address indexed aToken, bool allowed);
+    event AssetAdded(address indexed asset, address indexed aToken);
+    event AssetRemoved(address indexed asset);
     event Deposited(address indexed wallet, address indexed asset, uint256 amount);
     event Withdrawn(address indexed wallet, address indexed asset, uint256 amount);
 
@@ -62,16 +66,33 @@ contract AaveV3VaultWrapper is IPolicyValidator, Ownable {
     bytes4 public constant DEPOSIT_SELECTOR = bytes4(keccak256("deposit(address,uint256)"));
     bytes4 public constant WITHDRAW_SELECTOR = bytes4(keccak256("withdraw(address,uint256)"));
 
-    constructor(address _pool) Ownable(msg.sender) {
+    constructor(address _pool, address _admin) {
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(VAULT_ADMIN_ROLE, _admin);
+        _grantRole(EMERGENCY_ROLE, _admin);
         pool = _pool;
     }
 
-    // ============ Admin ============
+    // ============ Admin (Timelocked) ============
 
-    function configureAsset(address asset, address aToken, bool allowed) external onlyOwner {
+    /**
+     * @notice Add an asset to the whitelist (should go through timelock)
+     */
+    function addAsset(address asset, address aToken) external onlyRole(VAULT_ADMIN_ROLE) {
         assetToAToken[asset] = aToken;
-        allowedAssets[asset] = allowed;
-        emit AssetConfigured(asset, aToken, allowed);
+        allowedAssets[asset] = true;
+        emit AssetAdded(asset, aToken);
+    }
+
+    // ============ Emergency (Instant) ============
+
+    /**
+     * @notice Remove an asset from whitelist immediately (for emergencies)
+     * @dev This bypasses timelock for fast response to compromised assets
+     */
+    function removeAsset(address asset) external onlyRole(EMERGENCY_ROLE) {
+        allowedAssets[asset] = false;
+        emit AssetRemoved(asset);
     }
 
     // ============ IPolicyValidator ============
@@ -81,7 +102,12 @@ contract AaveV3VaultWrapper is IPolicyValidator, Ownable {
         address, // target (this contract)
         bytes4 selector,
         bytes calldata data
-    ) external view override returns (bool) {
+    )
+        external
+        view
+        override
+        returns (bool)
+    {
         if (selector != DEPOSIT_SELECTOR && selector != WITHDRAW_SELECTOR) {
             revert InvalidSelector(selector);
         }

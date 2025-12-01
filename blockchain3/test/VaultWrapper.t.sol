@@ -34,9 +34,9 @@ contract VaultWrapperTest is Test {
         // Deploy core infrastructure
         implementation = new YieldSeekerAgentWallet();
         factory = new YieldSeekerAgentWalletFactory(address(implementation), admin);
-        policy = new AgentActionPolicy();
-        router = new AgentActionRouter(address(policy));
-        router.setOperator(operator, true);
+        policy = new AgentActionPolicy(admin);
+        router = new AgentActionRouter(address(policy), admin);
+        router.addOperator(operator);
 
         // Set default executor (Router will be auto-installed on new wallets)
         factory.setDefaultExecutor(address(router));
@@ -50,23 +50,23 @@ contract VaultWrapperTest is Test {
         aavePool.setAToken(address(usdc), address(aUsdc));
 
         // Deploy wrappers (admin deploys and owns them)
-        erc4626Wrapper = new ERC4626VaultWrapper();
-        erc4626Wrapper.setVaultAllowed(address(yearnVault), true);
+        erc4626Wrapper = new ERC4626VaultWrapper(admin);
+        erc4626Wrapper.addVault(address(yearnVault));
 
-        aaveWrapper = new AaveV3VaultWrapper(address(aavePool));
-        aaveWrapper.configureAsset(address(usdc), address(aUsdc), true);
+        aaveWrapper = new AaveV3VaultWrapper(address(aavePool), admin);
+        aaveWrapper.addAsset(address(usdc), address(aUsdc));
 
         // Fund the Aave pool for withdrawals
         usdc.mint(address(aavePool), 1_000_000e6);
 
         // Configure policies for wrappers
-        policy.setPolicy(address(erc4626Wrapper), erc4626Wrapper.DEPOSIT_SELECTOR(), address(erc4626Wrapper));
-        policy.setPolicy(address(erc4626Wrapper), erc4626Wrapper.WITHDRAW_SELECTOR(), address(erc4626Wrapper));
-        policy.setPolicy(address(aaveWrapper), aaveWrapper.DEPOSIT_SELECTOR(), address(aaveWrapper));
-        policy.setPolicy(address(aaveWrapper), aaveWrapper.WITHDRAW_SELECTOR(), address(aaveWrapper));
+        policy.addPolicy(address(erc4626Wrapper), erc4626Wrapper.DEPOSIT_SELECTOR(), address(erc4626Wrapper));
+        policy.addPolicy(address(erc4626Wrapper), erc4626Wrapper.WITHDRAW_SELECTOR(), address(erc4626Wrapper));
+        policy.addPolicy(address(aaveWrapper), aaveWrapper.DEPOSIT_SELECTOR(), address(aaveWrapper));
+        policy.addPolicy(address(aaveWrapper), aaveWrapper.WITHDRAW_SELECTOR(), address(aaveWrapper));
 
         // Allow ERC20 approve calls (address(1) = allow without validation)
-        policy.setPolicy(address(usdc), IERC20.approve.selector, address(1));
+        policy.addPolicy(address(usdc), IERC20.approve.selector, address(1));
 
         vm.stopPrank();
     }
@@ -83,19 +83,10 @@ contract VaultWrapperTest is Test {
 
         // Approve wrapper via router (operator action)
         vm.prank(operator);
-        router.executeAction(
-            walletAddr,
-            address(usdc),
-            0,
-            abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max)));
 
         // Execute deposit via router
-        bytes memory depositData = abi.encodeWithSelector(
-            erc4626Wrapper.DEPOSIT_SELECTOR(),
-            address(yearnVault),
-            500e6
-        );
+        bytes memory depositData = abi.encodeWithSelector(erc4626Wrapper.DEPOSIT_SELECTOR(), address(yearnVault), 500e6);
 
         vm.prank(operator);
         router.executeAction(walletAddr, address(erc4626Wrapper), 0, depositData);
@@ -112,45 +103,25 @@ contract VaultWrapperTest is Test {
 
         // Also allow approving vault shares
         vm.prank(admin);
-        policy.setPolicy(address(yearnVault), IERC20.approve.selector, address(1));
+        policy.addPolicy(address(yearnVault), IERC20.approve.selector, address(1));
 
         usdc.mint(walletAddr, 1000e6);
 
         vm.startPrank(operator);
 
         // Approve wrapper for USDC via router
-        router.executeAction(
-            walletAddr,
-            address(usdc),
-            0,
-            abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max)));
 
         // Deposit
-        router.executeAction(
-            walletAddr,
-            address(erc4626Wrapper),
-            0,
-            abi.encodeWithSelector(erc4626Wrapper.DEPOSIT_SELECTOR(), address(yearnVault), 1000e6)
-        );
+        router.executeAction(walletAddr, address(erc4626Wrapper), 0, abi.encodeWithSelector(erc4626Wrapper.DEPOSIT_SELECTOR(), address(yearnVault), 1000e6));
 
         assertEq(yearnVault.balanceOf(walletAddr), 1000e6, "Should have shares after deposit");
 
         // Approve wrapper for vault shares via router
-        router.executeAction(
-            walletAddr,
-            address(yearnVault),
-            0,
-            abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(yearnVault), 0, abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max)));
 
         // Withdraw
-        router.executeAction(
-            walletAddr,
-            address(erc4626Wrapper),
-            0,
-            abi.encodeWithSelector(erc4626Wrapper.WITHDRAW_SELECTOR(), address(yearnVault), 500e6)
-        );
+        router.executeAction(walletAddr, address(erc4626Wrapper), 0, abi.encodeWithSelector(erc4626Wrapper.WITHDRAW_SELECTOR(), address(yearnVault), 500e6));
 
         vm.stopPrank();
 
@@ -188,18 +159,9 @@ contract VaultWrapperTest is Test {
 
         // Approve wrapper for USDC via router
         vm.prank(operator);
-        router.executeAction(
-            walletAddr,
-            address(usdc),
-            0,
-            abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max)));
 
-        bytes memory depositData = abi.encodeWithSelector(
-            aaveWrapper.DEPOSIT_SELECTOR(),
-            address(usdc),
-            500e6
-        );
+        bytes memory depositData = abi.encodeWithSelector(aaveWrapper.DEPOSIT_SELECTOR(), address(usdc), 500e6);
 
         vm.prank(operator);
         router.executeAction(walletAddr, address(aaveWrapper), 0, depositData);
@@ -214,45 +176,25 @@ contract VaultWrapperTest is Test {
 
         // Also allow approving aTokens
         vm.prank(admin);
-        policy.setPolicy(address(aUsdc), IERC20.approve.selector, address(1));
+        policy.addPolicy(address(aUsdc), IERC20.approve.selector, address(1));
 
         usdc.mint(walletAddr, 1000e6);
 
         vm.startPrank(operator);
 
         // Approve wrapper for USDC via router
-        router.executeAction(
-            walletAddr,
-            address(usdc),
-            0,
-            abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max)));
 
         // Deposit
-        router.executeAction(
-            walletAddr,
-            address(aaveWrapper),
-            0,
-            abi.encodeWithSelector(aaveWrapper.DEPOSIT_SELECTOR(), address(usdc), 1000e6)
-        );
+        router.executeAction(walletAddr, address(aaveWrapper), 0, abi.encodeWithSelector(aaveWrapper.DEPOSIT_SELECTOR(), address(usdc), 1000e6));
 
         assertEq(aUsdc.balanceOf(walletAddr), 1000e6, "Should have aTokens after deposit");
 
         // Approve wrapper for aTokens via router
-        router.executeAction(
-            walletAddr,
-            address(aUsdc),
-            0,
-            abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max))
-        );
+        router.executeAction(walletAddr, address(aUsdc), 0, abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max)));
 
         // Withdraw
-        router.executeAction(
-            walletAddr,
-            address(aaveWrapper),
-            0,
-            abi.encodeWithSelector(aaveWrapper.WITHDRAW_SELECTOR(), address(usdc), 500e6)
-        );
+        router.executeAction(walletAddr, address(aaveWrapper), 0, abi.encodeWithSelector(aaveWrapper.WITHDRAW_SELECTOR(), address(usdc), 500e6));
 
         vm.stopPrank();
 
@@ -292,7 +234,7 @@ contract VaultWrapperTest is Test {
 
         // Allow the vault (but it has wrong asset)
         vm.prank(admin);
-        erc4626Wrapper.setVaultAllowed(address(wethVault), true);
+        erc4626Wrapper.addVault(address(wethVault));
 
         bytes memory depositData = abi.encodeWithSelector(
             erc4626Wrapper.DEPOSIT_SELECTOR(),

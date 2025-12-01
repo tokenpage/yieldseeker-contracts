@@ -24,7 +24,11 @@ contract MockTarget {
         uint256 inputTokenAmount,
         uint256 minOutputTokenAmount,
         bytes[] memory transformations
-    ) external payable returns (uint256 outputTokenAmount) {
+    )
+        external
+        payable
+        returns (uint256 outputTokenAmount)
+    {
         emit FunctionCalled(msg.sig, msg.data);
         return minOutputTokenAmount;
     }
