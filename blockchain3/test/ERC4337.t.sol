@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import {Test} from "forge-std/Test.sol";
+import {YieldSeekerAgentWallet} from "../src/AgentWallet.sol";
+import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {AgentActionRouter} from "../src/modules/AgentActionRouter.sol";
+import {AgentActionPolicy} from "../src/modules/AgentActionPolicy.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockTarget} from "./mocks/MockTarget.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+
+address constant CANONICAL_ENTRYPOINT = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108; // ERC4337Utils.ENTRYPOINT_V08
+
+contract MockEntryPoint {
+    function handleOps(PackedUserOperation[] calldata ops, address payable) external {
+        for (uint256 i = 0; i < ops.length; i++) {
+            PackedUserOperation calldata op = ops[i];
+            bytes32 opHash = getUserOpHash(op);
+            uint256 validationData = YieldSeekerAgentWallet(payable(op.sender)).validateUserOp(op, opHash, 0);
+            require(validationData == 0, "Invalid UserOp");
+            (bool success,) = op.sender.call(op.callData);
+            require(success, "Execution failed");
+        }
+    }
+
+    function getUserOpHash(PackedUserOperation calldata userOp) public view returns (bytes32) {
+        return keccak256(abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            keccak256(userOp.initCode),
+            keccak256(userOp.callData),
+            userOp.accountGasLimits,
+            userOp.preVerificationGas,
+            userOp.gasFees,
+            keccak256(userOp.paymasterAndData),
+            block.chainid,
+            address(this)
+        ));
+    }
+
+    function getUserOpHashMemory(PackedUserOperation memory userOp) public view returns (bytes32) {
+        return keccak256(abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            keccak256(userOp.initCode),
+            keccak256(userOp.callData),
+            userOp.accountGasLimits,
+            userOp.preVerificationGas,
+            userOp.gasFees,
+            keccak256(userOp.paymasterAndData),
+            block.chainid,
+            address(this)
+        ));
+    }
+
+    receive() external payable {}
+}
+
+contract ERC4337Test is Test {
+    YieldSeekerAgentWallet public implementation;
+    YieldSeekerAgentWalletFactory public factory;
+    AgentActionRouter public router;
+    AgentActionPolicy public policy;
+    MockERC20 public usdc;
+    MockTarget public target;
+
+    address public admin = address(0x1);
+    address public user = address(0x2);
+    uint256 public operatorPrivateKey = 0x3;
+    address public operator;
+
+    function setUp() public {
+        operator = vm.addr(operatorPrivateKey);
+        MockEntryPoint mockEP = new MockEntryPoint();
+        vm.etch(CANONICAL_ENTRYPOINT, address(mockEP).code);
+        vm.startPrank(admin);
+        implementation = new YieldSeekerAgentWallet();
+        factory = new YieldSeekerAgentWalletFactory(address(implementation), admin);
+        policy = new AgentActionPolicy();
+        router = new AgentActionRouter(address(policy));
+        router.setOperator(operator, true);
+        factory.setDefaultExecutor(address(router));
+        usdc = new MockERC20("USDC", "USDC");
+        target = new MockTarget();
+        policy.setPolicy(address(target), MockTarget.swap.selector, address(1));
+        vm.stopPrank();
+    }
+
+    function entryPoint() internal pure returns (MockEntryPoint) {
+        return MockEntryPoint(payable(CANONICAL_ENTRYPOINT));
+    }
+
+    function test_FullFlow_UserOpWithPolicyValidation() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        bytes memory swapData = abi.encodeWithSelector(MockTarget.swap.selector, address(usdc), address(0), 100);
+        bytes memory routerCall = abi.encodeCall(router.executeAction, (walletAddr, address(target), 0, swapData));
+        bytes memory executionCalldata = abi.encode(address(router), uint256(0), routerCall);
+        bytes memory callData = abi.encodeCall(YieldSeekerAgentWallet.execute, (bytes32(0), executionCalldata));
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: walletAddr,
+            nonce: 0,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: ""
+        });
+        bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(operatorPrivateKey, ethSignedHash);
+        userOp.signature = abi.encodePacked(r, s, v);
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = userOp;
+        entryPoint().handleOps(ops, payable(admin));
+    }
+
+    function test_FullFlow_UserOpBlockedByPolicy() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        bytes4 unauthorizedSelector = bytes4(keccak256("unauthorizedMethod()"));
+        bytes memory callData = abi.encodeCall(
+            router.executeAction,
+            (walletAddr, address(target), 0, abi.encodeWithSelector(unauthorizedSelector))
+        );
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: walletAddr,
+            nonce: 0,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: ""
+        });
+        bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(operatorPrivateKey, ethSignedHash);
+        userOp.signature = abi.encodePacked(r, s, v);
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = userOp;
+        vm.expectRevert("Execution failed");
+        entryPoint().handleOps(ops, payable(admin));
+    }
+
+    function test_ValidateUserOp_InvalidSigner() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        bytes memory swapData = abi.encodeWithSelector(MockTarget.swap.selector, address(usdc), address(0), 100);
+        bytes memory callData = abi.encodeCall(router.executeAction, (walletAddr, address(target), 0, swapData));
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: walletAddr,
+            nonce: 0,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: ""
+        });
+        uint256 wrongPrivateKey = 0x999;
+        bytes32 userOpHash = entryPoint().getUserOpHashMemory(userOp);
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPrivateKey, ethSignedHash);
+        userOp.signature = abi.encodePacked(r, s, v);
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = userOp;
+        vm.expectRevert("Invalid UserOp");
+        entryPoint().handleOps(ops, payable(admin));
+    }
+}

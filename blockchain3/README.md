@@ -1,67 +1,98 @@
-# Minimal ERC-7579 Implementation for Yield Seeker
+# ERC-4337 + ERC-7579 Smart Wallet for Yield Seeker
 
-This directory contains a minimal implementation of the ERC-7579 Modular Smart Account standard, tailored for the "Restricted Operator" use case.
+This directory contains an ERC-4337 (Account Abstraction) and ERC-7579 (Modular Smart Account) compliant wallet system for the Yield Seeker platform.
 
 ## Architecture
 
-### 1. YieldSeekerAgentWallet (`src/AgentWallet.sol`)
+### Core Contracts
+
+#### YieldSeekerAgentWallet (`src/AgentWallet.sol`)
 The user's Smart Wallet.
-- **Type**: ERC-7579 + UUPS Upgradeable.
-- **Deployment**: Deployed as an **ERC1967Proxy** via the Factory.
-- **Role**: A secure shell that holds funds and executes instructions from authorized modules.
-- **Upgrades**: Only the **User (Owner)** can upgrade their wallet implementation.
+- **Standards**: ERC-4337 + ERC-7579 + UUPS Upgradeable
+- **Deployment**: Deployed as an **ERC1967Proxy** via the Factory
+- **Role**: Secure shell that holds funds and executes instructions from authorized modules
+- **Entry Points**:
+  - Direct: Owner can call `execute()` directly
+  - ERC-4337: EntryPoint calls `validateUserOp()` → `execute()`
+  - Module: Installed executor modules call `executeFromExecutor()`
+- **Upgrades**: Only the **User (Owner)** can upgrade their wallet
 
-### 2. AgentWalletFactory (`src/AgentWalletFactory.sol`)
+#### AgentWalletFactory (`src/AgentWalletFactory.sol`)
 Factory for deploying wallets.
-- **Mechanism**: Deploys standard ERC1967 Proxies.
-- **Benefit**: Ensures user sovereignty (no forced upgrades).
+- **Mechanism**: Deploys ERC1967 Proxies with auto-installed Router module
+- **Benefit**: Ensures user sovereignty (no forced upgrades)
 
-### 3. AgentActionRouter (`src/modules/AgentActionRouter.sol`)
-The "Executor Module" installed on every wallet.
-- **Role**: The entry point for the Backend Server.
-- **Function**: `executeAction(wallet, target, data)`.
-- **Logic**: It delegates validation to the `AgentActionPolicy`.
-- **Benefit**: Allows global policy updates without touching user wallets.
+### Modules (`src/modules/`)
 
-### 4. AgentActionPolicy (`src/modules/AgentActionPolicy.sol`)
+#### AgentActionRouter
+The "Executor Module" auto-installed on every wallet.
+- **Role**: Entry point for the Backend Operator
+- **Function**: `executeAction(wallet, target, value, data)`
+- **Logic**: Delegates validation to `AgentActionPolicy`
+- **Dual Access**: Supports both direct operator calls and wallet-mediated ERC-4337 calls
+- **Benefit**: Allows global policy updates without touching user wallets
+
+#### AgentActionPolicy
 The "Brain" logic contract.
-- **Role**: Defines the Allowlist (Target + Selector -> Validator).
-- **Updates**: Can be swapped out globally by updating the Router.
+- **Role**: Defines the Allowlist mapping (Target + Selector → Validator)
+- **Updates**: Can be swapped globally by updating the Router
 
-### 5. VaultValidator (`src/modules/VaultValidator.sol`)
-Specific parameter validation logic.
-- Example: Checks that `deposit(asset, amount)` uses the correct asset.
+### Validators (`src/validators/`)
+
+#### MerklValidator
+Validates Merkl Distributor reward claims.
+- Ensures agents can only claim rewards for themselves
+
+#### ZeroExValidator
+Validates 0x Protocol swaps.
+- Ensures swap output token matches wallet's base asset (e.g., USDC)
+
+### Vault Wrappers (`src/vaults/`)
+
+#### ERC4626VaultWrapper
+Combined wrapper + validator for ERC4626 vaults (Yearn V3, MetaMorpho, etc.)
+- Acts as both `IPolicyValidator` and execution wrapper
+- Handles deposit/withdraw with proper token approvals
+
+#### AaveV3VaultWrapper
+Combined wrapper + validator for Aave V3.
+- Manages supply/withdraw operations
+- Handles aToken minting/burning
+
+## ERC-4337 Integration
+
+Uses the canonical EntryPoint V0.8:
+- **Address**: `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108`
+- **Gas Sponsorship**: Use Coinbase Paymaster (or any compatible paymaster)
 
 ## Usage Flow
 
-1.  **Deploy Infrastructure**:
-    - Deploy `YieldSeekerAgentWallet` (Implementation).
-    - Deploy `AgentWalletFactory` (with implementation).
-    - Deploy `AgentActionPolicy` (V1).
-    - Deploy `AgentActionRouter` (pointing to Policy V1).
-    - Deploy `VaultValidator`.
+1. **Deploy Infrastructure**:
+   - Deploy `YieldSeekerAgentWallet` (Implementation)
+   - Deploy `AgentWalletFactory` (with implementation + router)
+   - Deploy `AgentActionPolicy`
+   - Deploy `AgentActionRouter` (pointing to Policy)
+   - Deploy Vault Wrappers and Validators
 
-2.  **Configure Policy**:
-    - `policy.setPolicy(vaultAddress, depositSelector, vaultValidatorAddress)`.
-    - `router.setOperator(backendServerAddress, true)`.
+2. **Configure Policy**:
+   - `policy.setPolicy(wrapperAddress, depositSelector, wrapperAddress)`
+   - `router.setOperator(backendServerAddress, true)`
 
-3.  **Create User Wallet**:
-    - `factory.createAgentWallet(owner, salt)`.
-    - *Note: In production, the factory should auto-install the Router module.*
+3. **Create User Wallet**:
+   - `factory.createAgentWallet(owner, salt)` → Router auto-installed
 
-4.  **Daily Operation**:
-    - Server calls `router.executeAction(walletAddress, vaultAddress, 0, data)`.
-    - Router checks Policy -> Policy checks Validator -> Wallet executes.
+4. **Daily Operation** (Two modes):
+   - **Direct**: Operator calls `router.executeAction(wallet, target, value, data)`
+   - **ERC-4337**: Submit UserOperation → EntryPoint → Wallet → Router
 
-5.  **Global Policy Upgrade**:
-    - Deploy `AgentActionPolicyV2`, call `router.setPolicy(V2)`. All wallets updated instantly.
+5. **Global Policy Upgrade**:
+   - Deploy `AgentActionPolicyV2`, call `router.setPolicy(V2)`
 
-6.  **Wallet Implementation Upgrade**:
-    - Deploy `YieldSeekerAgentWalletV2`.
-    - Factory admin calls `factory.setImplementation(V2)`.
-    - **User Action Required**: User calls `wallet.upgradeTo(V2)` to get the new features.
+6. **Wallet Implementation Upgrade**:
+   - Deploy new implementation, user calls `wallet.upgradeToAndCall()`
 
 ## Benefits
-- **Compliance**: Follows ERC-7579 standard.
-- **Security**: Granular control over every parameter.
-- **Flexibility**: Can add new Validators (e.g., for Swaps) without upgrading the Account or the Executor.
+- **ERC-4337 Compliant**: Gas sponsorship, batched operations, social recovery ready
+- **ERC-7579 Modular**: Swap modules without wallet upgrades
+- **Security**: Granular parameter validation per action type
+- **Flexibility**: Add new validators without upgrading accounts

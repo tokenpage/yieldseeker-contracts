@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAgentWallet} from "../src/AgentWallet.sol";
@@ -10,7 +10,6 @@ import {MerklValidator} from "../src/validators/MerklValidator.sol";
 import {ZeroExValidator} from "../src/validators/ZeroExValidator.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockTarget} from "./mocks/MockTarget.sol";
-import {IERC7579Account} from "../src/interfaces/IERC7579.sol";
 
 contract AgentWalletTest is Test {
     YieldSeekerAgentWallet public implementation;
@@ -40,11 +39,14 @@ contract AgentWalletTest is Test {
         router = new AgentActionRouter(address(policy));
         router.setOperator(operator, true);
 
-        // 4. Deploy Validators
+        // 4. Set default executor on factory (Router will be auto-installed)
+        factory.setDefaultExecutor(address(router));
+
+        // 5. Deploy Validators
         merklValidator = new MerklValidator();
         zeroExValidator = new ZeroExValidator();
 
-        // 5. Deploy Mocks
+        // 6. Deploy Mocks
         usdc = new MockERC20("USDC", "USDC");
         target = new MockTarget();
 
@@ -61,6 +63,8 @@ contract AgentWalletTest is Test {
         assertEq(wallet.userAgentIndex(), 0);
         assertEq(wallet.baseAsset(), address(usdc));
         assertEq(wallet.owner(), user);
+        // Router is auto-installed
+        assertTrue(wallet.isModuleInstalled(2, address(router), ""));
     }
 
     function test_Workflow_DepositAndWithdraw() public {
@@ -90,25 +94,21 @@ contract AgentWalletTest is Test {
     }
 
     function test_Workflow_ExecutionViaRouter() public {
-        // 1. Create Wallet
+        // 1. Create Wallet (Router is auto-installed)
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
 
-        // 2. Install Router as Executor (User Action)
-        // Module Type 2 = Executor
-        vm.prank(user);
-        wallet.installModule(2, address(router), "");
-
+        // Verify Router is already installed
         assertTrue(wallet.isModuleInstalled(2, address(router), ""));
 
-        // 3. Configure Policy (Admin Action)
+        // 2. Configure Policy (Admin Action)
         // Allow 'swap' on MockTarget
         bytes4 swapSelector = MockTarget.swap.selector;
         vm.prank(admin);
         policy.setPolicy(address(target), swapSelector, address(1)); // address(1) = Allow All
 
-        // 4. Execute Action (Operator Action)
+        // 3. Execute Action (Operator Action)
         bytes memory data = abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100);
 
         vm.prank(operator);
@@ -121,10 +121,6 @@ contract AgentWalletTest is Test {
     function test_Workflow_BlockedByPolicy() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
-        vm.prank(user);
-        wallet.installModule(2, address(router), "");
 
         // Policy is empty, so everything should be blocked
         bytes4 swapSelector = MockTarget.swap.selector;
@@ -138,10 +134,6 @@ contract AgentWalletTest is Test {
     function test_Workflow_MerklValidator() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
-        vm.prank(user);
-        wallet.installModule(2, address(router), "");
 
         // Configure Policy with MerklValidator
         bytes4 claimSelector = merklValidator.CLAIM_SELECTOR(); // 0x3d13f874
@@ -174,10 +166,6 @@ contract AgentWalletTest is Test {
     function test_Workflow_ZeroExValidator() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
-        vm.prank(user);
-        wallet.installModule(2, address(router), "");
 
         // Configure Policy with ZeroExValidator
         bytes4 transformSelector = zeroExValidator.TRANSFORM_ERC20_SELECTOR(); // 0x415565b0

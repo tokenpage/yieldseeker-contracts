@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.26;
 
-import {ERC7579Account} from "./lib/ERC7579Account.sol";
+import {ERC7579Account, _MODULE_TYPE_EXECUTOR, IEntryPointV06} from "./lib/ERC7579Account.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+
+interface IAgentActionRouter {
+    function operators(address) external view returns (bool);
+}
 
 /**
  * @title YieldSeekerAgentWallet
@@ -26,6 +33,7 @@ contract YieldSeekerAgentWallet is ERC7579Account, Initializable, UUPSUpgradeabl
 
     uint256 public userAgentIndex;
     address public baseAsset;
+    address public executorModule;  // Store reference to the Router for operator lookups
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -37,16 +45,17 @@ contract YieldSeekerAgentWallet is ERC7579Account, Initializable, UUPSUpgradeabl
      * @param _user The user address associated with this agent (owner)
      * @param _userAgentIndex The index of this agent for the user
      * @param _baseAsset The base asset token address
+     * @param _executorModule The executor module (Router) to install automatically
      */
-    function initialize(address _user, uint256 _userAgentIndex, address _baseAsset) external initializer {
-        // Initialize UUPS and Ownable
+    function initialize(address _user, uint256 _userAgentIndex, address _baseAsset, address _executorModule) external initializer {
         __Ownable_init(_user);
-
         userAgentIndex = _userAgentIndex;
         baseAsset = _baseAsset;
-
-        // Initialize ERC7579 (if needed by base implementation, usually it's stateless or init-less)
-        // __ERC7579Account_init();
+        executorModule = _executorModule;
+        if (_executorModule != address(0)) {
+            _modules[_MODULE_TYPE_EXECUTOR][_executorModule] = true;
+            emit ModuleInstalled(_MODULE_TYPE_EXECUTOR, _executorModule);
+        }
     }
 
     /**
@@ -75,12 +84,82 @@ contract YieldSeekerAgentWallet is ERC7579Account, Initializable, UUPSUpgradeabl
         _execute(mode, executionCalldata);
     }
 
-    function installModule(uint256 moduleTypeId, address module, bytes calldata initData) public payable override onlyOwner {
+    function installModule(uint256 moduleTypeId, address module, bytes calldata initData) public override onlyOwner {
         super.installModule(moduleTypeId, module, initData);
     }
 
-    function uninstallModule(uint256 moduleTypeId, address module, bytes calldata deInitData) public payable override onlyOwner {
+    function uninstallModule(uint256 moduleTypeId, address module, bytes calldata deInitData) public override onlyOwner {
         super.uninstallModule(moduleTypeId, module, deInitData);
+    }
+
+    // ============ ERC-4337 VALIDATION ============
+
+    /**
+     * @notice Validate a UserOperation signature (v0.7/v0.8 / Packed format)
+     * @dev Called by EntryPoint v0.7 or v0.8 during validation phase
+     *      Both versions use the same PackedUserOperation struct
+     * @param userOp The PackedUserOperation to validate
+     * @param userOpHash Hash of the UserOperation
+     * @param missingAccountFunds Amount of ETH to pay to EntryPoint for gas
+     * @return validationData 0 for success, 1 for signature failure
+     */
+    function validateUserOp(
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 missingAccountFunds
+    ) external override returns (uint256 validationData) {
+        require(_isEntryPointV07OrV08(msg.sender), "Wallet: not from EntryPoint");
+        return _validateUserOpCommon(userOp.signature, userOpHash, missingAccountFunds, msg.sender);
+    }
+
+    /**
+     * @notice Validate a UserOperation signature (v0.6 / Unpacked format)
+     * @dev Called by EntryPoint v0.6 during validation phase
+     *      This enables compatibility with Coinbase Paymaster and other v0.6 infrastructure
+     * @param userOp The UserOperation to validate (v0.6 unpacked format)
+     * @param userOpHash Hash of the UserOperation
+     * @param missingAccountFunds Amount of ETH to pay to EntryPoint for gas
+     * @return validationData 0 for success, 1 for signature failure
+     */
+    function validateUserOp(
+        IEntryPointV06.UserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 missingAccountFunds
+    ) external override returns (uint256 validationData) {
+        require(msg.sender == ENTRY_POINT_V06, "Wallet: not from EntryPoint");
+        return _validateUserOpCommon(userOp.signature, userOpHash, missingAccountFunds, ENTRY_POINT_V06);
+    }
+
+    /**
+     * @notice Common validation logic for both v0.6 and v0.8 UserOperations
+     */
+    function _validateUserOpCommon(
+        bytes calldata signature,
+        bytes32 userOpHash,
+        uint256 missingAccountFunds,
+        address entryPoint
+    ) internal returns (uint256 validationData) {
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
+        address signer = ECDSA.recover(ethSignedHash, signature);
+        bool isValidSigner = _isAuthorizedOperator(signer);
+        if (missingAccountFunds > 0) {
+            (bool success,) = payable(entryPoint).call{value: missingAccountFunds}("");
+            require(success, "Wallet: failed to pay prefund");
+        }
+        return isValidSigner ? 0 : 1;
+    }
+
+    /**
+     * @notice Check if an address is an authorized operator via the installed Router
+     * @dev Queries the Router's operators mapping
+     */
+    function _isAuthorizedOperator(address signer) internal view returns (bool) {
+        if (executorModule == address(0)) return false;
+        try IAgentActionRouter(executorModule).operators(signer) returns (bool isOperator) {
+            return isOperator;
+        } catch {
+            return false;
+        }
     }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============
