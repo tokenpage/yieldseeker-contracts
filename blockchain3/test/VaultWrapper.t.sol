@@ -27,6 +27,7 @@ contract VaultWrapperTest is Test {
     address public admin = address(0x1);
     address public user = address(0x2);
     address public operator = address(0x3);
+    address public randomUser = address(0x4);
 
     function setUp() public {
         vm.startPrank(admin);
@@ -245,5 +246,96 @@ contract VaultWrapperTest is Test {
         vm.prank(operator);
         vm.expectRevert("Policy: validation failed");
         router.executeAction(walletAddr, address(erc4626Wrapper), 0, depositData);
+    }
+
+    // ============ ERC4626 Wrapper Unit Tests ============
+
+    function test_ERC4626_AddVault_OnlyAdmin() public {
+        MockERC4626Vault newVault = new MockERC4626Vault(address(usdc), "New Vault", "nVault");
+        vm.prank(randomUser);
+        vm.expectRevert();
+        erc4626Wrapper.addVault(address(newVault));
+    }
+
+    function test_ERC4626_RemoveVault_OnlyEmergencyRole() public {
+        vm.prank(randomUser);
+        vm.expectRevert();
+        erc4626Wrapper.removeVault(address(yearnVault));
+    }
+
+    function test_ERC4626_RemoveVault() public {
+        assertTrue(erc4626Wrapper.allowedVaults(address(yearnVault)));
+        vm.prank(admin);
+        erc4626Wrapper.removeVault(address(yearnVault));
+        assertFalse(erc4626Wrapper.allowedVaults(address(yearnVault)));
+    }
+
+    function test_ERC4626_GetAsset() public view {
+        assertEq(erc4626Wrapper.getAsset(address(yearnVault)), address(usdc));
+    }
+
+    function test_ERC4626_GetShareBalance() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        usdc.mint(walletAddr, 1000e6);
+        vm.prank(operator);
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(erc4626Wrapper), type(uint256).max)));
+        bytes memory depositData = abi.encodeWithSelector(erc4626Wrapper.DEPOSIT_SELECTOR(), address(yearnVault), 500e6);
+        vm.prank(operator);
+        router.executeAction(walletAddr, address(erc4626Wrapper), 0, depositData);
+        assertEq(erc4626Wrapper.getShareBalance(address(yearnVault), walletAddr), 500e6);
+    }
+
+    function test_ERC4626_Selectors() public view {
+        assertEq(erc4626Wrapper.DEPOSIT_SELECTOR(), bytes4(keccak256("deposit(address,uint256)")));
+        assertEq(erc4626Wrapper.WITHDRAW_SELECTOR(), bytes4(keccak256("withdraw(address,uint256)")));
+    }
+
+    // ============ Aave V3 Wrapper Unit Tests ============
+
+    function test_AaveV3_AddAsset_OnlyAdmin() public {
+        MockERC20 newToken = new MockERC20("NEW", "NEW");
+        MockAToken newAToken = new MockAToken(address(newToken), "aNew", "aNEW");
+        vm.prank(randomUser);
+        vm.expectRevert();
+        aaveWrapper.addAsset(address(newToken), address(newAToken));
+    }
+
+    function test_AaveV3_RemoveAsset_OnlyEmergencyRole() public {
+        vm.prank(randomUser);
+        vm.expectRevert();
+        aaveWrapper.removeAsset(address(usdc));
+    }
+
+    function test_AaveV3_RemoveAsset() public {
+        assertTrue(aaveWrapper.allowedAssets(address(usdc)));
+        vm.prank(admin);
+        aaveWrapper.removeAsset(address(usdc));
+        assertFalse(aaveWrapper.allowedAssets(address(usdc)));
+    }
+
+    function test_AaveV3_GetAToken() public view {
+        assertEq(aaveWrapper.getAToken(address(usdc)), address(aUsdc));
+    }
+
+    function test_AaveV3_GetShareBalance() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        usdc.mint(walletAddr, 1000e6);
+        vm.prank(operator);
+        router.executeAction(walletAddr, address(usdc), 0, abi.encodeCall(IERC20.approve, (address(aaveWrapper), type(uint256).max)));
+        bytes memory depositData = abi.encodeWithSelector(aaveWrapper.DEPOSIT_SELECTOR(), address(usdc), 500e6);
+        vm.prank(operator);
+        router.executeAction(walletAddr, address(aaveWrapper), 0, depositData);
+        assertEq(aaveWrapper.getShareBalance(address(usdc), walletAddr), 500e6);
+    }
+
+    function test_AaveV3_Selectors() public view {
+        assertEq(aaveWrapper.DEPOSIT_SELECTOR(), bytes4(keccak256("deposit(address,uint256)")));
+        assertEq(aaveWrapper.WITHDRAW_SELECTOR(), bytes4(keccak256("withdraw(address,uint256)")));
+    }
+
+    function test_AaveV3_Pool() public view {
+        assertEq(address(aaveWrapper.pool()), address(aavePool));
     }
 }

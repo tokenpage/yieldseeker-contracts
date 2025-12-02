@@ -45,6 +45,7 @@ contract YieldSeekerAgentWallet is MultiEntryPointAccountERC7579, Initializable,
     error InvalidAddress();
     error InsufficientBalance();
     error TransferFailed();
+    error CannotUninstallDefaultModule();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -125,6 +126,7 @@ contract YieldSeekerAgentWallet is MultiEntryPointAccountERC7579, Initializable,
     }
 
     function uninstallModule(uint256 moduleTypeId, address module, bytes calldata deInitData) public override onlyOwner {
+        if (module == AgentWalletStorageV1.layout().executorModule) revert CannotUninstallDefaultModule();
         super.uninstallModule(moduleTypeId, module, deInitData);
     }
 
