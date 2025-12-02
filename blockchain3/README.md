@@ -940,7 +940,6 @@ timelock.execute(...);
 ```solidity
 // Emergency multisig can act instantly
 router.removeOperator(compromisedOperator);  // No delay!
-```
 
 // Configure policy
 policy.setPolicy(address(wrapper), wrapper.DEPOSIT_SELECTOR(), address(wrapper));
