@@ -62,21 +62,19 @@ All administrative actions that could compromise user funds are protected by a *
 
 We use OpenZeppelin's `TimelockController` as the admin for all critical contracts:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         TimelockController                                  │
-│  • minDelay: 24-48 hours                                                    │
-│  • PROPOSER_ROLE: Admin Multisig                                            │
-│  • EXECUTOR_ROLE: Admin Multisig (or open)                                  │
-│  • CANCELLER_ROLE: Admin Multisig + Emergency EOA                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                              │
-          Holds DEFAULT_ADMIN_ROLE on all admin contracts
-                              │
-     ┌────────────────────────┼────────────────────────┐
-     ▼                        ▼                        ▼
-AgentActionRouter     AgentActionPolicy        VaultWrappers
-AgentWalletFactory
+```mermaid
+flowchart TB
+    subgraph Timelock["TimelockController"]
+        delay["minDelay: 24-48 hours"]
+        proposer["PROPOSER_ROLE: Admin Multisig"]
+        executor["EXECUTOR_ROLE: Admin Multisig (or open)"]
+        canceller["CANCELLER_ROLE: Admin Multisig + Emergency EOA"]
+    end
+
+    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Router["AgentActionRouter"]
+    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Policy["AgentActionPolicy"]
+    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Wrappers["VaultWrappers"]
+    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Factory["AgentWalletFactory"]
 ```
 
 ### Timelocked vs Emergency Actions
@@ -117,87 +115,59 @@ The Router is a **shared singleton** - one Router serves all wallets. Operators 
 
 The tradeoff is that operators call the Router directly rather than the wallet. The wallet still enforces that only installed executor modules can trigger `executeFromExecutor()`.
 
-```
-Operator EOA
-     │
-     │ router.executeAction(wallet, target, value, data)
-     │
-     │ Note: Operator calls Router directly (not the wallet)
-     │       Router is a shared contract that serves ALL wallets
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    AgentActionRouter (shared singleton)                     │
-│  • Checks caller is authorized operator                                     │
-│  • Calls Policy to validate parameters                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ policy.validateAction(wallet, target, value, data)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AgentActionPolicy                                   │
-│  • Looks up validator for (target, selector)                                │
-│  • Calls validator to check parameters                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ validator.validateAction(wallet, target, selector, data)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│              Validators (VaultWrappers, MerklValidator, etc.)               │
-│  • Decode and validate specific parameters                                  │
-│  • Return true/false                                                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ (if valid) wallet.executeFromExecutor(mode, calldata)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      YieldSeekerAgentWallet                                 │
-│  • Checks Router is installed as executor module                            │
-│  • Executes the validated call to target                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     ▼
-  Target Contract (Vault, DEX, etc.)
+```mermaid
+sequenceDiagram
+    participant Op as Operator EOA
+    participant Router as AgentActionRouter<br/>(shared singleton)
+    participant Policy as AgentActionPolicy
+    participant Validator as Validators<br/>(VaultWrappers, etc.)
+    participant Wallet as YieldSeekerAgentWallet
+    participant Target as Target Contract<br/>(Vault, DEX, etc.)
+
+    Note over Op,Router: Operator calls Router directly (not wallet)<br/>Router serves ALL wallets
+
+    Op->>Router: executeAction(wallet, target, value, data)
+    Router->>Router: Check caller is authorized operator
+    Router->>Policy: validateAction(wallet, target, value, data)
+    Policy->>Policy: Look up validator for (target, selector)
+    Policy->>Validator: validateAction(wallet, target, selector, data)
+    Validator->>Validator: Decode and validate parameters
+    Validator-->>Policy: true/false
+    Policy-->>Router: validation result
+
+    alt Validation Passed
+        Router->>Wallet: executeFromExecutor(mode, calldata)
+        Wallet->>Wallet: Check Router is installed executor
+        Wallet->>Target: Execute validated call
+        Target-->>Wallet: result
+        Wallet-->>Router: result
+    end
 ```
 
 ### Path 2: ERC-4337 UserOperation (Gas Sponsored)
-```
-Bundler submits UserOperation
-     │
-     │ entryPoint.handleOps([userOp], beneficiary)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     EntryPoint (v0.6 / v0.7 / v0.8)                         │
-│  • Canonical ERC-4337 contract                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ wallet.validateUserOp(userOp, hash, missingFunds)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      YieldSeekerAgentWallet                                 │
-│  • Validates signature is from authorized operator                          │
-│  • Pays prefund to EntryPoint if needed                                     │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ (if valid) entryPoint calls wallet.execute(mode, calldata)
-     │ calldata = abi.encodeCall(router.executeAction, (...))
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      YieldSeekerAgentWallet.execute()                       │
-│  • Decodes and executes the call                                            │
-│  • Calls router.executeAction(...)                                          │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     │ router.executeAction(wallet, target, value, data)
-     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AgentActionRouter                                   │
-│  • Checks caller is wallet (allowed via onlyOperatorOrWallet)               │
-│  • Validates via Policy → Validators (same as Path 1)                       │
-│  • Calls wallet.executeFromExecutor()                                       │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │
-     ▼
-  ... continues same as Path 1 ...
+
+```mermaid
+sequenceDiagram
+    participant Bundler
+    participant EP as EntryPoint<br/>(v0.6/v0.7/v0.8)
+    participant Wallet as YieldSeekerAgentWallet
+    participant Router as AgentActionRouter
+
+    Bundler->>EP: handleOps([userOp], beneficiary)
+    EP->>Wallet: validateUserOp(userOp, hash, missingFunds)
+    Wallet->>Wallet: Validate signature is from<br/>authorized operator
+    Wallet->>Wallet: Pay prefund to EntryPoint
+    Wallet-->>EP: validationData (0 = success)
+
+    alt Validation Passed
+        EP->>Wallet: execute(mode, calldata)
+        Note over Wallet: calldata = router.executeAction(...)
+        Wallet->>Router: executeAction(wallet, target, value, data)
+        Router->>Router: Check caller is wallet<br/>(allowed via onlyOperatorOrWallet)
+        Note over Router: Validates via Policy → Validators<br/>(same as Path 1)
+        Router->>Wallet: executeFromExecutor(...)
+        Note over Wallet: ...continues same as Path 1...
+    end
 ```
 
 ---
@@ -211,8 +181,11 @@ Bundler submits UserOperation
 The user's smart wallet that holds funds and executes validated operations.
 
 **Inheritance Chain:**
-```
-ERC7579Account → Initializable → UUPSUpgradeable → OwnableUpgradeable
+```mermaid
+flowchart LR
+    A[ERC7579Account] --> B[Initializable]
+    B --> C[UUPSUpgradeable]
+    C --> D[OwnableUpgradeable]
 ```
 
 **Storage (ERC-7201 Namespaced):**
@@ -446,37 +419,23 @@ library AgentWalletStorageV1 {
 
 **Sequence:**
 
-```
-┌─────────┐          ┌─────────────┐          ┌───────────────┐          ┌────────────┐
-│  Admin  │          │   Factory   │          │  ERC1967Proxy │          │   Wallet   │
-└────┬────┘          └──────┬──────┘          └───────┬───────┘          └─────┬──────┘
-     │                      │                         │                        │
-     │ createAgentWallet    │                         │                        │
-     │ (user, 0, USDC)      │                         │                        │
-     │─────────────────────>│                         │                        │
-     │                      │                         │                        │
-     │                      │ Compute salt:           │                        │
-     │                      │ keccak256(user, 0)      │                        │
-     │                      │                         │                        │
-     │                      │ new ERC1967Proxy{salt}  │                        │
-     │                      │ (impl, initData)        │                        │
-     │                      │────────────────────────>│                        │
-     │                      │                         │                        │
-     │                      │                         │ delegatecall           │
-     │                      │                         │ initialize(...)        │
-     │                      │                         │───────────────────────>│
-     │                      │                         │                        │
-     │                      │                         │                        │ Set owner = user
-     │                      │                         │                        │ Set baseAsset = USDC
-     │                      │                         │                        │ Install Router module
-     │                      │                         │                        │
-     │                      │                         │<───────────────────────│
-     │                      │                         │                        │
-     │                      │<────────────────────────│                        │
-     │                      │                         │                        │
-     │  walletAddress       │                         │                        │
-     │<─────────────────────│                         │                        │
-     │                      │                         │                        │
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant Factory
+    participant Proxy as ERC1967Proxy
+    participant Wallet as YieldSeekerAgentWallet
+
+    Admin->>Factory: createAgentWallet(user, 0, USDC)
+    Factory->>Factory: Compute salt: keccak256(user, 0)
+    Factory->>Proxy: new ERC1967Proxy{salt}(impl, initData)
+    Proxy->>Wallet: delegatecall initialize(...)
+    Wallet->>Wallet: Set owner = user
+    Wallet->>Wallet: Set baseAsset = USDC
+    Wallet->>Wallet: Install Router module
+    Wallet-->>Proxy: ✓
+    Proxy-->>Factory: proxy address
+    Factory-->>Admin: walletAddress
 ```
 
 **Result:**
@@ -516,16 +475,13 @@ IERC20(USDC).transfer(walletAddr, 1000e6);
 
 **Sequence:**
 
-```
-┌──────┐     ┌────────┐     ┌────────┐     ┌─────────────────┐     ┌────────┐
-│ User │     │ Wallet │     │ Router │     │ ERC4626Wrapper  │     │  Vault │
-└──┬───┘     └───┬────┘     └───┬────┘     └───────┬─────────┘     └───┬────┘
-   │             │              │                  │                   │
-   │ USDC.transfer(wallet, 1000)                   │                   │
-   │────────────>│              │                  │                   │
-   │             │              │                  │                   │
-   │             │ [Wallet now holds 1000 USDC]    │                   │
-   │             │              │                  │                   │
+```mermaid
+sequenceDiagram
+    participant User
+    participant Wallet
+
+    User->>Wallet: USDC.transfer(wallet, 1000)
+    Note over Wallet: Wallet now holds 1000 USDC
 ```
 
 **Step 1: User deposits USDC to their wallet**
@@ -536,42 +492,25 @@ IERC20(USDC).transfer(walletAddress, 1000e6);
 
 **Step 2: Operator deposits USDC into Yearn vault**
 
-```
-┌──────────┐     ┌────────┐     ┌────────┐     ┌────────────────┐     ┌────────┐
-│ Operator │     │ Router │     │ Wallet │     │ ERC4626Wrapper │     │  Vault │
-└────┬─────┘     └───┬────┘     └───┬────┘     └───────┬────────┘     └───┬────┘
-     │               │              │                  │                  │
-     │ executeAction │              │                  │                  │
-     │ (wallet,      │              │                  │                  │
-     │  wrapper,     │              │                  │                  │
-     │  deposit(...))│              │                  │                  │
-     │──────────────>│              │                  │                  │
-     │               │              │                  │                  │
-     │               │ Policy.validateAction()        │                  │
-     │               │ → wrapper.validateAction()     │                  │
-     │               │ → checks vault allowed, asset matches             │
-     │               │              │                  │                  │
-     │               │ executeFromExecutor            │                  │
-     │               │ (wrapper, deposit(vault, amt)) │                  │
-     │               │─────────────>│                 │                  │
-     │               │              │                 │                  │
-     │               │              │ CALL wrapper.deposit(vault, 1000)  │
-     │               │              │────────────────>│                  │
-     │               │              │                 │                  │
-     │               │              │                 │ transferFrom     │
-     │               │              │                 │ (wallet→wrapper) │
-     │               │              │<────────────────│                  │
-     │               │              │                 │                  │
-     │               │              │                 │ vault.deposit    │
-     │               │              │                 │ (1000, wallet)   │
-     │               │              │                 │────────────────>│
-     │               │              │                 │                  │
-     │               │              │                 │  [Shares minted  │
-     │               │              │                 │   to wallet]     │
-     │               │              │                 │<────────────────│
-     │               │              │<────────────────│                  │
-     │               │<─────────────│                 │                  │
-     │<──────────────│              │                 │                  │
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Router
+    participant Wallet
+    participant Wrapper as ERC4626Wrapper
+    participant Vault
+
+    Op->>Router: executeAction(wallet, wrapper, deposit(...))
+    Router->>Router: Policy.validateAction()<br/>→ wrapper.validateAction()<br/>→ checks vault allowed, asset matches
+    Router->>Wallet: executeFromExecutor(wrapper, deposit(vault, amt))
+    Wallet->>Wrapper: CALL wrapper.deposit(vault, 1000)
+    Wrapper->>Wallet: transferFrom(wallet→wrapper)
+    Wallet-->>Wrapper: USDC transferred
+    Wrapper->>Vault: vault.deposit(1000, wallet)
+    Vault-->>Wrapper: Shares minted to wallet
+    Wrapper-->>Wallet: ✓
+    Wallet-->>Router: ✓
+    Router-->>Op: ✓
 ```
 
 ```solidity
@@ -587,42 +526,25 @@ router.executeAction(
 
 **Step 3: Operator withdraws from vault (e.g., moving to better yield)**
 
-```
-┌──────────┐     ┌────────┐     ┌────────┐     ┌────────────────┐     ┌────────┐
-│ Operator │     │ Router │     │ Wallet │     │ ERC4626Wrapper │     │  Vault │
-└────┬─────┘     └───┬────┘     └───┬────┘     └───────┬────────┘     └───┬────┘
-     │               │              │                  │                  │
-     │ executeAction │              │                  │                  │
-     │ (wallet,      │              │                  │                  │
-     │  wrapper,     │              │                  │                  │
-     │  withdraw(...)│              │                  │                  │
-     │──────────────>│              │                  │                  │
-     │               │              │                  │                  │
-     │               │ Policy.validateAction()        │                  │
-     │               │ → wrapper.validateAction()     │                  │
-     │               │              │                  │                  │
-     │               │ executeFromExecutor            │                  │
-     │               │ (wrapper, withdraw(vault, shares))                │
-     │               │─────────────>│                 │                  │
-     │               │              │                 │                  │
-     │               │              │ CALL wrapper.withdraw(vault, shares)
-     │               │              │────────────────>│                  │
-     │               │              │                 │                  │
-     │               │              │                 │ transferFrom     │
-     │               │              │                 │ (wallet→wrapper) │
-     │               │              │                 │ [vault shares]   │
-     │               │              │<────────────────│                  │
-     │               │              │                 │                  │
-     │               │              │                 │ vault.redeem     │
-     │               │              │                 │ (shares, wallet) │
-     │               │              │                 │────────────────>│
-     │               │              │                 │                  │
-     │               │              │                 │  [USDC sent      │
-     │               │              │                 │   to wallet]     │
-     │               │              │                 │<────────────────│
-     │               │              │<────────────────│                  │
-     │               │<─────────────│                 │                  │
-     │<──────────────│              │                 │                  │
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Router
+    participant Wallet
+    participant Wrapper as ERC4626Wrapper
+    participant Vault
+
+    Op->>Router: executeAction(wallet, wrapper, withdraw(...))
+    Router->>Router: Policy.validateAction()<br/>→ wrapper.validateAction()
+    Router->>Wallet: executeFromExecutor(wrapper, withdraw(vault, shares))
+    Wallet->>Wrapper: CALL wrapper.withdraw(vault, shares)
+    Wrapper->>Wallet: transferFrom(wallet→wrapper) [vault shares]
+    Wallet-->>Wrapper: Shares transferred
+    Wrapper->>Vault: vault.redeem(shares, wallet)
+    Vault-->>Wrapper: USDC sent to wallet
+    Wrapper-->>Wallet: ✓
+    Wallet-->>Router: ✓
+    Router-->>Op: ✓
 ```
 
 ```solidity
