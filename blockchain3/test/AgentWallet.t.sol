@@ -7,10 +7,9 @@ import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {AgentActionRouter} from "../src/modules/AgentActionRouter.sol";
 import {ActionRegistry} from "../src/ActionRegistry.sol";
 import {ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
+import {BatchRouter} from "../src/adapters/BatchRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockERC4626} from "./mocks/MockERC4626.sol";
-import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract AgentWalletTest is Test {
     YieldSeekerAgentWallet public implementation;
@@ -18,8 +17,10 @@ contract AgentWalletTest is Test {
     AgentActionRouter public router;
     ActionRegistry public registry;
     ERC4626Adapter public erc4626Adapter;
+    BatchRouter public batchRouter;
     MockERC20 public usdc;
     MockERC4626 public vault;
+    MockERC4626 public vault2;
 
     address public admin = address(0x1);
     address public user = address(0x2);
@@ -36,9 +37,13 @@ contract AgentWalletTest is Test {
         factory.setDefaultExecutor(address(router));
         usdc = new MockERC20("USDC", "USDC");
         vault = new MockERC4626(address(usdc));
+        vault2 = new MockERC4626(address(usdc));
         erc4626Adapter = new ERC4626Adapter(address(registry));
+        batchRouter = new BatchRouter(address(registry));
         registry.registerAdapter(address(erc4626Adapter));
+        registry.registerAdapter(address(batchRouter));
         registry.registerTarget(address(vault), address(erc4626Adapter));
+        registry.registerTarget(address(vault2), address(erc4626Adapter));
         vm.stopPrank();
     }
 
@@ -105,6 +110,8 @@ contract AgentWalletTest is Test {
     }
 
     function test_Workflow_BatchExecution() public {
+        // BatchRouter enables multiple adapter delegatecalls in a single transaction
+        // This solves the ERC-7579 limitation where batch mode only supports regular calls
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
@@ -115,10 +122,12 @@ contract AgentWalletTest is Test {
         adapters[0] = address(erc4626Adapter);
         adapters[1] = address(erc4626Adapter);
         actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 200e6));
-        actionDatas[1] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 300e6));
+        actionDatas[1] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault2), 300e6));
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
         vm.prank(operator);
-        router.executeAdapterActions(walletAddr, adapters, actionDatas);
-        assertEq(vault.balanceOf(walletAddr), 500e6);
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
+        assertEq(vault.balanceOf(walletAddr), 200e6);
+        assertEq(vault2.balanceOf(walletAddr), 300e6);
         assertEq(usdc.balanceOf(walletAddr), 500e6);
     }
 
@@ -127,9 +136,82 @@ contract AgentWalletTest is Test {
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         address[] memory adapters = new address[](0);
         bytes[] memory actionDatas = new bytes[](0);
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
         vm.prank(operator);
-        vm.expectRevert(AgentActionRouter.EmptyBatch.selector);
-        router.executeAdapterActions(walletAddr, adapters, actionDatas);
+        vm.expectRevert(BatchRouter.EmptyBatch.selector);
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
+    }
+
+    function test_Workflow_BatchExecution_LengthMismatch() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        address[] memory adapters = new address[](2);
+        bytes[] memory actionDatas = new bytes[](1);
+        adapters[0] = address(erc4626Adapter);
+        adapters[1] = address(erc4626Adapter);
+        actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
+        vm.prank(operator);
+        vm.expectRevert(BatchRouter.InvalidBatchLength.selector);
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
+    }
+
+    function test_Workflow_BatchExecution_UnregisteredAdapterInBatch() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        address fakeAdapter = address(0x999);
+        address[] memory adapters = new address[](2);
+        bytes[] memory actionDatas = new bytes[](2);
+        adapters[0] = fakeAdapter;
+        adapters[1] = address(erc4626Adapter);
+        actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
+        actionDatas[1] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(BatchRouter.AdapterNotRegistered.selector, fakeAdapter));
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
+    }
+
+    function test_Workflow_BatchExecution_PartialFailure() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        usdc.mint(walletAddr, 100e6);
+        address[] memory adapters = new address[](2);
+        bytes[] memory actionDatas = new bytes[](2);
+        adapters[0] = address(erc4626Adapter);
+        adapters[1] = address(erc4626Adapter);
+        actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
+        actionDatas[1] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault2), 100e6));
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(BatchRouter.AdapterCallFailed.selector, 1, address(erc4626Adapter)));
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
+        assertEq(usdc.balanceOf(walletAddr), 100e6);
+        assertEq(vault.balanceOf(walletAddr), 0);
+    }
+
+    function test_BatchRouter_DirectCallReverts() public {
+        address[] memory adapters = new address[](1);
+        bytes[] memory actionDatas = new bytes[](1);
+        adapters[0] = address(erc4626Adapter);
+        actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
+        vm.expectRevert(BatchRouter.NotDelegateCall.selector);
+        batchRouter.executeBatch(adapters, actionDatas);
+    }
+
+    function test_Workflow_BatchExecution_BatchTooLarge() public {
+        vm.prank(admin);
+        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
+        address[] memory adapters = new address[](21);
+        bytes[] memory actionDatas = new bytes[](21);
+        for (uint256 i = 0; i < 21; i++) {
+            adapters[i] = address(erc4626Adapter);
+            actionDatas[i] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 10e6));
+        }
+        bytes memory batchData = abi.encodeCall(BatchRouter.executeBatch, (adapters, actionDatas));
+        vm.prank(operator);
+        vm.expectRevert(BatchRouter.BatchTooLarge.selector);
+        router.executeAdapterAction(walletAddr, address(batchRouter), batchData);
     }
 
     // ============ AgentWallet Unit Tests ============
