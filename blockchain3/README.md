@@ -32,16 +32,26 @@ USDC.transferFrom(wallet, attacker, USDC.balanceOf(wallet));
 
 The wallet approved the call because `approve` was on the allowlist. It had no way to validate that the spender should only be a trusted vault.
 
-### Our Solution: Parameter-Level Validation
+### Our Solution: Adapter-Based Execution
 
-Our system validates every parameter of every call:
-- Admin configures: "For `USDC.approve()`, the spender must be in our vault allowlist"
-- Operator tries: `USDC.approve(MALICIOUS_CONTRACT, MAX_UINT)`
-- **Validator rejects**: Spender not in allowlist
-- Operator tries: `USDC.approve(YEARN_VAULT, 1000e6)`
-- **Validator approves**: Spender is whitelisted vault
+Our system uses a layered validation approach with DELEGATECALL adapters:
 
-This means even a fully compromised operator key cannot steal funds - they can only execute pre-approved actions with pre-approved parameters.
+**Two-Tier Validation:**
+1. **Router validates adapter**: Only registered adapters can be called
+2. **Adapter validates target**: Each adapter checks the target (vault, pool) is registered for that specific adapter
+
+**Example Flow:**
+- Operator calls: `router.executeAdapterAction(wallet, ERC4626Adapter, deposit(MorphoVault, 1000))`
+- Router checks: `registry.isRegisteredAdapter(ERC4626Adapter)` ✓
+- Router DELEGATECALLs adapter code into wallet context
+- Adapter checks: `registry.isValidTarget(MorphoVault)` → returns `(true, ERC4626Adapter)` ✓
+- Adapter executes: `approve()` + `deposit()` in wallet's context
+
+**Why this works:**
+- Operators can only call registered adapters
+- Adapters can only operate on targets registered for them
+- Solidity enforces function signatures - no arbitrary calldata
+- Amounts are user-controlled (intentional)
 
 ### Standards Compliance
 
@@ -72,8 +82,7 @@ flowchart TB
     end
 
     Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Router["AgentActionRouter"]
-    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Policy["AgentActionPolicy"]
-    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Wrappers["VaultWrappers"]
+    Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Registry["ActionRegistry"]
     Timelock -->|"Holds DEFAULT_ADMIN_ROLE"| Factory["AgentWalletFactory"]
 ```
 
@@ -81,10 +90,8 @@ flowchart TB
 
 | Contract | Timelocked (24h+) | Emergency (Instant) |
 |----------|-------------------|---------------------|
-| **AgentActionRouter** | `setPolicy()`, `addOperator()` | `removeOperator()` |
-| **AgentActionPolicy** | `addPolicy()` | `removePolicy()` |
-| **ERC4626VaultWrapper** | `addVault()` | `removeVault()` |
-| **AaveV3VaultWrapper** | `addAsset()` | `removeAsset()` |
+| **AgentActionRouter** | `setRegistry()`, `addOperator()` | `removeOperator()` |
+| **ActionRegistry** | `registerAdapter()`, `registerTarget()` | `removeTarget()`, `unregisterAdapter()` |
 | **AgentWalletFactory** | `setImplementation()`, `setDefaultExecutor()` | — |
 
 **Why this split?**
@@ -108,40 +115,38 @@ There are two entry paths into the system:
 
 The Router is a **shared singleton** - one Router serves all wallets. Operators call the Router directly, passing the target wallet address as a parameter.
 
-**Why this pattern?** This is not a standard ERC-7579 pattern - it's our design choice for global updatability:
-- Operators are registered once on the Router, not per-wallet
-- Policy can be swapped globally via `router.setPolicy()` without touching wallets
-- New validators can be added without any wallet upgrades
-
-The tradeoff is that operators call the Router directly rather than the wallet. The wallet still enforces that only installed executor modules can trigger `executeFromExecutor()`.
+**Key Architecture Points:**
+- Router validates the adapter is registered in the ActionRegistry
+- Router tells the wallet to DELEGATECALL the adapter
+- Adapter code runs in the wallet's context (`address(this)` = wallet)
+- Adapter validates the target (vault/pool) is registered for that adapter
+- Adapter executes the actual protocol interaction
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator EOA
     participant Router as AgentActionRouter<br/>(shared singleton)
-    participant Policy as AgentActionPolicy
-    participant Validator as Validators<br/>(VaultWrappers, etc.)
+    participant Registry as ActionRegistry
     participant Wallet as YieldSeekerAgentWallet
-    participant Target as Target Contract<br/>(Vault, DEX, etc.)
+    participant Adapter as Adapter<br/>(ERC4626Adapter, etc.)
+    participant Target as Target Contract<br/>(Vault, Pool, etc.)
 
     Note over Op,Router: Operator calls Router directly (not wallet)<br/>Router serves ALL wallets
 
-    Op->>Router: executeAction(wallet, target, value, data)
+    Op->>Router: executeAdapterAction(wallet, adapter, actionData)
     Router->>Router: Check caller is authorized operator
-    Router->>Policy: validateAction(wallet, target, value, data)
-    Policy->>Policy: Look up validator for (target, selector)
-    Policy->>Validator: validateAction(wallet, target, selector, data)
-    Validator->>Validator: Decode and validate parameters
-    Validator-->>Policy: true/false
-    Policy-->>Router: validation result
-
-    alt Validation Passed
-        Router->>Wallet: executeFromExecutor(mode, calldata)
-        Wallet->>Wallet: Check Router is installed executor
-        Wallet->>Target: Execute validated call
-        Target-->>Wallet: result
-        Wallet-->>Router: result
-    end
+    Router->>Registry: isRegisteredAdapter(adapter)?
+    Registry-->>Router: true
+    Router->>Wallet: executeFromExecutor(DELEGATECALL, adapter, actionData)
+    Wallet->>Adapter: DELEGATECALL actionData
+    Note over Wallet,Adapter: Adapter code runs in wallet context<br/>address(this) = wallet
+    Adapter->>Registry: isValidTarget(target)?
+    Registry-->>Adapter: (true, adapter)
+    Adapter->>Adapter: Validate adapter matches self
+    Adapter->>Target: approve() + deposit/supply()
+    Target-->>Wallet: Shares/aTokens minted to wallet
+    Wallet-->>Router: result
+    Router-->>Op: ✓
 ```
 
 ### Path 2: ERC-4337 UserOperation (Gas Sponsored)
@@ -152,6 +157,8 @@ sequenceDiagram
     participant EP as EntryPoint<br/>(v0.6/v0.7/v0.8)
     participant Wallet as YieldSeekerAgentWallet
     participant Router as AgentActionRouter
+    participant Registry as ActionRegistry
+    participant Adapter as Adapter
 
     Bundler->>EP: handleOps([userOp], beneficiary)
     EP->>Wallet: validateUserOp(userOp, hash, missingFunds)
@@ -161,12 +168,13 @@ sequenceDiagram
 
     alt Validation Passed
         EP->>Wallet: execute(mode, calldata)
-        Note over Wallet: calldata = router.executeAction(...)
-        Wallet->>Router: executeAction(wallet, target, value, data)
+        Note over Wallet: calldata = router.executeAdapterAction(...)
+        Wallet->>Router: executeAdapterAction(wallet, adapter, actionData)
         Router->>Router: Check caller is wallet<br/>(allowed via onlyOperatorOrWallet)
-        Note over Router: Validates via Policy → Validators<br/>(same as Path 1)
-        Router->>Wallet: executeFromExecutor(...)
-        Note over Wallet: ...continues same as Path 1...
+        Router->>Registry: isRegisteredAdapter(adapter)?
+        Registry-->>Router: true
+        Router->>Wallet: executeFromExecutor(DELEGATECALL, adapter, actionData)
+        Note over Wallet,Adapter: Same DELEGATECALL flow as Path 1
     end
 ```
 
@@ -242,13 +250,13 @@ Deploys new agent wallets as ERC1967 proxies with deterministic addresses.
 
 #### AgentActionRouter (`src/modules/AgentActionRouter.sol`)
 
-The ERC-7579 Executor Module that bridges operators to wallets.
+The ERC-7579 Executor Module that bridges operators to wallets via DELEGATECALL to adapters.
 
 **Roles (AccessControl):**
 | Role | Description |
 |------|-------------|
 | `DEFAULT_ADMIN_ROLE` | Can grant/revoke other roles (held by TimelockController) |
-| `POLICY_ADMIN_ROLE` | Can update the Policy contract (timelocked) |
+| `REGISTRY_ADMIN_ROLE` | Can update the ActionRegistry contract (timelocked) |
 | `OPERATOR_ADMIN_ROLE` | Can add operators (timelocked) |
 | `EMERGENCY_ROLE` | Can remove operators instantly |
 
@@ -256,118 +264,90 @@ The ERC-7579 Executor Module that bridges operators to wallets.
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `executeAction(wallet, target, value, data)` | Operators or Wallet | Validates via Policy, then executes |
+| `executeAdapterAction(wallet, adapter, actionData)` | Operators or Wallet | Validates adapter, DELEGATECALLs to wallet |
+| `executeAdapterActions(wallet, adapters[], actionDatas[])` | Operators or Wallet | Batch version for multiple actions |
 | `addOperator(addr)` | OPERATOR_ADMIN_ROLE | Add authorized operator (timelocked) |
 | `removeOperator(addr)` | EMERGENCY_ROLE | Remove operator instantly |
-| `setPolicy(newPolicy)` | POLICY_ADMIN_ROLE | Update validation logic globally (timelocked) |
+| `setRegistry(newRegistry)` | REGISTRY_ADMIN_ROLE | Update registry globally (timelocked) |
 
 **Access Control:**
 - `onlyOperatorOrWallet(wallet)`: Accepts calls from registered operators OR from the wallet itself (for ERC-4337 flow)
 
 ---
 
-#### AgentActionPolicy (`src/modules/AgentActionPolicy.sol`)
+#### ActionRegistry (`src/ActionRegistry.sol`)
 
-The validation brain that maps actions to validators.
+The central registry that maps external targets to their adapter contracts.
 
 **Roles (AccessControl):**
 | Role | Description |
 |------|-------------|
 | `DEFAULT_ADMIN_ROLE` | Can grant/revoke other roles (held by TimelockController) |
-| `POLICY_SETTER_ROLE` | Can add policy rules (timelocked) |
-| `EMERGENCY_ROLE` | Can remove policy rules instantly |
+| `REGISTRY_ADMIN_ROLE` | Can register adapters and targets (timelocked) |
+| `EMERGENCY_ROLE` | Can remove targets/adapters instantly |
 
 **Storage:**
 ```solidity
-mapping(address target => mapping(bytes4 selector => address validator)) public functionValidators;
+mapping(address target => address adapter) public targetToAdapter;
+mapping(address adapter => bool registered) public isRegisteredAdapter;
 ```
 
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `addPolicy(target, selector, validator)` | POLICY_SETTER_ROLE | Add/update policy rule (timelocked) |
-| `removePolicy(target, selector)` | EMERGENCY_ROLE | Remove policy rule instantly |
-| `validateAction(wallet, target, value, data)` | View | Check if action is permitted |
+| `registerAdapter(adapter)` | REGISTRY_ADMIN_ROLE | Register a new adapter contract (timelocked) |
+| `registerTarget(target, adapter)` | REGISTRY_ADMIN_ROLE | Map a target to its adapter (timelocked) |
+| `updateTargetAdapter(target, newAdapter)` | REGISTRY_ADMIN_ROLE | Change adapter for existing target |
+| `removeTarget(target)` | EMERGENCY_ROLE | Remove target instantly |
+| `unregisterAdapter(adapter)` | EMERGENCY_ROLE | Unregister adapter instantly |
+| `isValidTarget(target)` | View | Check if target is registered with valid adapter |
+| `isRegisteredAdapter(adapter)` | View | Check if adapter is registered |
 
-**Validator Resolution:**
-1. If `functionValidators[target][selector] == address(1)` → Allow without parameter check
-2. If `functionValidators[target][selector] == validatorContract` → Call validator
-3. Otherwise → Reject
-
----
-
-### Validators (`src/validators/`)
-
-#### MerklValidator (`src/validators/MerklValidator.sol`)
-
-Validates Merkl Distributor reward claims.
-
-**Validation Logic:**
-- Decodes `claim(address[] users, ...)` parameters
-- Ensures every `users[i] == wallet` (can only claim for self)
+**Resolution Flow:**
+1. Router calls `registry.isRegisteredAdapter(adapter)` → must be true
+2. Adapter (during DELEGATECALL) calls `registry.isValidTarget(target)` → must return `(true, self)`
 
 ---
 
-#### ZeroExValidator (`src/validators/ZeroExValidator.sol`)
+### Adapters (`src/adapters/`)
 
-Validates 0x Protocol swaps.
+Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. When called via DELEGATECALL from a wallet, `address(this)` equals the wallet address, allowing the adapter to execute operations in the wallet's context.
 
-**Validation Logic:**
-- Decodes `transformERC20(inputToken, outputToken, ...)` parameters
-- Ensures `outputToken == wallet.baseAsset()` (swaps must result in USDC)
+#### ERC4626Adapter (`src/adapters/ERC4626Adapter.sol`)
 
----
-
-### Vault Wrappers (`src/vaults/`)
-
-Vault wrappers serve dual purposes:
-1. **Validator**: Implements `IPolicyValidator` for parameter validation
-2. **Wrapper**: Handles token approvals and vault interactions
-
-#### ERC4626VaultWrapper (`src/vaults/ERC4626VaultWrapper.sol`)
-
-For Yearn V3, MetaMorpho, and other ERC4626 vaults.
-
-**Roles (AccessControl):**
-| Role | Description |
-|------|-------------|
-| `DEFAULT_ADMIN_ROLE` | Can grant/revoke other roles (held by TimelockController) |
-| `VAULT_ADMIN_ROLE` | Can whitelist vaults (timelocked) |
-| `EMERGENCY_ROLE` | Can blacklist vaults instantly |
+For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 **Key Functions:**
 
-| Function | Access | Description |
-|----------|--------|-------------|
-| `addVault(vault)` | VAULT_ADMIN_ROLE | Whitelist a vault (timelocked) |
-| `removeVault(vault)` | EMERGENCY_ROLE | Blacklist a vault instantly |
-| `validateAction(wallet, target, selector, data)` | View | Check vault is allowed, asset matches |
-| `deposit(vault, amount)` | Wallet | Pull tokens, deposit to vault, shares to wallet |
-| `withdraw(vault, shares)` | Wallet | Pull shares, redeem from vault, assets to wallet |
+| Function | Context | Description |
+|----------|---------|-------------|
+| `deposit(vault, amount)` | DELEGATECALL | Approve vault, deposit assets, shares to wallet |
+| `withdraw(vault, shares)` | DELEGATECALL | Redeem shares, assets to wallet |
+| `getAsset(vault)` | View | Get underlying asset address |
+| `getShareBalance(vault, wallet)` | View | Get share balance for wallet |
+
+**Validation:**
+- Checks `registry.isValidTarget(vault)` returns `(true, self)`
+- Reverts with `VaultNotRegistered` or `WrongAdapter` if validation fails
 
 ---
 
-#### AaveV3VaultWrapper (`src/vaults/AaveV3VaultWrapper.sol`)
+#### AaveV3Adapter (`src/adapters/AaveV3Adapter.sol`)
 
 For Aave V3 lending pools.
 
-**Roles (AccessControl):**
-| Role | Description |
-|------|-------------|
-| `DEFAULT_ADMIN_ROLE` | Can grant/revoke other roles (held by TimelockController) |
-| `VAULT_ADMIN_ROLE` | Can configure allowed assets (timelocked) |
-| `EMERGENCY_ROLE` | Can remove assets instantly |
-
 **Key Functions:**
 
-| Function | Access | Description |
-|----------|--------|-------------|
-| `addAsset(asset, aToken)` | VAULT_ADMIN_ROLE | Whitelist an asset (timelocked) |
-| `removeAsset(asset)` | EMERGENCY_ROLE | Remove an asset instantly |
-| `validateAction(wallet, target, selector, data)` | View | Check asset is allowed |
-| `deposit(asset, amount)` | Wallet | Supply to Aave, aTokens to wallet |
-| `withdraw(asset, amount)` | Wallet | Withdraw from Aave, assets to wallet |
+| Function | Context | Description |
+|----------|---------|-------------|
+| `supply(pool, asset, amount)` | DELEGATECALL | Approve pool, supply asset, aTokens to wallet |
+| `withdraw(pool, asset, amount)` | DELEGATECALL | Withdraw from pool, assets to wallet |
+| `getATokenBalance(aToken, wallet)` | View | Get aToken balance for wallet |
+
+**Validation:**
+- Checks `registry.isValidTarget(pool)` returns `(true, self)`
+- Reverts with `PoolNotRegistered` or `WrongAdapter` if validation fails
 
 ---
 
@@ -470,8 +450,8 @@ IERC20(USDC).transfer(walletAddr, 1000e6);
 **Pre-requisites:**
 - Agent wallet already created for user
 - Router has operator registered
-- ERC4626VaultWrapper deployed with Yearn USDC vault whitelisted
-- Policy configured to allow wrapper's deposit/withdraw functions
+- ERC4626Adapter registered in ActionRegistry
+- Target vault registered in ActionRegistry (mapped to ERC4626Adapter)
 
 **Sequence:**
 
@@ -490,38 +470,41 @@ sequenceDiagram
 IERC20(USDC).transfer(walletAddress, 1000e6);
 ```
 
-**Step 2: Operator deposits USDC into Yearn vault**
+**Step 2: Operator deposits USDC into ERC4626 vault**
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
     participant Router
+    participant Registry
     participant Wallet
-    participant Wrapper as ERC4626Wrapper
+    participant Adapter as ERC4626Adapter
     participant Vault
 
-    Op->>Router: executeAction(wallet, wrapper, deposit(...))
-    Router->>Router: Policy.validateAction()<br/>→ wrapper.validateAction()<br/>→ checks vault allowed, asset matches
-    Router->>Wallet: executeFromExecutor(wrapper, deposit(vault, amt))
-    Wallet->>Wrapper: CALL wrapper.deposit(vault, 1000)
-    Wrapper->>Wallet: transferFrom(wallet→wrapper)
-    Wallet-->>Wrapper: USDC transferred
-    Wrapper->>Vault: vault.deposit(1000, wallet)
-    Vault-->>Wrapper: Shares minted to wallet
-    Wrapper-->>Wallet: ✓
+    Op->>Router: executeAdapterAction(wallet, adapter, deposit(vault, 1000))
+    Router->>Registry: isRegisteredAdapter(adapter)?
+    Registry-->>Router: true
+    Router->>Wallet: executeFromExecutor(DELEGATECALL, adapter, deposit(vault, 1000))
+    Wallet->>Adapter: DELEGATECALL deposit(vault, 1000)
+    Note over Wallet,Adapter: address(this) = wallet inside adapter
+    Adapter->>Registry: isValidTarget(vault)?
+    Registry-->>Adapter: (true, adapter)
+    Adapter->>Adapter: Validate adapter == self ✓
+    Adapter->>Vault: USDC.approve(vault, 1000)
+    Adapter->>Vault: vault.deposit(1000, wallet)
+    Vault-->>Wallet: Shares minted to wallet
     Wallet-->>Router: ✓
     Router-->>Op: ✓
 ```
 
 ```solidity
-// Operator calls router to deposit user's USDC into Yearn vault
-router.executeAction(
+// Operator calls router to deposit user's USDC into ERC4626 vault
+router.executeAdapterAction(
     walletAddress,
-    address(erc4626Wrapper),
-    0,  // no ETH value
-    abi.encodeCall(ERC4626VaultWrapper.deposit, (yearnVault, 1000e6))
+    address(erc4626Adapter),
+    abi.encodeCall(ERC4626Adapter.deposit, (morphoVault, 1000e6))
 );
-// Wallet now holds Yearn vault shares instead of USDC
+// Wallet now holds vault shares instead of USDC
 ```
 
 **Step 3: Operator withdraws from vault (e.g., moving to better yield)**
@@ -531,32 +514,26 @@ sequenceDiagram
     participant Op as Operator
     participant Router
     participant Wallet
-    participant Wrapper as ERC4626Wrapper
+    participant Adapter as ERC4626Adapter
     participant Vault
 
-    Op->>Router: executeAction(wallet, wrapper, withdraw(...))
-    Router->>Router: Policy.validateAction()<br/>→ wrapper.validateAction()
-    Router->>Wallet: executeFromExecutor(wrapper, withdraw(vault, shares))
-    Wallet->>Wrapper: CALL wrapper.withdraw(vault, shares)
-    Wrapper->>Wallet: transferFrom(wallet→wrapper) [vault shares]
-    Wallet-->>Wrapper: Shares transferred
-    Wrapper->>Vault: vault.redeem(shares, wallet)
-    Vault-->>Wrapper: USDC sent to wallet
-    Wrapper-->>Wallet: ✓
+    Op->>Router: executeAdapterAction(wallet, adapter, withdraw(vault, shares))
+    Router->>Wallet: executeFromExecutor(DELEGATECALL, adapter, withdraw(...))
+    Wallet->>Adapter: DELEGATECALL withdraw(vault, shares)
+    Adapter->>Vault: vault.redeem(shares, wallet, wallet)
+    Vault-->>Wallet: USDC sent to wallet
     Wallet-->>Router: ✓
     Router-->>Op: ✓
 ```
 
 ```solidity
-// Operator withdraws shares from Yearn vault
-// First get the share balance
-uint256 shares = IERC20(yearnVault).balanceOf(walletAddress);
+// Operator withdraws shares from vault
+uint256 shares = IERC20(morphoVault).balanceOf(walletAddress);
 
-router.executeAction(
+router.executeAdapterAction(
     walletAddress,
-    address(erc4626Wrapper),
-    0,
-    abi.encodeCall(ERC4626VaultWrapper.withdraw, (yearnVault, shares))
+    address(erc4626Adapter),
+    abi.encodeCall(ERC4626Adapter.withdraw, (morphoVault, shares))
 );
 // Wallet now holds USDC again (with any yield earned)
 ```
@@ -584,8 +561,8 @@ router.executeAction(
 |-------|-------------|
 | **User** | EOA that owns a wallet. Can withdraw funds and upgrade their wallet. |
 | **Operator** | Backend service that executes yield strategies on behalf of wallets. |
-| **Platform Admin (Timelocked)** | Manages the Router, Policy, and Vault Wrappers via TimelockController (24h delay). |
-| **Emergency Admin** | Can instantly remove operators, policies, or vaults in case of compromise. |
+| **Platform Admin (Timelocked)** | Manages the Router and ActionRegistry via TimelockController (24h delay). |
+| **Emergency Admin** | Can instantly remove operators, adapters, or targets in case of compromise. |
 | **Factory Admin** | Can create wallets and update the default implementation. |
 
 ---
@@ -623,34 +600,38 @@ router.executeAction(
 
 | Action | Role Required | Timing | Description |
 |--------|---------------|--------|-------------|
-| `executeAction()` | Operator OR Wallet | Instant | Execute validated action on wallet |
-| `setPolicy()` | `POLICY_ADMIN_ROLE` | Timelocked (24h) | Update the Policy contract globally |
+| `executeAdapterAction()` | Operator OR Wallet | Instant | Execute adapter action via DELEGATECALL |
+| `executeAdapterActions()` | Operator OR Wallet | Instant | Batch execute multiple adapter actions |
+| `setRegistry()` | `REGISTRY_ADMIN_ROLE` | Timelocked (24h) | Update the ActionRegistry contract |
 | `addOperator()` | `OPERATOR_ADMIN_ROLE` | Timelocked (24h) | Add backend operator |
 | `removeOperator()` | `EMERGENCY_ROLE` | Instant | Remove operator immediately |
 | `grantRole()` / `revokeRole()` | `DEFAULT_ADMIN_ROLE` | Timelocked (24h) | Manage access control |
 
 ---
 
-#### AgentActionPolicy
+#### ActionRegistry
 
 | Action | Role Required | Timing | Description |
 |--------|---------------|--------|-------------|
-| `addPolicy()` | `POLICY_SETTER_ROLE` | Timelocked (24h) | Map (target, selector) → validator |
-| `removePolicy()` | `EMERGENCY_ROLE` | Instant | Remove policy rule immediately |
-| `validateAction()` | Anyone (view) | N/A | Check if action is permitted |
+| `registerAdapter()` | `ADAPTER_ADMIN_ROLE` | Timelocked (24h) | Register a new adapter |
+| `unregisterAdapter()` | `EMERGENCY_ROLE` | Instant | Remove adapter immediately |
+| `registerTarget()` | `TARGET_ADMIN_ROLE` | Timelocked (24h) | Map target → adapter |
+| `removeTarget()` | `EMERGENCY_ROLE` | Instant | Remove target mapping immediately |
+| `isRegisteredAdapter()` | Anyone (view) | N/A | Check if adapter is registered |
+| `isValidTarget()` | Anyone (view) | N/A | Check target and return its adapter |
 | `grantRole()` / `revokeRole()` | `DEFAULT_ADMIN_ROLE` | Timelocked (24h) | Manage access control |
 
 ---
 
-#### ERC4626VaultWrapper / AaveV3VaultWrapper
+#### ERC4626Adapter / AaveV3Adapter
 
-| Action | Role Required | Timing | Description |
-|--------|---------------|--------|-------------|
-| `addVault()` / `addAsset()` | `VAULT_ADMIN_ROLE` | Timelocked (24h) | Whitelist vaults/assets |
-| `removeVault()` / `removeAsset()` | `EMERGENCY_ROLE` | Instant | Blacklist vaults/assets |
-| `validateAction()` | Anyone (view) | N/A | Validate deposit/withdraw parameters |
-| `deposit()` / `withdraw()` | Wallet (via Router) | Instant | Execute vault operations |
-| `grantRole()` / `revokeRole()` | `DEFAULT_ADMIN_ROLE` | Timelocked (24h) | Manage access control |
+| Action | Caller | Description |
+|--------|--------|-------------|
+| `deposit()` | Wallet (via DELEGATECALL) | Deposit assets into vault/pool |
+| `withdraw()` / `supply()` | Wallet (via DELEGATECALL) | Withdraw/supply assets |
+| Internal validation | Adapter | Checks `registry.isValidTarget()` returns self |
+
+Note: Adapters are stateless and executed via DELEGATECALL from the wallet. They don't have role-based access control—security comes from the Registry validating which targets each adapter can operate on.
 
 ---
 
@@ -666,57 +647,57 @@ router.executeAction(
 
 ❌ **CANNOT:**
 - Execute operator actions directly (must go through Router)
-- Modify Router, Policy, or Wrapper configurations
+- Modify Router or ActionRegistry configurations
 - Affect other users' wallets
 
 ---
 
 #### Operator (Backend Service)
 ✅ **CAN:**
-- Execute actions that pass Policy validation:
-  - Deposit to whitelisted vaults
-  - Withdraw from whitelisted vaults
+- Execute actions via registered adapters:
+  - Deposit to registered vaults
+  - Withdraw from registered vaults
   - Claim rewards (only to the wallet itself)
   - Swap tokens (output must be wallet's base asset)
 - Sign UserOperations for gas-sponsored transactions
 
 ❌ **CANNOT:**
 - Withdraw funds to arbitrary addresses
-- Approve tokens to non-whitelisted contracts
+- Approve tokens to non-registered contracts
 - Transfer tokens directly
 - Upgrade wallet implementations
 - Install/uninstall modules
-- Call any function not whitelisted in Policy
+- Call adapters or targets not registered in ActionRegistry
 
 ---
 
 #### Platform Admin (via TimelockController)
 ✅ **CAN (with 24h delay):**
 - Add operators
-- Add Policy rules (whitelist new vaults, functions)
-- Swap the entire Policy contract
-- Whitelist new vaults in wrappers
+- Register new adapters
+- Register new targets (vaults, pools)
+- Swap the entire ActionRegistry contract
 - Grant/revoke admin roles
 
 ❌ **CANNOT:**
 - Access user funds directly
 - Force-upgrade existing wallets
-- Instantly add new operators or policies (24h delay enforced)
+- Instantly add new operators or registrations (24h delay enforced)
 
 ---
 
 #### Emergency Admin (EMERGENCY_ROLE)
 ✅ **CAN (instantly):**
 - Remove operators
-- Remove policy rules
-- Blacklist vaults/assets
+- Unregister adapters
+- Remove target registrations
 
 ❌ **CANNOT:**
-- Add new operators or policies
+- Add new operators or registrations
 - Access user funds
 - Grant or revoke roles
 - Execute actions on wallets
-- Bypass Policy validation
+- Bypass adapter validation
 
 ---
 
@@ -729,7 +710,7 @@ router.executeAction(
 ❌ **CANNOT:**
 - Upgrade existing wallets
 - Access funds in any wallet
-- Modify Router, Policy, or Wrappers
+- Modify Router or ActionRegistry
 
 ---
 
@@ -752,14 +733,12 @@ forge script script/Deploy.s.sol:DeployYieldSeeker --rpc-url <RPC_URL> --broadca
 
 This deploys:
 - `YieldSeekerAdminTimelock` (24h delay)
-- `AgentActionPolicy`
+- `ActionRegistry`
 - `AgentActionRouter`
 - `YieldSeekerAgentWallet` (implementation)
 - `YieldSeekerAgentWalletFactory`
-- `ERC4626VaultWrapper`
-- `AaveV3VaultWrapper`
-- `MerklValidator`
-- `ZeroExValidator`
+- `ERC4626Adapter`
+- `AaveV3Adapter`
 
 ### Step 2: Schedule Configuration (via Timelock)
 
@@ -767,12 +746,10 @@ This deploys:
 # Additional env vars from Step 1 output
 export TIMELOCK_ADDRESS=<deployed-timelock>
 export ROUTER_ADDRESS=<deployed-router>
-export POLICY_ADDRESS=<deployed-policy>
+export REGISTRY_ADDRESS=<deployed-registry>
 export FACTORY_ADDRESS=<deployed-factory>
-export ERC4626_WRAPPER=<deployed-erc4626-wrapper>
-export AAVE_WRAPPER=<deployed-aave-wrapper>
-export MERKL_VALIDATOR=<deployed-merkl-validator>
-export ZEROEX_VALIDATOR=<deployed-zeroex-validator>
+export ERC4626_ADAPTER=<deployed-erc4626-adapter>
+export AAVE_ADAPTER=<deployed-aave-adapter>
 export EMERGENCY_ADDRESS=<emergency-multisig>
 export OPERATOR_ADDRESS=<backend-operator>
 export USDC_ADDRESS=<usdc-token>
@@ -809,52 +786,63 @@ wallet.upgradeToAndCall(
 );
 ```
 
-### Upgrading Policy (Admin Action via Timelock)
+### Upgrading Registry (Admin Action via Timelock)
 
 ```solidity
-// Deploy new policy
-AgentActionPolicyV2 newPolicy = new AgentActionPolicyV2();
+// Deploy new registry
+ActionRegistryV2 newRegistry = new ActionRegistryV2();
 
-// Configure new policy...
+// Configure new registry...
 
 // Schedule update (24h delay)
 timelock.schedule(
     router,
     0,
-    abi.encodeCall(router.setPolicy, (address(newPolicy))),
+    abi.encodeCall(router.setRegistry, (address(newRegistry))),
     bytes32(0),
-    bytes32("updatePolicy"),
+    bytes32("updateRegistry"),
     24 hours
 );
 
 // After 24h, execute
 timelock.execute(...);
 
-// All wallets now use new policy
+// All wallets now use new registry
 ```
 
 ### Adding New Vault Support (via Timelock)
 
 ```solidity
-// Deploy wrapper
-NewVaultWrapper wrapper = new NewVaultWrapper(timelock);
-
-// Grant roles
-wrapper.grantRole(VAULT_ADMIN_ROLE, address(timelock));
-wrapper.grantRole(EMERGENCY_ROLE, emergencyMultisig);
-
-// Schedule vault whitelist (24h delay)
+// If using existing adapter (e.g., ERC4626Adapter for a new ERC4626 vault):
+// Schedule target registration (24h delay)
 timelock.schedule(
-    wrapper,
+    registry,
     0,
-    abi.encodeCall(wrapper.addVault, (vaultAddress)),
+    abi.encodeCall(registry.registerTarget, (newVaultAddress, erc4626AdapterAddress)),
     bytes32(0),
-    bytes32("addVault"),
+    bytes32("registerVault"),
     24 hours
 );
 
 // After 24h, execute
 timelock.execute(...);
+
+// If new adapter needed for different protocol:
+// 1. Deploy new adapter
+NewProtocolAdapter adapter = new NewProtocolAdapter(registry);
+
+// 2. Schedule adapter registration
+timelock.schedule(
+    registry,
+    0,
+    abi.encodeCall(registry.registerAdapter, (address(adapter))),
+    bytes32(0),
+    bytes32("registerAdapter"),
+    24 hours
+);
+
+// 3. Schedule target registrations pointing to new adapter
+// ...
 ```
 
 ### Emergency: Removing Compromised Operator
@@ -863,9 +851,6 @@ timelock.execute(...);
 // Emergency multisig can act instantly
 router.removeOperator(compromisedOperator);  // No delay!
 
-// Configure policy
-policy.setPolicy(address(wrapper), wrapper.DEPOSIT_SELECTOR(), address(wrapper));
-policy.setPolicy(address(wrapper), wrapper.WITHDRAW_SELECTOR(), address(wrapper));
-
-// Operators can now use new vault
+// Compromised operator can no longer execute any actions
+// Take time to investigate and rotate keys safely
 ```

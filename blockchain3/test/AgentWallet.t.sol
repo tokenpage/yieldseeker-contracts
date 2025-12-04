@@ -5,11 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {AgentActionRouter} from "../src/modules/AgentActionRouter.sol";
-import {AgentActionPolicy} from "../src/modules/AgentActionPolicy.sol";
-import {MerklValidator} from "../src/validators/MerklValidator.sol";
-import {ZeroExValidator} from "../src/validators/ZeroExValidator.sol";
+import {ActionRegistry} from "../src/ActionRegistry.sol";
+import {ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockTarget} from "./mocks/MockTarget.sol";
+import {MockERC4626} from "./mocks/MockERC4626.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
@@ -17,11 +16,10 @@ contract AgentWalletTest is Test {
     YieldSeekerAgentWallet public implementation;
     YieldSeekerAgentWalletFactory public factory;
     AgentActionRouter public router;
-    AgentActionPolicy public policy;
+    ActionRegistry public registry;
+    ERC4626Adapter public erc4626Adapter;
     MockERC20 public usdc;
-    MockTarget public target;
-    MerklValidator public merklValidator;
-    ZeroExValidator public zeroExValidator;
+    MockERC4626 public vault;
 
     address public admin = address(0x1);
     address public user = address(0x2);
@@ -32,165 +30,78 @@ contract AgentWalletTest is Test {
         vm.startPrank(admin);
         implementation = new YieldSeekerAgentWallet();
         factory = new YieldSeekerAgentWalletFactory(address(implementation), admin);
-        policy = new AgentActionPolicy(admin);
-        router = new AgentActionRouter(address(policy), admin);
+        registry = new ActionRegistry(admin);
+        router = new AgentActionRouter(address(registry), admin);
         router.addOperator(operator);
         factory.setDefaultExecutor(address(router));
-        merklValidator = new MerklValidator();
-        zeroExValidator = new ZeroExValidator();
         usdc = new MockERC20("USDC", "USDC");
-        target = new MockTarget();
+        vault = new MockERC4626(address(usdc));
+        erc4626Adapter = new ERC4626Adapter(address(registry));
+        registry.registerAdapter(address(erc4626Adapter));
+        registry.registerTarget(address(vault), address(erc4626Adapter));
         vm.stopPrank();
     }
 
     function test_CreateWallet() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
         assertEq(wallet.user(), user);
         assertEq(wallet.userAgentIndex(), 0);
         assertEq(wallet.baseAsset(), address(usdc));
         assertEq(wallet.owner(), user);
-        // Router is auto-installed
         assertTrue(wallet.isModuleInstalled(2, address(router), ""));
     }
 
     function test_Workflow_DepositAndWithdraw() public {
-        // 1. Create Wallet
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
-        // 2. Deposit USDC
         usdc.mint(walletAddr, 1000e6);
         assertEq(usdc.balanceOf(walletAddr), 1000e6);
-
-        // 3. Withdraw USDC (User Action)
         vm.prank(user);
         wallet.withdrawTokenToUser(address(usdc), user, 500e6);
-
         assertEq(usdc.balanceOf(walletAddr), 500e6);
         assertEq(usdc.balanceOf(user), 500e6);
-
-        // 4. Withdraw ETH
         vm.deal(walletAddr, 1 ether);
         vm.prank(user);
         wallet.withdrawEthToUser(user, 0.5 ether);
-
         assertEq(walletAddr.balance, 0.5 ether);
         assertEq(user.balance, 0.5 ether);
     }
 
-    function test_Workflow_ExecutionViaRouter() public {
-        // 1. Create Wallet (Router is auto-installed)
+    function test_Workflow_ExecutionViaAdapter() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
-
-        // Verify Router is already installed
         assertTrue(wallet.isModuleInstalled(2, address(router), ""));
-
-        // 2. Configure Policy (Admin Action)
-        // Allow 'swap' on MockTarget
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.prank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1)); // address(1) = Allow All
-
-        // 3. Execute Action (Operator Action)
-        bytes memory data = abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100);
-
+        usdc.mint(walletAddr, 1000e6);
+        bytes memory actionData = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 500e6));
         vm.prank(operator);
-        router.executeAction(walletAddr, address(target), 0, data);
-
-        // Verify execution (MockTarget emits event, but hard to check here without vm.expectEmit)
-        // If it didn't revert, it passed.
+        router.executeAdapterAction(walletAddr, address(erc4626Adapter), actionData);
+        assertEq(vault.balanceOf(walletAddr), 500e6);
+        assertEq(usdc.balanceOf(walletAddr), 500e6);
     }
 
-    function test_Workflow_BlockedByPolicy() public {
+    function test_Workflow_BlockedByUnregisteredAdapter() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-
-        // Policy is empty, so everything should be blocked
-        bytes4 swapSelector = MockTarget.swap.selector;
-        bytes memory data = abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100);
-
+        address fakeAdapter = address(0x999);
+        bytes memory actionData = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
         vm.prank(operator);
-        vm.expectRevert("Policy: action not allowed");
-        router.executeAction(walletAddr, address(target), 0, data);
+        vm.expectRevert(abi.encodeWithSelector(AgentActionRouter.AdapterNotRegistered.selector, fakeAdapter));
+        router.executeAdapterAction(walletAddr, fakeAdapter, actionData);
     }
 
-    function test_Workflow_MerklValidator() public {
+    function test_Workflow_BlockedByUnregisteredTarget() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-
-        // Configure Policy with MerklValidator
-        bytes4 claimSelector = merklValidator.CLAIM_SELECTOR(); // 0x3d13f874
-        vm.prank(admin);
-        policy.addPolicy(address(target), claimSelector, address(merklValidator));
-
-        // Prepare Valid Data (Claiming for self)
-        address[] memory users = new address[](1);
-        users[0] = walletAddr;
-        address[] memory tokens = new address[](0);
-        uint256[] memory amounts = new uint256[](0);
-        bytes32[][] memory proofs = new bytes32[][](0);
-
-        bytes memory validData = abi.encodeWithSelector(claimSelector, users, tokens, amounts, proofs);
-
-        // Execute Valid Action
+        usdc.mint(walletAddr, 1000e6);
+        MockERC4626 unregisteredVault = new MockERC4626(address(usdc));
+        bytes memory actionData = abi.encodeCall(ERC4626Adapter.deposit, (address(unregisteredVault), 100e6));
         vm.prank(operator);
-        router.executeAction(walletAddr, address(target), 0, validData);
-
-        // Prepare Invalid Data (Claiming for someone else)
-        users[0] = user; // Not the wallet
-        bytes memory invalidData = abi.encodeWithSelector(claimSelector, users, tokens, amounts, proofs);
-
-        // Execute Invalid Action
-        vm.prank(operator);
-        vm.expectRevert("Policy: validation failed");
-        router.executeAction(walletAddr, address(target), 0, invalidData);
-    }
-
-    function test_Workflow_ZeroExValidator() public {
-        vm.prank(admin);
-        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-
-        // Configure Policy with ZeroExValidator
-        bytes4 transformSelector = zeroExValidator.TRANSFORM_ERC20_SELECTOR(); // 0x415565b0
-        vm.prank(admin);
-        policy.addPolicy(address(target), transformSelector, address(zeroExValidator));
-
-        // Prepare Valid Data (Output Token == Base Asset == USDC)
-        bytes[] memory transformations = new bytes[](0);
-        bytes memory validData = abi.encodeWithSelector(
-            transformSelector,
-            address(0), // input
-            address(usdc), // output (Matches Base Asset)
-            100,
-            100,
-            transformations
-        );
-
-        // Execute Valid Action
-        vm.prank(operator);
-        router.executeAction(walletAddr, address(target), 0, validData);
-
-        // Prepare Invalid Data (Output Token != Base Asset)
-        bytes memory invalidData = abi.encodeWithSelector(
-            transformSelector,
-            address(0),
-            address(0x999), // Random token
-            100,
-            100,
-            transformations
-        );
-
-        // Execute Invalid Action
-        vm.prank(operator);
-        vm.expectRevert("Policy: validation failed");
-        router.executeAction(walletAddr, address(target), 0, invalidData);
+        vm.expectRevert();
+        router.executeAdapterAction(walletAddr, address(erc4626Adapter), actionData);
     }
 
     function test_Workflow_BatchExecution() public {
@@ -198,38 +109,27 @@ contract AgentWalletTest is Test {
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
         YieldSeekerAgentWallet wallet = YieldSeekerAgentWallet(payable(walletAddr));
         assertTrue(wallet.isModuleInstalled(2, address(router), ""));
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.prank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1));
-        Execution[] memory executions = new Execution[](3);
-        executions[0] = Execution({target: address(target), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100)});
-        executions[1] = Execution({target: address(target), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 200)});
-        executions[2] = Execution({target: address(target), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 300)});
+        usdc.mint(walletAddr, 1000e6);
+        address[] memory adapters = new address[](2);
+        bytes[] memory actionDatas = new bytes[](2);
+        adapters[0] = address(erc4626Adapter);
+        adapters[1] = address(erc4626Adapter);
+        actionDatas[0] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 200e6));
+        actionDatas[1] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 300e6));
         vm.prank(operator);
-        router.executeActions(walletAddr, executions);
+        router.executeAdapterActions(walletAddr, adapters, actionDatas);
+        assertEq(vault.balanceOf(walletAddr), 500e6);
+        assertEq(usdc.balanceOf(walletAddr), 500e6);
     }
 
     function test_Workflow_BatchExecution_EmptyBatch() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        Execution[] memory executions = new Execution[](0);
+        address[] memory adapters = new address[](0);
+        bytes[] memory actionDatas = new bytes[](0);
         vm.prank(operator);
         vm.expectRevert(AgentActionRouter.EmptyBatch.selector);
-        router.executeActions(walletAddr, executions);
-    }
-
-    function test_Workflow_BatchExecution_PolicyFailure() public {
-        vm.prank(admin);
-        address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.prank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1));
-        Execution[] memory executions = new Execution[](2);
-        executions[0] = Execution({target: address(target), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100)});
-        executions[1] = Execution({target: address(0x999), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 200)});
-        vm.prank(operator);
-        vm.expectRevert("Policy: action not allowed");
-        router.executeActions(walletAddr, executions);
+        router.executeAdapterActions(walletAddr, adapters, actionDatas);
     }
 
     // ============ AgentWallet Unit Tests ============
@@ -387,17 +287,17 @@ contract AgentWalletTest is Test {
 
     // ============ Router Unit Tests ============
 
-    function test_Router_SetPolicy_OnlyPolicyAdmin() public {
+    function test_Router_SetRegistry_OnlyRegistryAdmin() public {
         vm.prank(randomUser);
         vm.expectRevert();
-        router.setPolicy(address(0x999));
+        router.setRegistry(address(0x999));
     }
 
-    function test_Router_SetPolicy() public {
-        AgentActionPolicy newPolicy = new AgentActionPolicy(admin);
+    function test_Router_SetRegistry() public {
+        ActionRegistry newRegistry = new ActionRegistry(admin);
         vm.prank(admin);
-        router.setPolicy(address(newPolicy));
-        assertEq(address(router.policy()), address(newPolicy));
+        router.setRegistry(address(newRegistry));
+        assertEq(address(router.registry()), address(newRegistry));
     }
 
     function test_Router_AddOperator_OnlyOperatorAdmin() public {
@@ -422,27 +322,24 @@ contract AgentWalletTest is Test {
     function test_Router_ExecuteAction_NotAuthorized() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.prank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1));
+        bytes memory actionData = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
         vm.prank(randomUser);
         vm.expectRevert("Router: not authorized");
-        router.executeAction(walletAddr, address(target), 0, abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100));
+        router.executeAdapterAction(walletAddr, address(erc4626Adapter), actionData);
     }
 
     function test_Router_BatchExecution_ExceedsMaxSize() public {
         vm.prank(admin);
         address walletAddr = factory.createAgentWallet(user, 0, address(usdc));
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.prank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1));
-        Execution[] memory executions = new Execution[](21);
+        address[] memory adapters = new address[](21);
+        bytes[] memory actionDatas = new bytes[](21);
         for (uint256 i = 0; i < 21; i++) {
-            executions[i] = Execution({target: address(target), value: 0, callData: abi.encodeWithSelector(swapSelector, address(usdc), address(0), 100)});
+            adapters[i] = address(erc4626Adapter);
+            actionDatas[i] = abi.encodeCall(ERC4626Adapter.deposit, (address(vault), 100e6));
         }
         vm.prank(operator);
         vm.expectRevert(AgentActionRouter.BatchTooLarge.selector);
-        router.executeActions(walletAddr, executions);
+        router.executeAdapterActions(walletAddr, adapters, actionDatas);
     }
 
     function test_Router_IsModuleType() public view {
@@ -451,41 +348,24 @@ contract AgentWalletTest is Test {
         assertFalse(router.isModuleType(3));
     }
 
-    // ============ Policy Unit Tests ============
+    // ============ Registry Unit Tests ============
 
-    function test_Policy_AddPolicy_OnlyPolicySetter() public {
+    function test_Registry_RegisterAdapter_OnlyAdmin() public {
         vm.prank(randomUser);
         vm.expectRevert();
-        policy.addPolicy(address(target), MockTarget.swap.selector, address(1));
+        registry.registerAdapter(address(0x999));
     }
 
-    function test_Policy_AddPolicy_RejectsZeroValidator() public {
-        vm.prank(admin);
-        vm.expectRevert("Policy: use removePolicy to remove");
-        policy.addPolicy(address(target), MockTarget.swap.selector, address(0));
-    }
-
-    function test_Policy_RemovePolicy_OnlyEmergencyRole() public {
-        vm.prank(admin);
-        policy.addPolicy(address(target), MockTarget.swap.selector, address(1));
+    function test_Registry_RegisterTarget_OnlyAdmin() public {
         vm.prank(randomUser);
         vm.expectRevert();
-        policy.removePolicy(address(target), MockTarget.swap.selector);
+        registry.registerTarget(address(0x999), address(erc4626Adapter));
     }
 
-    function test_Policy_RemovePolicy() public {
-        bytes4 swapSelector = MockTarget.swap.selector;
-        vm.startPrank(admin);
-        policy.addPolicy(address(target), swapSelector, address(1));
-        assertEq(policy.functionValidators(address(target), swapSelector), address(1));
-        policy.removePolicy(address(target), swapSelector);
-        assertEq(policy.functionValidators(address(target), swapSelector), address(0));
-        vm.stopPrank();
-    }
-
-    function test_Policy_ValidateAction_EmptyCalldata() public {
+    function test_Registry_RemoveTarget() public {
         vm.prank(admin);
-        policy.addPolicy(address(target), bytes4(0), address(1));
-        policy.validateAction(user, address(target), 0, "");
+        registry.removeTarget(address(vault));
+        (bool valid,) = registry.isValidTarget(address(vault));
+        assertFalse(valid);
     }
 }
