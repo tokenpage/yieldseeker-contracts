@@ -1,7 +1,6 @@
 # Foundry
 cache/
 out/
-lib/
 
 # IDE
 .vscode/
