@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.23;
 
-import {SimpleAccount, IEntryPoint} from "account-abstraction/samples/SimpleAccount.sol";
+import {SimpleAccount} from "./erc4337/SimpleAccount.sol";
+import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {ActionRegistry} from "./ActionRegistry.sol";
 
 /**

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.23;
 
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {AgentWallet} from "./AgentWallet.sol";
 import {ActionRegistry} from "./ActionRegistry.sol";
 
