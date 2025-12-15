@@ -23,9 +23,17 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
     event RegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
     event ImplementationSet(address indexed newImplementation);
 
-    constructor(address admin) {
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(AGENT_CREATOR_ROLE, admin);
+    /// @param timelock Address of the AdminTimelock contract (gets admin role for dangerous operations)
+    /// @param agentCreator Address that can create agent wallets (typically backend server)
+    constructor(address timelock, address agentCreator) {
+        require(timelock != address(0), "Invalid timelock");
+        require(agentCreator != address(0), "Invalid agent creator");
+
+        // Timelock controls dangerous operations (setImplementation, setRegistry)
+        _grantRole(DEFAULT_ADMIN_ROLE, timelock);
+
+        // Agent creator can create wallets instantly
+        _grantRole(AGENT_CREATOR_ROLE, agentCreator);
     }
 
     /**

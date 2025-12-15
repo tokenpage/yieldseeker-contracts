@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../src/ActionRegistry.sol";
+import "../src/AdminTimelock.sol";
 import "../src/AgentWallet.sol";
 import "../src/AgentWalletFactory.sol";
 import "../src/erc4337/UserOperation.sol";
@@ -17,6 +18,7 @@ contract ServerAuthTest is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
+    YieldSeekerAdminTimelock public timelock;
     YieldSeekerAgentWalletFactory public factory;
     ActionRegistry public registry;
     AgentWallet public wallet;
@@ -39,16 +41,33 @@ contract ServerAuthTest is Test {
         serverPrivateKey = 0x5678;
         server = vm.addr(serverPrivateKey);
 
-        // Deploy contracts
-        registry = new ActionRegistry(admin);
-        factory = new YieldSeekerAgentWalletFactory(admin);
+        // Deploy AdminTimelock
+        address[] memory proposers = new address[](1);
+        proposers[0] = admin;
+        address[] memory executors = new address[](1);
+        executors[0] = admin;
+        timelock = new YieldSeekerAdminTimelock(proposers, executors, address(0));
+
+        // Deploy contracts with timelock as admin
+        registry = new ActionRegistry(address(timelock), admin);
+        factory = new YieldSeekerAgentWalletFactory(address(timelock), admin);
 
         // Deploy implementation
         AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
-        // Configure factory
-        factory.setRegistry(registry);
-        factory.setImplementation(impl);
+        // Configure factory (via timelock)
+        bytes memory setRegistryData = abi.encodeWithSelector(factory.setRegistry.selector, registry);
+        bytes32 salt1 = bytes32(uint256(1));
+        timelock.schedule(address(factory), 0, setRegistryData, bytes32(0), salt1, 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setRegistryData, bytes32(0), salt1);
+
+        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, impl);
+        bytes32 salt2 = bytes32(uint256(2));
+        vm.warp(block.timestamp + 1); // Move time forward slightly to avoid timestamp collision
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), salt2, 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), salt2);
 
         // Create wallet
         AgentWallet walletContract = factory.createAccount(user, 0);
@@ -71,30 +90,41 @@ contract ServerAuthTest is Test {
     }
 
     function test_ServerAuth_SetServer_Success() public {
-        // Admin sets the server
-        registry.setYieldSeekerServer(server);
+        // Admin sets the server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(100)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(100)));
 
         assertEq(registry.yieldSeekerServer(), server, "Server should be set");
     }
 
     function test_ServerAuth_SetServer_EmitsEvent() public {
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(101)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+
         vm.expectEmit(true, true, false, false);
         emit ActionRegistry.YieldSeekerServerUpdated(address(0), server);
-
-        registry.setYieldSeekerServer(server);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(101)));
     }
 
     function test_ServerAuth_SetServer_OnlyAdmin() public {
         address randomUser = address(0x999);
 
+        // Random user cannot schedule timelock operations
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
         vm.prank(randomUser);
         vm.expectRevert();
-        registry.setYieldSeekerServer(server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(110)), 24 hours);
     }
 
     function test_ServerAuth_ValidServerSignature_Accepted() public {
-        // Set server
-        registry.setYieldSeekerServer(server);
+        // Set server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(102)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(102)));
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -110,8 +140,11 @@ contract ServerAuthTest is Test {
     }
 
     function test_ServerAuth_InvalidServerSignature_Rejected() public {
-        // Set server
-        registry.setYieldSeekerServer(server);
+        // Set server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(103)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(103)));
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -128,15 +161,24 @@ contract ServerAuthTest is Test {
     }
 
     function test_ServerAuth_ServerRotation_OldServerRejected() public {
-        // Set initial server
-        registry.setYieldSeekerServer(server);
+        // Set initial server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        bytes32 salt1 = bytes32(uint256(104));
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), salt1, 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), salt1);
 
         // Generate new server
         uint256 newServerPrivateKey = 0xABCD;
         address newServer = vm.addr(newServerPrivateKey);
 
-        // Rotate to new server
-        registry.setYieldSeekerServer(newServer);
+        // Rotate to new server via timelock (advance time to avoid operation collision)
+        vm.warp(block.timestamp + 1);
+        bytes memory setNewServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, newServer);
+        bytes32 salt2 = bytes32(uint256(105));
+        timelock.schedule(address(registry), 0, setNewServerData, bytes32(0), salt2, 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setNewServerData, bytes32(0), salt2);
 
         assertEq(registry.yieldSeekerServer(), newServer, "New server should be set");
 
@@ -153,19 +195,28 @@ contract ServerAuthTest is Test {
     }
 
     function test_ServerAuth_ServerRevocation_ServerDisabled() public {
-        // Set server
-        registry.setYieldSeekerServer(server);
+        // Set server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(106)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(106)));
         assertEq(registry.yieldSeekerServer(), server);
 
-        // Revoke server by setting to address(0)
-        registry.setYieldSeekerServer(address(0));
+        // Revoke server by setting to address(0) via timelock
+        bytes memory revokeServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, address(0));
+        timelock.schedule(address(registry), 0, revokeServerData, bytes32(0), bytes32(uint256(107)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, revokeServerData, bytes32(0), bytes32(uint256(107)));
 
         assertEq(registry.yieldSeekerServer(), address(0), "Server should be revoked");
     }
 
     function test_ServerAuth_OwnerSignatureAlwaysValid() public {
-        // Set server
-        registry.setYieldSeekerServer(server);
+        // Set server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(108)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(108)));
 
         // Owner signature should still be valid
         bytes32 userOpHash = keccak256("userOp");
@@ -179,8 +230,11 @@ contract ServerAuthTest is Test {
     }
 
     function test_ServerAuth_BothOwnerAndServerValid() public {
-        // Set server
-        registry.setYieldSeekerServer(server);
+        // Set server via timelock
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(109)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(109)));
 
         bytes32 userOpHash = keccak256("userOp");
         bytes32 ethSignedHash = userOpHash.toEthSignedMessageHash();

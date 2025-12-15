@@ -35,11 +35,18 @@ contract YieldSeekerActionRegistry is AccessControl {
         _;
     }
 
-    constructor(address admin) {
-        if (admin == address(0)) revert ZeroAddress();
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(REGISTRY_ADMIN_ROLE, admin);
-        _grantRole(EMERGENCY_ROLE, admin);
+    /// @param timelock Address of the AdminTimelock contract (gets admin roles for dangerous operations)
+    /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
+    constructor(address timelock, address emergencyAdmin) {
+        if (timelock == address(0)) revert ZeroAddress();
+        if (emergencyAdmin == address(0)) revert ZeroAddress();
+
+        // Timelock controls dangerous operations (registerAdapter, registerTarget, etc.)
+        _grantRole(DEFAULT_ADMIN_ROLE, timelock);
+        _grantRole(REGISTRY_ADMIN_ROLE, timelock);
+
+        // Emergency admin can respond instantly to threats
+        _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
 
     function registerAdapter(address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {

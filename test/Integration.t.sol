@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "../src/ActionRegistry.sol";
+import "../src/AdminTimelock.sol";
 import "../src/AgentWallet.sol";
 import "../src/AgentWalletFactory.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -57,6 +58,7 @@ contract VaultAdapter {
 }
 
 contract IntegrationTest is Test {
+    YieldSeekerAdminTimelock public timelock;
     YieldSeekerAgentWalletFactory public factory;
     ActionRegistry public registry;
     MockUSDC public usdc;
@@ -74,17 +76,31 @@ contract IntegrationTest is Test {
         owner = address(this);
         user = address(0x456);
 
-        // Deploy Registry and Factory
-        registry = new ActionRegistry(owner);
-        // Correct constructor: admin only
-        factory = new YieldSeekerAgentWalletFactory(owner);
+        // Deploy AdminTimelock
+        address[] memory proposers = new address[](1);
+        proposers[0] = owner;
+        address[] memory executors = new address[](1);
+        executors[0] = owner;
+        timelock = new YieldSeekerAdminTimelock(proposers, executors, address(0));
+
+        // Deploy Registry and Factory with timelock as admin
+        registry = new ActionRegistry(address(timelock), owner); // owner gets EMERGENCY_ROLE
+        factory = new YieldSeekerAgentWalletFactory(address(timelock), owner); // owner gets AGENT_CREATOR_ROLE
 
         // Deploy Implementation
         AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
-        // Configure Factory
-        factory.setRegistry(registry);
-        factory.setImplementation(impl);
+        // Configure Factory (via timelock)
+        // For tests, we'll schedule and execute immediately by warping time
+        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, impl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(0), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(0));
+
+        bytes memory setRegistryData = abi.encodeWithSelector(factory.setRegistry.selector, registry);
+        timelock.schedule(address(factory), 0, setRegistryData, bytes32(0), bytes32(0), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setRegistryData, bytes32(0), bytes32(0));
 
         // Deploy Mocks
         usdc = new MockUSDC();
@@ -94,13 +110,27 @@ contract IntegrationTest is Test {
         approveAdapter = new TokenApproveAdapter();
         vaultAdapter = new VaultAdapter();
 
-        // Register Adapters
-        registry.registerAdapter(address(approveAdapter));
-        registry.registerAdapter(address(vaultAdapter));
+        // Register Adapters (via timelock)
+        bytes memory regApproveData = abi.encodeWithSelector(registry.registerAdapter.selector, address(approveAdapter));
+        timelock.schedule(address(registry), 0, regApproveData, bytes32(0), bytes32(uint256(1)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, regApproveData, bytes32(0), bytes32(uint256(1)));
 
-        // Register Targets (Required for new Peek-Verify logic)
-        registry.registerTarget(address(usdc), address(approveAdapter));
-        registry.registerTarget(address(vault), address(vaultAdapter));
+        bytes memory regVaultData = abi.encodeWithSelector(registry.registerAdapter.selector, address(vaultAdapter));
+        timelock.schedule(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)));
+
+        // Register Targets (Required for new Peek-Verify logic) (via timelock)
+        bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
+        timelock.schedule(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)));
+
+        bytes memory regTargetVaultData = abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
+        timelock.schedule(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));
 
         // Create Agent Wallet
         // Correct createAccount: owner, salt. (Registry is baked into factory)
@@ -168,11 +198,15 @@ contract IntegrationTest is Test {
     }
 
     function test_Factory_RegistryUpdate() public {
-        // Deploy a new registry
-        ActionRegistry newRegistry = new ActionRegistry(owner);
+        // Deploy a new registry with timelock
+        ActionRegistry newRegistry = new ActionRegistry(address(timelock), owner);
 
-        // Update factory to use new registry
-        factory.setRegistry(newRegistry);
+        // Update factory to use new registry (via timelock)
+        bytes memory setNewRegistryData = abi.encodeWithSelector(factory.setRegistry.selector, newRegistry);
+        timelock.schedule(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)));
+
         assertEq(address(factory.actionRegistry()), address(newRegistry));
 
         // Create specific salt for this test to avoid collision
@@ -191,12 +225,14 @@ contract IntegrationTest is Test {
 
     function test_Factory_ImplementationUpdate() public {
         // Deploy a new implementation
-        // Pass factory address (address(factory) for this test, although real new implementation would be deployed by factory logic or standalone)
-        // For testing standalone deployment of impl:
         AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
-        // Update factory to use new implementation
-        factory.setImplementation(newImpl);
+        // Update factory to use new implementation (via timelock)
+        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, newImpl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(300)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(300)));
+
         assertEq(address(factory.accountImplementation()), address(newImpl));
 
         // Create specific salt for this test
@@ -224,8 +260,11 @@ contract IntegrationTest is Test {
         // 1. Deploy new implementation
         AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
-        // 2. Register it in factory
-        factory.setImplementation(newImpl);
+        // 2. Register it in factory (via timelock)
+        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, newImpl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)));
 
         // 3. User calls upgradeToLatest
         vm.prank(user);
@@ -274,8 +313,11 @@ contract IntegrationTest is Test {
         // Deploy new implementation
         AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
-        // Register it in factory
-        factory.setImplementation(newImpl);
+        // Register it in factory (via timelock)
+        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, newImpl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)));
 
         // User upgrades wallet
         vm.prank(user);

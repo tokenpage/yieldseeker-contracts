@@ -1,28 +1,25 @@
 # Deployment Guide for blockchain4
 
-## Quick Start
+## Setup
 
-### Prerequisites
-- Foundry installed
-- `DEPLOYER_PRIVATE_KEY` environment variable set
-- RPC URL for Base mainnet
+This process requires these defined environment variables:
+1. DEPLOYER_ADDRESS: the address of the contract deployers
+1. DEPLOYER_PRIVATE_KEY: used to actually deploy all the contracts
+1. SERVER_ADDRESS: the EOA the server is configured to use to make calls
 
-### Deploy to Base Mainnet
+## Contract Deployment
 
 ```bash
-# Set your RPC URL
-export BASE_RPC=<your-base-rpc-url>
-
 # Deploy all contracts
 forge script script/Deploy.s.sol:DeployScript \
-  --rpc-url $BASE_RPC \
+  --rpc-url $RPC_NODE_URL_8453 \
   --broadcast \
   --verify
 
 # Deployment addresses will be saved to deployments.json
 ```
 
-### Post-Deployment Configuration
+## Post-Deployment Configuration
 
 After deployment, you need to configure the system:
 
@@ -34,8 +31,8 @@ REGISTRY=$(jq -r '.ActionRegistry' deployments.json)
 
 # Set your server address
 cast send $REGISTRY \
-  "setYieldSeekerServer(address)" <YOUR_SERVER_ADDRESS> \
-  --rpc-url $BASE_RPC \
+  "setYieldSeekerServer(address)" $SERVER_ADDRESS \
+  --rpc-url $RPC_NODE_URL_8453 \
   --private-key $DEPLOYER_PRIVATE_KEY
 ```
 
@@ -46,35 +43,23 @@ cast send $REGISTRY \
 ERC4626_ADAPTER=$(jq -r '.ERC4626Adapter' deployments.json)
 AAVE_ADAPTER=$(jq -r '.AaveV3Adapter' deployments.json)
 
+VAULT_ADDRESS=<>
+registerTarget=<>
+
 # Register an ERC4626 vault (e.g., Morpho)
 cast send $REGISTRY \
   "registerTarget(address,address)" \
-  0xE74c499fA461AF1844fCa84204490877787cED56 \
+  $VAULT_ADDRESS \
   $ERC4626_ADAPTER \
-  --rpc-url $BASE_RPC \
+  --rpc-url $RPC_NODE_URL_8453 \
   --private-key $DEPLOYER_PRIVATE_KEY
 
 # Register Aave V3 pool
 cast send $REGISTRY \
   "registerTarget(address,address)" \
-  <AAVE_POOL_ADDRESS> \
+  $AAVE_POOL_ADDRESS \
   $AAVE_ADAPTER \
-  --rpc-url $BASE_RPC \
-  --private-key $DEPLOYER_PRIVATE_KEY
-```
-
-#### 3. Test Wallet Creation
-
-```bash
-# Get factory address
-FACTORY=$(jq -r '.AgentWalletFactory' deployments.json)
-
-# Create a test wallet
-cast send $FACTORY \
-  "createAccount(address,uint256)" \
-  <USER_ADDRESS> \
-  0 \
-  --rpc-url $BASE_RPC \
+  --rpc-url $RPC_NODE_URL_8453 \
   --private-key $DEPLOYER_PRIVATE_KEY
 ```
 
@@ -195,7 +180,7 @@ If Etherscan verification fails during deployment, you can verify manually:
 forge verify-contract \
   <CONTRACT_ADDRESS> \
   src/AgentWallet.sol:AgentWallet \
-  --rpc-url $BASE_RPC \
+  --rpc-url $RPC_NODE_URL_8453 \
   --constructor-args $(cast abi-encode "constructor(address,address)" <ENTRYPOINT> <FACTORY>)
 ```
 
@@ -215,6 +200,6 @@ If gas estimation fails, try increasing the gas limit manually:
 ```bash
 cast send <CONTRACT> <FUNCTION> <ARGS> \
   --gas-limit 500000 \
-  --rpc-url $BASE_RPC \
+  --rpc-url $RPC_NODE_URL_8453 \
   --private-key $DEPLOYER_PRIVATE_KEY
 ```
