@@ -1,9 +1,11 @@
 install:
 	@ foundryup
+	@ forge install
 
 install-updates:
 	@ curl -L https://foundry.paradigm.xyz | bash
 	@ foundryup
+	@ forge install
 
 list-outdated:
 	@ echo "Not Supported"
@@ -40,9 +42,6 @@ start-prod:
 
 test:
 	@ forge test -vvv
-
-test-coverage:
-	@ forge coverage
 
 clean:
 	@ forge clean
