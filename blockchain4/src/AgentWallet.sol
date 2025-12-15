@@ -1,55 +1,153 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {SimpleAccount} from "./erc4337/SimpleAccount.sol";
+import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
+import {UserOperation} from "./erc4337/UserOperation.sol";
 import {ActionRegistry} from "./ActionRegistry.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+interface IAgentWalletFactory {
+    function accountImplementation() external view returns (address);
+}
 
 /**
  * @title AgentWallet
- * @notice ERC-4337 v0.6 smart wallet for yield-seeking agents, extending SimpleAccount
- * @dev Inherits eth-infinitism SimpleAccount functionality:
- *      - Single owner (EOA)
- *      - ERC-4337 v0.6 EntryPoint compatible (works with Coinbase Paymaster)
- *      - ECDSA signature validation
- *      - UUPS upgradeable
- *      - execute/executeBatch for standard calls
- *
- *      Adds adapter-based execution for DeFi operations:
- *      - executeViaAdapter: delegatecall to registered adapters
- *      - All adapter calls validated against ActionRegistry
+ * @notice ERC-4337 v0.6 smart wallet for yield-seeking agents.
+ * @dev Implements:
+ *      - ERC-4337 v0.6 Account (BaseAccount)
+ *      - Single owner ECDSA validation
+ *      - UUPS Upgradeability
+ *      - "Onchain Proof" enforcement (executeViaAdapter only)
  */
-contract AgentWallet is SimpleAccount {
+contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
+    using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
+    using SafeERC20 for IERC20;
+
+    address public owner;
+    IEntryPoint private immutable _entryPoint;
+    address public immutable FACTORY;
     ActionRegistry public actionRegistry;
 
+    event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event ExecutedViaAdapter(address indexed adapter, bytes data, bytes result);
+    event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
+    event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
 
     error AdapterNotRegistered(address adapter);
     error AdapterExecutionFailed(bytes reason);
+    error NotAllowed();
+    error InvalidAddress();
+    error InsufficientBalance();
+    error TransferFailed();
+    error NotApprovedImplementation();
 
-    constructor(IEntryPoint anEntryPoint) SimpleAccount(anEntryPoint) {}
+    modifier onlyOwner() {
+        _onlyOwner();
+        _;
+    }
+
+    constructor(IEntryPoint anEntryPoint, address factory) {
+        _entryPoint = anEntryPoint;
+        FACTORY = factory;
+        _disableInitializers();
+    }
+
+    receive() external payable {}
+
+    // ============ Initializers ============
 
     function initialize(address anOwner, ActionRegistry actionRegistry_) public virtual initializer {
-        super._initialize(anOwner);
+        _initialize(anOwner);
         actionRegistry = actionRegistry_;
     }
 
+    function _initialize(address anOwner) internal virtual {
+        owner = anOwner;
+        emit AgentWalletInitialized(_entryPoint, owner);
+    }
+
+    // ============ ERC-4337 / BaseAccount Overrides ============
+
+    function entryPoint() public view virtual override returns (IEntryPoint) {
+        return _entryPoint;
+    }
+
+    function _validateSignature(
+        UserOperation calldata userOp,
+        bytes32 userOpHash
+    ) internal virtual override returns (uint256 validationData) {
+        bytes32 hash = userOpHash.toEthSignedMessageHash();
+        address signer = hash.recover(userOp.signature);
+
+        // Allow either the owner or the centralized yieldSeekerServer to sign
+        if (signer == owner) {
+            return 0;
+        }
+
+        address authorizedServer = actionRegistry.yieldSeekerServer();
+        if (authorizedServer != address(0) && signer == authorizedServer) {
+            return 0;
+        }
+
+        return SIG_VALIDATION_FAILED;
+    }
+
+    // ============ Access Control ============
+
+    function _onlyOwner() internal view {
+        require(msg.sender == owner || msg.sender == address(this), "only owner");
+    }
+
+    function _requireFromEntryPointOrOwner() internal view {
+        require(msg.sender == address(entryPoint()) || msg.sender == owner, "account: not Owner or EntryPoint");
+    }
+
+    // ============ Execution (Direct - DISABLED) ============
+
     /**
-     * @notice Execute a call through a registered adapter via delegatecall
-     * @dev Can only be called by EntryPoint or owner. The adapter is delegatecalled,
-     *      so it executes in the context of this wallet.
-     * @param adapter The registered adapter contract to delegatecall
-     * @param data The calldata to pass to the adapter
-     * @return result The return data from the adapter call
+     * @notice Standard execute disallowed to enforce authorized adapter usage
      */
-    function executeViaAdapter(
+    function execute(address, uint256, bytes calldata) external virtual {
+        revert NotAllowed();
+    }
+
+    /**
+     * @notice Standard executeBatch disallowed to enforce authorized adapter usage
+     */
+    function executeBatch(address[] calldata, bytes[] calldata) external virtual {
+        revert NotAllowed();
+    }
+
+    // ============ Execution (Via Adapter) ============
+
+    /**
+     * @notice Internal helper to validate and execute adapter call
+     */
+    function _executeAdapterCall(
         address adapter,
         bytes calldata data
-    ) external payable virtual returns (bytes memory result) {
-        _requireFromEntryPointOrOwner();
-        if (!actionRegistry.isRegisteredAdapter(adapter)) {
-            revert AdapterNotRegistered(adapter);
+    ) private returns (bytes memory result) {
+        // 1. Peek: Extract target from first 32 bytes of data (after selector is handled by adapter)
+        // Convention: Adapter functions MUST take `target` as the first argument.
+        if (data.length < 36) revert InvalidAddress(); // 4 bytes selector + 32 bytes address
+
+        // Skip selector (4 bytes) and decode first argument
+        address target = abi.decode(data[4:], (address));
+
+        // 2. Verify: Check Registry
+        (bool valid, address expectedAdapter) = actionRegistry.isValidTarget(target);
+        if (!valid || expectedAdapter != adapter) {
+             revert AdapterNotRegistered(adapter);
         }
+
+        // 3. Execute
         bool success;
         (success, result) = adapter.delegatecall(data);
         if (!success) {
@@ -59,10 +157,22 @@ contract AgentWallet is SimpleAccount {
     }
 
     /**
+     * @notice Execute a call through a registered adapter via delegatecall
+     */
+    /**
+     * @notice Execute a call through a registered adapter via delegatecall
+     * @dev Implements "Peek and Verify" logic.
+     */
+    function executeViaAdapter(
+        address adapter,
+        bytes calldata data
+    ) external payable virtual returns (bytes memory result) {
+        _requireFromEntryPointOrOwner();
+        return _executeAdapterCall(adapter, data);
+    }
+
+    /**
      * @notice Execute multiple adapter calls in a batch
-     * @param adapters Array of adapter addresses
-     * @param datas Array of calldata for each adapter
-     * @return results Array of return data from each adapter call
      */
     function executeViaAdapterBatch(
         address[] calldata adapters,
@@ -70,17 +180,101 @@ contract AgentWallet is SimpleAccount {
     ) external payable virtual returns (bytes[] memory results) {
         _requireFromEntryPointOrOwner();
         uint256 length = adapters.length;
+        if (length != datas.length) revert InvalidAddress();
+
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
-            if (!actionRegistry.isRegisteredAdapter(adapters[i])) {
-                revert AdapterNotRegistered(adapters[i]);
-            }
-            (bool success, bytes memory result) = adapters[i].delegatecall(datas[i]);
-            if (!success) {
-                revert AdapterExecutionFailed(result);
-            }
-            emit ExecutedViaAdapter(adapters[i], datas[i], result);
-            results[i] = result;
+            results[i] = _executeAdapterCall(adapters[i], datas[i]);
         }
+    }
+
+    // ============ UUPS Upgradeability ============
+
+    /**
+     * @notice Upgrade to latest approved implementation from factory
+     */
+    function upgradeToLatest() external onlyOwner {
+        address latest = IAgentWalletFactory(FACTORY).accountImplementation();
+        upgradeToAndCall(latest, "");
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal view override {
+        address currentImpl = IAgentWalletFactory(FACTORY).accountImplementation();
+        if (newImplementation != currentImpl) {
+            revert NotApprovedImplementation();
+        }
+        _onlyOwner();
+    }
+
+    // ============ USER WITHDRAWAL FUNCTIONS ============
+
+    /**
+     * @notice User withdraws ERC20 token from agent wallet
+     * @param token Address of the token to withdraw
+     * @param recipient Address to send the token to
+     * @param amount Amount to withdraw
+     */
+    function withdrawTokenToUser(address token, address recipient, uint256 amount) external onlyOwner {
+        if (token == address(0)) revert InvalidAddress();
+        IERC20 asset = IERC20(token);
+        uint256 balance = asset.balanceOf(address(this));
+        if (balance < amount) revert InsufficientBalance();
+        _withdrawToken(asset, recipient, amount);
+    }
+
+    /**
+     * @notice User withdraws all of an ERC20 token from agent wallet
+     * @param token Address of the token to withdraw
+     * @param recipient Address to send the token to
+     */
+    function withdrawAllTokenToUser(address token, address recipient) external onlyOwner {
+        if (token == address(0)) revert InvalidAddress();
+        IERC20 asset = IERC20(token);
+        uint256 balance = asset.balanceOf(address(this));
+        _withdrawToken(asset, recipient, balance);
+    }
+
+    /**
+     * @notice User withdraws ETH from agent wallet
+     * @param recipient Address to send the ETH to
+     * @param amount Amount of ETH to withdraw
+     */
+    function withdrawEthToUser(address recipient, uint256 amount) external onlyOwner {
+        uint256 balance = address(this).balance;
+        if (balance < amount) revert InsufficientBalance();
+        _withdrawEth(recipient, amount);
+    }
+
+    /**
+     * @notice User withdraws all ETH from agent wallet
+     * @param recipient Address to send the ETH to
+     */
+    function withdrawAllEthToUser(address recipient) external onlyOwner {
+        uint256 balance = address(this).balance;
+        _withdrawEth(recipient, balance);
+    }
+
+    /**
+     * @notice Internal function to withdraw ERC20 token
+     * @param asset Token contract
+     * @param recipient Address to send the token to
+     * @param amount Amount to withdraw
+     */
+    function _withdrawToken(IERC20 asset, address recipient, uint256 amount) internal {
+        if (recipient == address(0)) revert InvalidAddress();
+        asset.safeTransfer(recipient, amount);
+        emit WithdrewTokenToUser(owner, recipient, address(asset), amount);
+    }
+
+    /**
+     * @notice Internal function to withdraw ETH
+     * @param recipient Address to send the ETH to
+     * @param amount Amount of ETH to withdraw
+     */
+    function _withdrawEth(address recipient, uint256 amount) internal {
+        if (recipient == address(0)) revert InvalidAddress();
+        (bool success,) = recipient.call{value: amount}("");
+        if (!success) revert TransferFailed();
+        emit WithdrewEthToUser(owner, recipient, amount);
     }
 }

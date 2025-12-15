@@ -16,16 +16,35 @@ import {ActionRegistry} from "./ActionRegistry.sol";
  */
 contract AgentWalletFactory is AccessControl {
     bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
-    AgentWallet public immutable accountImplementation;
-    ActionRegistry public immutable actionRegistry;
+    AgentWallet public accountImplementation;
+    ActionRegistry public actionRegistry;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 salt);
+    event RegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
+    event ImplementationSet(address indexed newImplementation);
 
-    constructor(IEntryPoint entryPoint, ActionRegistry registry, address admin) {
-        accountImplementation = new AgentWallet(entryPoint);
-        actionRegistry = registry;
+    constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(AGENT_CREATOR_ROLE, admin);
+    }
+
+    /**
+     * @notice Set the current implementation for NEW wallets
+     * @param newImplementation Address of the new AgentWallet logic
+     */
+    function setImplementation(AgentWallet newImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(address(newImplementation) != address(0), "Invalid implementation");
+        accountImplementation = newImplementation;
+        emit ImplementationSet(address(newImplementation));
+    }
+
+    /**
+     * @notice Update the ActionRegistry address for future wallet deployments
+     * @param newRegistry The new registry contract
+     */
+    function setRegistry(ActionRegistry newRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit RegistryUpdated(address(actionRegistry), address(newRegistry));
+        actionRegistry = newRegistry;
     }
 
     /**

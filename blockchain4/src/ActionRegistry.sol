@@ -13,12 +13,16 @@ contract ActionRegistry is AccessControl {
     mapping(address target => uint256 index) private _targetIndex;
     bool public paused;
 
+    /// @notice Authorized server that can sign UserOperations on behalf of users
+    address public yieldSeekerServer;
+
     event AdapterRegistered(address indexed adapter);
     event AdapterUnregistered(address indexed adapter);
     event TargetRegistered(address indexed target, address indexed adapter);
     event TargetRemoved(address indexed target, address indexed previousAdapter);
     event Paused(address indexed by);
     event Unpaused(address indexed by);
+    event YieldSeekerServerUpdated(address indexed oldServer, address indexed newServer);
 
     error RegistryPaused();
     error ZeroAddress();
@@ -83,6 +87,12 @@ contract ActionRegistry is AccessControl {
         if (!isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
         isRegisteredAdapter[adapter] = false;
         emit AdapterUnregistered(adapter);
+    }
+
+    function setYieldSeekerServer(address server) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        address oldServer = yieldSeekerServer;
+        yieldSeekerServer = server;
+        emit YieldSeekerServerUpdated(oldServer, server);
     }
 
     function pause() external onlyRole(EMERGENCY_ROLE) {
