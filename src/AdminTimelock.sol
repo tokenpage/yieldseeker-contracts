@@ -18,5 +18,7 @@ contract YieldSeekerAdminTimelock is TimelockController {
         address[] memory proposers,
         address[] memory executors,
         address admin
-    ) TimelockController(DEFAULT_MIN_DELAY, proposers, executors, admin) {}
+    )
+        TimelockController(DEFAULT_MIN_DELAY, proposers, executors, admin)
+    {}
 }

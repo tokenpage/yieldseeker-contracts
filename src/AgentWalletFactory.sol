@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
-import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
 import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
+import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 /**
  * @title YieldSeekerAgentWalletFactory
@@ -54,22 +54,16 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @param salt Salt for CREATE2 deterministic deployment
      * @return ret The deployed or existing AgentWallet
      */
-    function createAccount(
-        address owner,
-        uint256 salt
-    ) public onlyRole(AGENT_CREATOR_ROLE) returns (AgentWallet ret) {
+    function createAccount(address owner, uint256 salt) public onlyRole(AGENT_CREATOR_ROLE) returns (AgentWallet ret) {
         address addr = getAddress(owner, salt);
         uint256 codeSize = addr.code.length;
         if (codeSize > 0) {
             return AgentWallet(payable(addr));
         }
         ret = AgentWallet(
-            payable(
-                new ERC1967Proxy{salt: bytes32(salt)}(
-                    address(accountImplementation),
-                    abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
-                )
-            )
+            payable(new ERC1967Proxy{salt: bytes32(salt)}(
+                    address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
+                ))
         );
         emit AgentWalletCreated(address(ret), owner, salt);
     }
@@ -87,8 +81,7 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
                 abi.encodePacked(
                     type(ERC1967Proxy).creationCode,
                     abi.encode(
-                        address(accountImplementation),
-                        abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
+                        address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
                     )
                 )
             )

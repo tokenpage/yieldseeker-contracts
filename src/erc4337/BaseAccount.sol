@@ -23,7 +23,12 @@ abstract contract BaseAccount is IAccount {
         UserOperation calldata userOp,
         bytes32 userOpHash,
         uint256 missingAccountFunds
-    ) external virtual override returns (uint256 validationData) {
+    )
+        external
+        virtual
+        override
+        returns (uint256 validationData)
+    {
         _requireFromEntryPoint();
         validationData = _validateSignature(userOp, userOpHash);
         _validateNonce(userOp.nonce);
@@ -37,13 +42,16 @@ abstract contract BaseAccount is IAccount {
     function _validateSignature(
         UserOperation calldata userOp,
         bytes32 userOpHash
-    ) internal virtual returns (uint256 validationData);
+    )
+        internal
+        virtual
+        returns (uint256 validationData);
 
     function _validateNonce(uint256 nonce) internal view virtual {}
 
     function _payPrefund(uint256 missingAccountFunds) internal virtual {
         if (missingAccountFunds != 0) {
-            (bool success, ) = payable(msg.sender).call{value: missingAccountFunds, gas: type(uint256).max}("");
+            (bool success,) = payable(msg.sender).call{value: missingAccountFunds, gas: type(uint256).max}("");
             (success);
         }
     }

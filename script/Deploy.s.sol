@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "forge-std/Script.sol";
 import "../src/ActionRegistry.sol";
+import "../src/AgentWallet.sol"; // Added for AgentWallet type
 import "../src/AgentWalletFactory.sol";
 import "../src/adapters/AaveV3Adapter.sol";
 import "../src/adapters/ERC4626Adapter.sol";
 import "../src/erc4337/IEntryPoint.sol";
-import "../src/AgentWallet.sol"; // Added for AgentWallet type
+import "forge-std/Script.sol";
 
 /**
  * @title DeployScript
@@ -59,8 +59,8 @@ contract DeployScript is Script {
         //     factory = YieldSeekerAgentWalletFactory(HARDCODED_FACTORY);
         //     console.log("Using existing YieldSeekerAgentWalletFactory:", address(factory));
         // } else {
-            factory = new YieldSeekerAgentWalletFactory{salt: bytes32(SALT)}(deployer);
-            console.log("YieldSeekerAgentWalletFactory deployed at:", address(factory));
+        factory = new YieldSeekerAgentWalletFactory{salt: bytes32(SALT)}(deployer);
+        console.log("YieldSeekerAgentWalletFactory deployed at:", address(factory));
         // }
 
         // 2. Deploy or use hardcoded Implementation
@@ -69,11 +69,8 @@ contract DeployScript is Script {
         //     implementation = YieldSeekerAgentWallet(payable(HARDCODED_IMPLEMENTATION));
         //     console.log("Using existing YieldSeekerAgentWallet Implementation:", address(implementation));
         // } else {
-            implementation = new YieldSeekerAgentWallet{salt: bytes32(SALT)}(
-                IEntryPoint(ENTRYPOINT),
-                address(factory)
-            );
-            console.log("YieldSeekerAgentWallet Implementation deployed at:", address(implementation));
+        implementation = new YieldSeekerAgentWallet{salt: bytes32(SALT)}(IEntryPoint(ENTRYPOINT), address(factory));
+        console.log("YieldSeekerAgentWallet Implementation deployed at:", address(implementation));
         // }
 
         // 3. Deploy or use hardcoded ActionRegistry
@@ -82,8 +79,8 @@ contract DeployScript is Script {
         //     registry = YieldSeekerActionRegistry(HARDCODED_REGISTRY);
         //     console.log("Using existing YieldSeekerActionRegistry:", address(registry));
         // } else {
-            registry = new YieldSeekerActionRegistry{salt: bytes32(SALT)}(deployer);
-            console.log("YieldSeekerActionRegistry deployed at:", address(registry));
+        registry = new YieldSeekerActionRegistry{salt: bytes32(SALT)}(deployer);
+        console.log("YieldSeekerActionRegistry deployed at:", address(registry));
         // }
 
         // 4. Configure Factory
@@ -107,8 +104,8 @@ contract DeployScript is Script {
         //     erc4626Adapter = YieldSeekerERC4626Adapter(HARDCODED_ERC4626_ADAPTER);
         //     console.log("Using existing YieldSeekerERC4626Adapter:", address(erc4626Adapter));
         // } else {
-            erc4626Adapter = new YieldSeekerERC4626Adapter{salt: bytes32(SALT)}();
-            console.log("YieldSeekerERC4626Adapter deployed at:", address(erc4626Adapter));
+        erc4626Adapter = new YieldSeekerERC4626Adapter{salt: bytes32(SALT)}();
+        console.log("YieldSeekerERC4626Adapter deployed at:", address(erc4626Adapter));
         // }
 
         YieldSeekerAaveV3Adapter aaveV3Adapter;
@@ -116,8 +113,8 @@ contract DeployScript is Script {
         //     aaveV3Adapter = YieldSeekerAaveV3Adapter(HARDCODED_AAVE_ADAPTER);
         //     console.log("Using existing YieldSeekerAaveV3Adapter:", address(aaveV3Adapter));
         // } else {
-            aaveV3Adapter = new YieldSeekerAaveV3Adapter{salt: bytes32(SALT)}();
-            console.log("YieldSeekerAaveV3Adapter deployed at:", address(aaveV3Adapter));
+        aaveV3Adapter = new YieldSeekerAaveV3Adapter{salt: bytes32(SALT)}();
+        console.log("YieldSeekerAaveV3Adapter deployed at:", address(aaveV3Adapter));
         // }
 
         // 6. Register Adapters
@@ -150,10 +147,22 @@ contract DeployScript is Script {
         console.log("");
         console.log("Next steps:");
         console.log("1. Set YieldSeeker server address:");
-        console.log("   cast send", address(registry), "setYieldSeekerServer(address)", "<SERVER_ADDRESS>", "--private-key $DEPLOYER_PRIVATE_KEY");
+        console.log(
+            "   cast send",
+            address(registry),
+            "setYieldSeekerServer(address)",
+            "<SERVER_ADDRESS>",
+            "--private-key $DEPLOYER_PRIVATE_KEY"
+        );
         console.log("");
         console.log("2. Register target vaults/pools:");
-        console.log("   cast send", address(registry), "registerTarget(address,address)", "<VAULT> <ADAPTER>", "--private-key $DEPLOYER_PRIVATE_KEY");
+        console.log(
+            "   cast send",
+            address(registry),
+            "registerTarget(address,address)",
+            "<VAULT> <ADAPTER>",
+            "--private-key $DEPLOYER_PRIVATE_KEY"
+        );
         console.log("");
 
         // Export deployments to JSON for backend usage
@@ -172,7 +181,9 @@ contract DeployScript is Script {
         address impl,
         address erc4626Adapter,
         address aaveV3Adapter
-    ) internal {
+    )
+        internal
+    {
         string memory json = "json";
         vm.serializeAddress(json, "YieldSeekerAgentWalletFactory", factory);
         vm.serializeAddress(json, "ActionRegistry", registry);

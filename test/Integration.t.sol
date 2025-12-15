@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "forge-std/Test.sol";
+import "../src/ActionRegistry.sol";
 import "../src/AgentWallet.sol";
 import "../src/AgentWalletFactory.sol";
-import "../src/ActionRegistry.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "forge-std/Test.sol";
 
 // Mock USDC for testing
 contract MockUSDC is ERC20 {
     constructor() ERC20("USDC", "USDC") {
-        _mint(msg.sender, 1000000 * 10**18);
+        _mint(msg.sender, 1000000 * 10 ** 18);
     }
 
     function mint(address to, uint256 amount) public {
@@ -108,7 +108,7 @@ contract IntegrationTest is Test {
         wallet = AgentWallet(payable(address(walletContract)));
 
         // Fund wallet
-        usdc.mint(address(wallet), 1000 * 10**18);
+        usdc.mint(address(wallet), 1000 * 10 ** 18);
     }
 
     function test_HappyPath_DeFiLifecycle() public {
@@ -116,27 +116,26 @@ contract IntegrationTest is Test {
         vm.prank(user);
         wallet.executeViaAdapter(
             address(approveAdapter),
-            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10**18)
+            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18)
         );
-        assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10**18);
+        assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10 ** 18);
 
         // 2. Deposit into Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
         wallet.executeViaAdapter(
-            address(vaultAdapter),
-            abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10**18)
+            address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18)
         );
-        assertEq(vault.balances(address(wallet)), 500 * 10**18);
-        assertEq(usdc.balanceOf(address(wallet)), 500 * 10**18);
+        assertEq(vault.balances(address(wallet)), 500 * 10 ** 18);
+        assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18);
 
         // 3. Withdraw from Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
         wallet.executeViaAdapter(
             address(vaultAdapter),
-            abi.encodeWithSelector(VaultAdapter.withdraw.selector, address(vault), 200 * 10**18)
+            abi.encodeWithSelector(VaultAdapter.withdraw.selector, address(vault), 200 * 10 ** 18)
         );
-        assertEq(vault.balances(address(wallet)), 300 * 10**18);
-        assertEq(usdc.balanceOf(address(wallet)), 700 * 10**18);
+        assertEq(vault.balances(address(wallet)), 300 * 10 ** 18);
+        assertEq(usdc.balanceOf(address(wallet)), 700 * 10 ** 18);
     }
 
     function test_Security_CannotExecuteViaUnregisteredAdapter() public {
@@ -146,7 +145,7 @@ contract IntegrationTest is Test {
         vm.expectRevert(abi.encodeWithSelector(AgentWallet.AdapterNotRegistered.selector, address(maliciousAdapter)));
         wallet.executeViaAdapter(
             address(maliciousAdapter),
-            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(user), 1000 * 10**18)
+            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(user), 1000 * 10 ** 18)
         );
     }
 
@@ -154,18 +153,14 @@ contract IntegrationTest is Test {
         // Attempt to call execute() directly to bypass registry
         vm.prank(user);
         vm.expectRevert(AgentWallet.NotAllowed.selector);
-        wallet.execute(
-            address(usdc),
-            0,
-            abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10**18)
-        );
+        wallet.execute(address(usdc), 0, abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10 ** 18));
     }
 
     function test_Security_CannotExecuteBatchDirectly() public {
         address[] memory dests = new address[](1);
         dests[0] = address(usdc);
         bytes[] memory funcs = new bytes[](1);
-        funcs[0] = abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10**18);
+        funcs[0] = abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10 ** 18);
 
         vm.prank(user);
         vm.expectRevert(AgentWallet.NotAllowed.selector);
@@ -243,19 +238,19 @@ contract IntegrationTest is Test {
 
     function test_SafeWithdrawals() public {
         // 1. Wallet is already funded in setUp with 1000 USDC
-        assertEq(usdc.balanceOf(address(wallet)), 1000 * 10**18);
+        assertEq(usdc.balanceOf(address(wallet)), 1000 * 10 ** 18);
 
         // 2. Withdraw Some
         vm.prank(user);
-        wallet.withdrawTokenToUser(address(usdc), user, 500 * 10**18);
-        assertEq(usdc.balanceOf(address(wallet)), 500 * 10**18);
-        assertEq(usdc.balanceOf(user), 500 * 10**18);
+        wallet.withdrawTokenToUser(address(usdc), user, 500 * 10 ** 18);
+        assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18);
+        assertEq(usdc.balanceOf(user), 500 * 10 ** 18);
 
         // 3. Withdraw All
         vm.prank(user);
         wallet.withdrawAllTokenToUser(address(usdc), user);
         assertEq(usdc.balanceOf(address(wallet)), 0);
-        assertEq(usdc.balanceOf(user), 1000 * 10**18);
+        assertEq(usdc.balanceOf(user), 1000 * 10 ** 18);
 
         // 4. Test Access Control (Non-owner cannot withdraw)
         address hacker = address(0x999);

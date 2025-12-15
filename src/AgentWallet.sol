@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
 import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {UserOperation} from "./erc4337/UserOperation.sol";
-import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IAgentWalletFactory {
     function accountImplementation() external view returns (address);
@@ -102,7 +102,12 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function _validateSignature(
         UserOperation calldata userOp,
         bytes32 userOpHash
-    ) internal virtual override returns (uint256 validationData) {
+    )
+        internal
+        virtual
+        override
+        returns (uint256 validationData)
+    {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address signer = hash.recover(userOp.signature);
 
@@ -150,10 +155,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     /**
      * @notice Internal helper to validate and execute adapter call
      */
-    function _executeAdapterCall(
-        address adapter,
-        bytes calldata data
-    ) private returns (bytes memory result) {
+    function _executeAdapterCall(address adapter, bytes calldata data) private returns (bytes memory result) {
         // 1. Peek: Extract target from first 32 bytes of data (after selector is handled by adapter)
         // Convention: Adapter functions MUST take `target` as the first argument.
         if (data.length < 36) revert InvalidAddress(); // 4 bytes selector + 32 bytes address
@@ -164,7 +166,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         // 2. Verify: Check Registry
         (bool valid, address expectedAdapter) = actionRegistry().isValidTarget(target);
         if (!valid || expectedAdapter != adapter) {
-             revert AdapterNotRegistered(adapter);
+            revert AdapterNotRegistered(adapter);
         }
 
         // 3. Execute
@@ -186,7 +188,12 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function executeViaAdapter(
         address adapter,
         bytes calldata data
-    ) external payable virtual returns (bytes memory result) {
+    )
+        external
+        payable
+        virtual
+        returns (bytes memory result)
+    {
         _requireFromEntryPointOrOwner();
         return _executeAdapterCall(adapter, data);
     }
@@ -197,7 +204,12 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function executeViaAdapterBatch(
         address[] calldata adapters,
         bytes[] calldata datas
-    ) external payable virtual returns (bytes[] memory results) {
+    )
+        external
+        payable
+        virtual
+        returns (bytes[] memory results)
+    {
         _requireFromEntryPointOrOwner();
         uint256 length = adapters.length;
         if (length != datas.length) revert InvalidAddress();

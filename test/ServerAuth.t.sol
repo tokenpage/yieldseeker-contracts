@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "forge-std/Test.sol";
+import "../src/ActionRegistry.sol";
 import "../src/AgentWallet.sol";
 import "../src/AgentWalletFactory.sol";
-import "../src/ActionRegistry.sol";
 import "../src/erc4337/UserOperation.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "forge-std/Test.sol";
 
 /**
  * @title ServerAuthTest

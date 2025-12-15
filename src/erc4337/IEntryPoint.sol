@@ -26,12 +26,7 @@ interface IEntryPoint {
         uint256 actualGasUsed
     );
 
-    event AccountDeployed(
-        bytes32 indexed userOpHash,
-        address indexed sender,
-        address factory,
-        address paymaster
-    );
+    event AccountDeployed(bytes32 indexed userOpHash, address indexed sender, address factory, address paymaster);
 
     error FailedOp(uint256 opIndex, string reason);
 }

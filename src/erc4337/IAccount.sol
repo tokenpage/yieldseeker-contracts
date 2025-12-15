@@ -12,5 +12,7 @@ interface IAccount {
         UserOperation calldata userOp,
         bytes32 userOpHash,
         uint256 missingAccountFunds
-    ) external returns (uint256 validationData);
+    )
+        external
+        returns (uint256 validationData);
 }
