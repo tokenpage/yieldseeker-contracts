@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {AgentWalletStorageV1} from "./AgentWalletStorage.sol";
 
 interface IAgentWalletFactory {
     function accountImplementation() external view returns (address);
@@ -23,6 +24,7 @@ interface IAgentWalletFactory {
  *      - ERC-4337 v0.6 Account (BaseAccount)
  *      - Single owner ECDSA validation
  *      - UUPS Upgradeability
+ *      - ERC-7201 namespaced storage
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  */
 contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
@@ -30,10 +32,8 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
 
-    address public owner;
     IEntryPoint private immutable _entryPoint;
     address public immutable FACTORY;
-    ActionRegistry public actionRegistry;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event ExecutedViaAdapter(address indexed adapter, bytes data, bytes result);
@@ -65,12 +65,32 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
 
     function initialize(address anOwner, ActionRegistry actionRegistry_) public virtual initializer {
         _initialize(anOwner);
-        actionRegistry = actionRegistry_;
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        $.actionRegistry = actionRegistry_;
     }
 
     function _initialize(address anOwner) internal virtual {
-        owner = anOwner;
-        emit AgentWalletInitialized(_entryPoint, owner);
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        $.owner = anOwner;
+        emit AgentWalletInitialized(_entryPoint, anOwner);
+    }
+
+    // ============ Storage Accessors ============
+
+    /**
+     * @notice Get the owner of this wallet
+     * @return Owner address
+     */
+    function owner() public view returns (address) {
+        return AgentWalletStorageV1.layout().owner;
+    }
+
+    /**
+     * @notice Get the action registry
+     * @return ActionRegistry instance
+     */
+    function actionRegistry() public view returns (ActionRegistry) {
+        return AgentWalletStorageV1.layout().actionRegistry;
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
@@ -87,11 +107,11 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         address signer = hash.recover(userOp.signature);
 
         // Allow either the owner or the centralized yieldSeekerServer to sign
-        if (signer == owner) {
+        if (signer == owner()) {
             return 0;
         }
 
-        address authorizedServer = actionRegistry.yieldSeekerServer();
+        address authorizedServer = actionRegistry().yieldSeekerServer();
         if (authorizedServer != address(0) && signer == authorizedServer) {
             return 0;
         }
@@ -102,11 +122,11 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     // ============ Access Control ============
 
     function _onlyOwner() internal view {
-        require(msg.sender == owner || msg.sender == address(this), "only owner");
+        require(msg.sender == owner() || msg.sender == address(this), "only owner");
     }
 
     function _requireFromEntryPointOrOwner() internal view {
-        require(msg.sender == address(entryPoint()) || msg.sender == owner, "account: not Owner or EntryPoint");
+        require(msg.sender == address(entryPoint()) || msg.sender == owner(), "account: not Owner or EntryPoint");
     }
 
     // ============ Execution (Direct - DISABLED) ============
@@ -142,7 +162,7 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         address target = abi.decode(data[4:], (address));
 
         // 2. Verify: Check Registry
-        (bool valid, address expectedAdapter) = actionRegistry.isValidTarget(target);
+        (bool valid, address expectedAdapter) = actionRegistry().isValidTarget(target);
         if (!valid || expectedAdapter != adapter) {
              revert AdapterNotRegistered(adapter);
         }
@@ -263,7 +283,7 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function _withdrawToken(IERC20 asset, address recipient, uint256 amount) internal {
         if (recipient == address(0)) revert InvalidAddress();
         asset.safeTransfer(recipient, amount);
-        emit WithdrewTokenToUser(owner, recipient, address(asset), amount);
+        emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
     }
 
     /**
@@ -275,6 +295,6 @@ contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         if (recipient == address(0)) revert InvalidAddress();
         (bool success,) = recipient.call{value: amount}("");
         if (!success) revert TransferFailed();
-        emit WithdrewEthToUser(owner, recipient, amount);
+        emit WithdrewEthToUser(owner(), recipient, amount);
     }
 }
