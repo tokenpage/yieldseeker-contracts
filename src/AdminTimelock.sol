@@ -8,7 +8,8 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
 /// @dev All security-critical operations (adding operators, policies, vaults) must go through this timelock.
 ///      Emergency removals bypass the timelock via EMERGENCY_ROLE on individual contracts.
 contract YieldSeekerAdminTimelock is TimelockController {
-    uint256 public constant DEFAULT_MIN_DELAY = 24 hours;
+    // NOTE(krishan711): change this before real deployment
+    uint256 public constant DEFAULT_MIN_DELAY = 1 hours;
 
     /// @notice Deploy the admin timelock
     /// @param proposers Addresses that can schedule operations (typically a multisig)

@@ -61,6 +61,7 @@ contract DeployScript is Script {
         //     timelock = YieldSeekerAdminTimelock(payable(HARDCODED_TIMELOCK));
         //     console.log("Using existing AdminTimelock:", address(timelock));
         // } else {
+        // NOTE(krishan711): change this before real deployment
         address[] memory proposers = new address[](1);
         proposers[0] = deployer;
         address[] memory executors = new address[](1);
