@@ -15,7 +15,7 @@ interface IERC4626 {
     function balanceOf(address account) external view returns (uint256);
 }
 
-contract ERC4626Adapter {
+contract YieldSeekerERC4626Adapter {
     using SafeERC20 for IERC20;
 
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);

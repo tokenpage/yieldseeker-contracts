@@ -4,21 +4,21 @@ pragma solidity ^0.8.23;
 import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {UserOperation} from "./erc4337/UserOperation.sol";
-import {ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AgentWalletStorageV1} from "./AgentWalletStorage.sol";
+import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
 
 interface IAgentWalletFactory {
     function accountImplementation() external view returns (address);
 }
 
 /**
- * @title AgentWallet
+ * @title YieldSeekerAgentWallet
  * @notice ERC-4337 v0.6 smart wallet for yield-seeking agents.
  * @dev Implements:
  *      - ERC-4337 v0.6 Account (BaseAccount)
@@ -27,7 +27,7 @@ interface IAgentWalletFactory {
  *      - ERC-7201 namespaced storage
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  */
-contract AgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
+contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;

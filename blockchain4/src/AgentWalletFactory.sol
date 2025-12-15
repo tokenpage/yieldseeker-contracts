@@ -5,16 +5,16 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
-import {AgentWallet} from "./AgentWallet.sol";
-import {ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
+import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
 
 /**
- * @title AgentWalletFactory
+ * @title YieldSeekerAgentWalletFactory
  * @notice Factory for deploying AgentWallet proxies using CREATE2
  * @dev Based on SimpleAccountFactory pattern from eth-infinitism/account-abstraction v0.6
  *      Adds AccessControl for permissioned wallet creation and ActionRegistry integration
  */
-contract AgentWalletFactory is AccessControl {
+contract YieldSeekerAgentWalletFactory is AccessControl {
     bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
     AgentWallet public accountImplementation;
     ActionRegistry public actionRegistry;

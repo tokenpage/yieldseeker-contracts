@@ -17,7 +17,7 @@ contract ServerAuthTest is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
-    AgentWalletFactory public factory;
+    YieldSeekerAgentWalletFactory public factory;
     ActionRegistry public registry;
     AgentWallet public wallet;
 
@@ -41,7 +41,7 @@ contract ServerAuthTest is Test {
 
         // Deploy contracts
         registry = new ActionRegistry(admin);
-        factory = new AgentWalletFactory(admin);
+        factory = new YieldSeekerAgentWalletFactory(admin);
 
         // Deploy implementation
         AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));

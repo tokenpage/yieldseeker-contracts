@@ -14,7 +14,7 @@ interface IAToken {
     function UNDERLYING_ASSET_ADDRESS() external view returns (address);
 }
 
-contract AaveV3Adapter {
+contract YieldSeekerAaveV3Adapter {
     using SafeERC20 for IERC20;
 
     event Supplied(address indexed wallet, address indexed pool, address indexed asset, uint256 amount);

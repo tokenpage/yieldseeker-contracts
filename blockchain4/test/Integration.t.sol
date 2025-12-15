@@ -57,7 +57,7 @@ contract VaultAdapter {
 }
 
 contract IntegrationTest is Test {
-    AgentWalletFactory public factory;
+    YieldSeekerAgentWalletFactory public factory;
     ActionRegistry public registry;
     MockUSDC public usdc;
     MockVault public vault;
@@ -77,7 +77,7 @@ contract IntegrationTest is Test {
         // Deploy Registry and Factory
         registry = new ActionRegistry(owner);
         // Correct constructor: admin only
-        factory = new AgentWalletFactory(owner);
+        factory = new YieldSeekerAgentWalletFactory(owner);
 
         // Deploy Implementation
         AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
