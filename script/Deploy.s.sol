@@ -93,21 +93,12 @@ contract DeployScript is Script {
             address[] memory executors = new address[](1);
             executors[0] = deployerAddress;
             uint256 delay = TESTING_MODE ? 0 : 72 hours;
-            AdminTimelock newAdminTimelock = new AdminTimelock{salt: bytes32(SALT)}(delay, proposers, executors, address(0));
+            AdminTimelock newAdminTimelock = new AdminTimelock(delay, proposers, executors, address(0));
             deployments.adminTimelock = address(newAdminTimelock);
             console2.log("-> AdminTimelock deployed at:", address(newAdminTimelock));
             console2.log("   delay (seconds):", delay);
         } else {
             console2.log("-> Using existing adminTimelock:", deployments.adminTimelock);
-        }
-
-        // Deploy or reuse ActionRegistry
-        if (deployments.actionRegistry == address(0)) {
-            ActionRegistry newActionRegistry = new ActionRegistry{salt: bytes32(SALT)}(deployments.adminTimelock, deployerAddress);
-            deployments.actionRegistry = address(newActionRegistry);
-            console2.log("-> ActionRegistry deployed at:", address(newActionRegistry));
-        } else {
-            console2.log("-> Using existing actionRegistry:", deployments.actionRegistry);
         }
 
         // Deploy or reuse AgentWalletFactory
@@ -129,9 +120,18 @@ contract DeployScript is Script {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
         }
 
+        // Deploy or reuse ActionRegistry
+        if (deployments.actionRegistry == address(0)) {
+            ActionRegistry newActionRegistry = new ActionRegistry(deployments.adminTimelock, deployerAddress);
+            deployments.actionRegistry = address(newActionRegistry);
+            console2.log("-> ActionRegistry deployed at:", address(newActionRegistry));
+        } else {
+            console2.log("-> Using existing actionRegistry:", deployments.actionRegistry);
+        }
+
         // Deploy or reuse ERC4626 Adapter
         if (deployments.erc4626Adapter == address(0)) {
-            ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
+            ERC4626Adapter erc4626Adapter = new ERC4626Adapter();
             deployments.erc4626Adapter = address(erc4626Adapter);
             console2.log("-> ERC4626Adapter deployed at:", address(erc4626Adapter));
         } else {
@@ -140,7 +140,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse Aave V3 Adapter
         if (deployments.aaveV3Adapter == address(0)) {
-            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter{salt: bytes32(SALT)}();
+            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter();
             deployments.aaveV3Adapter = address(aaveV3Adapter);
             console2.log("-> AaveV3Adapter deployed at:", address(aaveV3Adapter));
         } else {
