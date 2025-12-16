@@ -295,6 +295,61 @@ contract IntegrationTest is Test {
         wallet.withdrawAllBaseAssetToUser(hacker);
     }
 
+    function test_WithdrawBaseAsset_InsufficientBalance() public {
+        // Try to withdraw more than balance
+        vm.prank(user);
+        vm.expectRevert();
+        wallet.withdrawBaseAssetToUser(user, 2000 * 10 ** 18);
+    }
+
+    function test_WithdrawEth_Partial() public {
+        // Fund wallet with ETH
+        vm.deal(address(wallet), 10 ether);
+        assertEq(address(wallet).balance, 10 ether);
+
+        // Withdraw partial amount
+        uint256 userBalanceBefore = user.balance;
+        vm.prank(user);
+        wallet.withdrawEthToUser(user, 3 ether);
+
+        assertEq(address(wallet).balance, 7 ether);
+        assertEq(user.balance, userBalanceBefore + 3 ether);
+    }
+
+    function test_WithdrawEth_All() public {
+        // Fund wallet with ETH
+        vm.deal(address(wallet), 5 ether);
+
+        // Withdraw all
+        uint256 userBalanceBefore = user.balance;
+        vm.prank(user);
+        wallet.withdrawAllEthToUser(user);
+
+        assertEq(address(wallet).balance, 0);
+        assertEq(user.balance, userBalanceBefore + 5 ether);
+    }
+
+    function test_WithdrawEth_InsufficientBalance() public {
+        vm.deal(address(wallet), 1 ether);
+
+        vm.prank(user);
+        vm.expectRevert();
+        wallet.withdrawEthToUser(user, 2 ether);
+    }
+
+    function test_WithdrawEth_OnlyOwner() public {
+        vm.deal(address(wallet), 1 ether);
+
+        address hacker = address(0x999);
+        vm.prank(hacker);
+        vm.expectRevert("only owner");
+        wallet.withdrawEthToUser(hacker, 1 ether);
+
+        vm.prank(hacker);
+        vm.expectRevert("only owner");
+        wallet.withdrawAllEthToUser(hacker);
+    }
+
     function test_Storage_AccessorFunctions() public view {
         // Verify accessor functions return correct values
         assertEq(wallet.owner(), user, "owner() should return user");

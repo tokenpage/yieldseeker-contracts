@@ -685,20 +685,7 @@ Use the helper script to register vaults with adapters:
 
 ```bash
 # Register an ERC4626 vault (Moonwell, Morpho, Yearn, etc.)
-forge script script/RegisterVault.s.sol:RegisterVaultScript \
-  --rpc-url $RPC_NODE_URL_8453 \
-  --broadcast \
-  --sig "run(address,string)" \
-  0x1234567890123456789012345678901234567890 \
-  erc4626
-
-# Register an Aave V3 pool
-forge script script/RegisterVault.s.sol:RegisterVaultScript \
-  --rpc-url $RPC_NODE_URL_8453 \
-  --broadcast \
-  --sig "run(address,string)" \
-  0x9876543210987654321098765432109876543210 \
-  aave
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x1234567890123456789012345678901234567890 erc4626
 ```
 
 **Adapter names:**
