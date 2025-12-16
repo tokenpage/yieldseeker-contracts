@@ -56,13 +56,13 @@ contract ServerAuthTest is Test {
         AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
 
         // Configure factory (via timelock)
-        bytes memory setRegistryData = abi.encodeWithSelector(factory.setRegistry.selector, registry);
+        bytes memory setActionRegistryData = abi.encodeWithSelector(factory.setActionRegistry.selector, registry);
         bytes32 salt1 = bytes32(uint256(1));
-        timelock.schedule(address(factory), 0, setRegistryData, bytes32(0), salt1, 24 hours);
+        timelock.schedule(address(factory), 0, setActionRegistryData, bytes32(0), salt1, 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(factory), 0, setRegistryData, bytes32(0), salt1);
+        timelock.execute(address(factory), 0, setActionRegistryData, bytes32(0), salt1);
 
-        bytes memory setImplData = abi.encodeWithSelector(factory.setImplementation.selector, impl);
+        bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, impl);
         bytes32 salt2 = bytes32(uint256(2));
         vm.warp(block.timestamp + 1); // Move time forward slightly to avoid timestamp collision
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), salt2, 24 hours);

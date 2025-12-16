@@ -14,7 +14,8 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IAgentWalletFactory {
-    function accountImplementation() external view returns (address);
+    function agentWalletImplementation() external view returns (address);
+    function actionRegistry() external view returns (ActionRegistry);
 }
 
 /**
@@ -64,14 +65,9 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     // ============ Initializers ============
 
     function initialize(address anOwner, ActionRegistry actionRegistry_) public virtual initializer {
-        _initialize(anOwner);
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
-        $.actionRegistry = actionRegistry_;
-    }
-
-    function _initialize(address anOwner) internal virtual {
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = anOwner;
+        $.actionRegistry = actionRegistry_;
         emit AgentWalletInitialized(_ENTRY_POINT, anOwner);
     }
 
@@ -199,15 +195,21 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     // ============ UUPS Upgradeability ============
 
     /**
-     * @notice Upgrade to latest approved implementation from factory
+     * @notice Upgrade to latest approved implementation from factory and sync registry
      */
     function upgradeToLatest() external onlyOwner {
-        address latest = IAgentWalletFactory(FACTORY).accountImplementation();
+        IAgentWalletFactory factory = IAgentWalletFactory(FACTORY);
+        address latest = factory.agentWalletImplementation();
+
+        // Sync registry reference from factory
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        $.actionRegistry = factory.actionRegistry();
+
         upgradeToAndCall(latest, "");
     }
 
     function _authorizeUpgrade(address newImplementation) internal view override {
-        address currentImpl = IAgentWalletFactory(FACTORY).accountImplementation();
+        address currentImpl = IAgentWalletFactory(FACTORY).agentWalletImplementation();
         if (newImplementation != currentImpl) {
             revert NotApprovedImplementation();
         }

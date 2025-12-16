@@ -15,43 +15,41 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
  */
 contract YieldSeekerAgentWalletFactory is AccessControl {
     bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
-    AgentWallet public accountImplementation;
+    AgentWallet public agentWalletImplementation;
     ActionRegistry public actionRegistry;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 salt);
-    event RegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
-    event ImplementationSet(address indexed newImplementation);
+    event RegistryUpdated(address indexed oldRegistry, address indexed newActionRegistry);
+    event ImplementationSet(address indexed newAgentWalletImplementation);
 
-    /// @param timelock Address of the AdminTimelock contract (gets admin role for dangerous operations)
+    /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentCreator Address that can create agent wallets (typically backend server)
-    constructor(address timelock, address agentCreator) {
-        require(timelock != address(0), "Invalid timelock");
+    constructor(address admin, address agentCreator) {
+        require(admin != address(0), "Invalid admin");
         require(agentCreator != address(0), "Invalid agent creator");
-
-        // Timelock controls dangerous operations (setImplementation, setRegistry)
-        _grantRole(DEFAULT_ADMIN_ROLE, timelock);
-
-        // Agent creator can create wallets instantly
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(AGENT_CREATOR_ROLE, agentCreator);
     }
 
     /**
      * @notice Set the current implementation for NEW wallets
-     * @param newImplementation Address of the new AgentWallet logic
+     * @param newAgentWalletImplementation Address of the new AgentWallet logic
      */
-    function setImplementation(AgentWallet newImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(address(newImplementation) != address(0), "Invalid implementation");
-        accountImplementation = newImplementation;
-        emit ImplementationSet(address(newImplementation));
+    function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(address(newAgentWalletImplementation) != address(0), "Invalid newAgentWalletImplementation");
+        agentWalletImplementation = newAgentWalletImplementation;
+        emit ImplementationSet(address(newAgentWalletImplementation));
     }
 
     /**
      * @notice Update the ActionRegistry address for future wallet deployments
-     * @param newRegistry The new registry contract
+     * @param newActionRegistry The new registry contract
      */
-    function setRegistry(ActionRegistry newRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        emit RegistryUpdated(address(actionRegistry), address(newRegistry));
-        actionRegistry = newRegistry;
+    function setActionRegistry(ActionRegistry newActionRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(address(newActionRegistry) != address(0), "Invalid newActionRegistry");
+        ActionRegistry oldActionRegistry = this.actionRegistry();
+        actionRegistry = newActionRegistry;
+        emit RegistryUpdated(address(oldActionRegistry), address(newActionRegistry));
     }
 
     /**
@@ -67,7 +65,7 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
         if (codeSize > 0) {
             return AgentWallet(payable(addr));
         }
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: bytes32(salt)}(address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry)))));
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: bytes32(salt)}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry)))));
         emit AgentWalletCreated(address(ret), owner, salt);
     }
 
@@ -78,6 +76,6 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @return The predicted wallet address
      */
     function getAddress(address owner, uint256 salt) public view returns (address) {
-        return Create2.computeAddress(bytes32(salt), keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))))));
+        return Create2.computeAddress(bytes32(salt), keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))))));
     }
 }

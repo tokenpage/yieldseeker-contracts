@@ -168,7 +168,7 @@ Deploys new agent wallets as ERC1967 proxies with deterministic addresses.
 |----------|--------|-------------|
 | `createAccount(owner, salt)` | Anyone | Deploys new wallet via CREATE2 |
 | `getAddress(owner, salt)` | View | Predicts address before deployment |
-| `setImplementation(newImpl)` | Owner only | Updates implementation for new wallets |
+| `setAgentWalletImplementation(newImpl)` | Owner only | Updates implementation for new wallets |
 
 **Features:**
 - **Deterministic Addresses**: Same owner + salt = same address across chains
@@ -292,7 +292,7 @@ For Aave V3 lending pools.
 | Action | Role Required | Description |
 |--------|---------------|-------------|
 | `createAccount()` | Anyone | Deploy new wallet for a user |
-| `setImplementation()` | Owner | Update implementation for NEW wallets |
+| `setAgentWalletImplementation()` | Owner | Update implementation for NEW wallets |
 
 ---
 
@@ -596,7 +596,7 @@ We have comprehensive tests in `test/`:
 
 ```solidity
 // Admin updates factory implementation
-factory.setImplementation(newImplementationAddress);
+factory.setAgentWalletImplementation(newImplementationAddress);
 
 // User calls on their wallet to upgrade to new approved implementation
 wallet.upgradeToAndCall(
@@ -656,3 +656,71 @@ registry.setYieldSeekerServer(newServerAddress);
 6. **Gas Efficient** - ERC-4337 enables gas sponsorship
 7. **Secure** - Strict validation prevents fund theft even if server is compromised
 8. **Easier to Extend** - Just register new adapters/targets, no per-wallet updates needed
+
+
+---
+
+## Deployment
+
+### Setup
+
+Required environment variables:
+- `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
+- `SERVER_ADDRESS`: Backend server address
+- `RPC_NODE_URL_8453`: Base network RPC endpoint
+
+
+### Deploy
+
+```bash
+forge script script/Deploy.s.sol:DeployScript --rpc-url $RPC_NODE_URL_8453 --broadcast --verify
+```
+
+Deployment addresses saved to `deployments.json`.
+
+
+### Post-Deployment
+
+Use the helper script to register vaults with adapters:
+
+```bash
+# Register an ERC4626 vault (Moonwell, Morpho, Yearn, etc.)
+forge script script/RegisterVault.s.sol:RegisterVaultScript \
+  --rpc-url $RPC_NODE_URL_8453 \
+  --broadcast \
+  --sig "run(address,string)" \
+  0x1234567890123456789012345678901234567890 \
+  erc4626
+
+# Register an Aave V3 pool
+forge script script/RegisterVault.s.sol:RegisterVaultScript \
+  --rpc-url $RPC_NODE_URL_8453 \
+  --broadcast \
+  --sig "run(address,string)" \
+  0x9876543210987654321098765432109876543210 \
+  aave
+```
+
+**Adapter names:**
+- `erc4626` - For ERC4626 vaults (Morpho, Euler, etc.)
+- `aave` - For Aave V3 pools
+
+
+### Selective Redeployment
+
+To redeploy specific contracts while keeping others:
+
+1. Edit `deployments.json` and set unwanted contracts to `0x0000000000000000000000000000000000000000`
+2. Re-run the deploy script
+
+Example `deployments.json` to redeploy only implementation:
+```json
+{
+  "adminTimelock": "0x...",
+  "agentWalletFactory": "0x...",
+  "actionRegistry": "0x...",
+  "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
+  "erc4626Adapter": "0x...",
+  "aaveV3Adapter": "0x..."
+}
+```
