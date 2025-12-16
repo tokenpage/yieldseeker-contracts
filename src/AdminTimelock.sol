@@ -17,12 +17,5 @@ contract YieldSeekerAdminTimelock is TimelockController {
     /// @param proposers Addresses that can schedule operations (typically a multisig)
     /// @param executors Addresses that can execute ready operations (can be same as proposers or address(0) for anyone)
     /// @param admin Optional admin that can grant/revoke roles. Use address(0) for self-administered timelock.
-    constructor(
-        uint256 minDelay,
-        address[] memory proposers,
-        address[] memory executors,
-        address admin
-    )
-        TimelockController(minDelay, proposers, executors, admin)
-    {}
+    constructor(uint256 minDelay, address[] memory proposers, address[] memory executors, address admin) TimelockController(minDelay, proposers, executors, admin) {}
 }

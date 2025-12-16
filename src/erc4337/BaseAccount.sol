@@ -19,16 +19,7 @@ abstract contract BaseAccount is IAccount {
         return entryPoint().getNonce(address(this), 0);
     }
 
-    function validateUserOp(
-        UserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 missingAccountFunds
-    )
-        external
-        virtual
-        override
-        returns (uint256 validationData)
-    {
+    function validateUserOp(UserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds) external virtual override returns (uint256 validationData) {
         _requireFromEntryPoint();
         validationData = _validateSignature(userOp, userOpHash);
         _validateNonce(userOp.nonce);
@@ -39,13 +30,7 @@ abstract contract BaseAccount is IAccount {
         require(msg.sender == address(entryPoint()), "account: not from EntryPoint");
     }
 
-    function _validateSignature(
-        UserOperation calldata userOp,
-        bytes32 userOpHash
-    )
-        internal
-        virtual
-        returns (uint256 validationData);
+    function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual returns (uint256 validationData);
 
     function _validateNonce(uint256 nonce) internal view virtual {}
 

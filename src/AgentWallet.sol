@@ -32,7 +32,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
 
-    IEntryPoint private immutable _entryPoint;
+    IEntryPoint private immutable _ENTRY_POINT;
     address public immutable FACTORY;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
@@ -54,7 +54,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     constructor(IEntryPoint anEntryPoint, address factory) {
-        _entryPoint = anEntryPoint;
+        _ENTRY_POINT = anEntryPoint;
         FACTORY = factory;
         _disableInitializers();
     }
@@ -72,7 +72,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function _initialize(address anOwner) internal virtual {
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = anOwner;
-        emit AgentWalletInitialized(_entryPoint, anOwner);
+        emit AgentWalletInitialized(_ENTRY_POINT, anOwner);
     }
 
     // ============ Storage Accessors ============
@@ -96,18 +96,10 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     // ============ ERC-4337 / BaseAccount Overrides ============
 
     function entryPoint() public view virtual override returns (IEntryPoint) {
-        return _entryPoint;
+        return _ENTRY_POINT;
     }
 
-    function _validateSignature(
-        UserOperation calldata userOp,
-        bytes32 userOpHash
-    )
-        internal
-        virtual
-        override
-        returns (uint256 validationData)
-    {
+    function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address signer = hash.recover(userOp.signature);
 
@@ -185,15 +177,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
      * @notice Execute a call through a registered adapter via delegatecall
      * @dev Implements "Peek and Verify" logic.
      */
-    function executeViaAdapter(
-        address adapter,
-        bytes calldata data
-    )
-        external
-        payable
-        virtual
-        returns (bytes memory result)
-    {
+    function executeViaAdapter(address adapter, bytes calldata data) external payable virtual returns (bytes memory result) {
         _requireFromEntryPointOrOwner();
         return _executeAdapterCall(adapter, data);
     }
@@ -201,15 +185,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(
-        address[] calldata adapters,
-        bytes[] calldata datas
-    )
-        external
-        payable
-        virtual
-        returns (bytes[] memory results)
-    {
+    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable virtual returns (bytes[] memory results) {
         _requireFromEntryPointOrOwner();
         uint256 length = adapters.length;
         if (length != datas.length) revert InvalidAddress();

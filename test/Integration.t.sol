@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "../src/ActionRegistry.sol";
-import "../src/AdminTimelock.sol";
-import "../src/AgentWallet.sol";
-import "../src/AgentWalletFactory.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "forge-std/Test.sol";
+import {YieldSeekerActionRegistry as ActionRegistry} from "../src/ActionRegistry.sol";
+import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
+import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
+import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Test} from "forge-std/Test.sol";
 
 // Mock USDC for testing
 contract MockUSDC is ERC20 {
@@ -21,21 +24,23 @@ contract MockUSDC is ERC20 {
 
 // Mock Vault for testing interaction
 contract MockVault {
-    ERC20 public asset;
+    using SafeERC20 for IERC20;
+
+    IERC20 public asset;
     mapping(address => uint256) public balances;
 
     constructor(address _asset) {
-        asset = ERC20(_asset);
+        asset = IERC20(_asset);
     }
 
     function deposit(uint256 amount) external {
-        asset.transferFrom(msg.sender, address(this), amount);
+        asset.safeTransferFrom(msg.sender, address(this), amount);
         balances[msg.sender] += amount;
     }
 
     function withdraw(uint256 amount) external {
         balances[msg.sender] -= amount;
-        asset.transfer(msg.sender, amount);
+        asset.safeTransfer(msg.sender, amount);
     }
 }
 
@@ -122,14 +127,12 @@ contract IntegrationTest is Test {
         timelock.execute(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)));
 
         // Register Targets (Required for new Peek-Verify logic) (via timelock)
-        bytes memory regTargetUsdcData =
-            abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
+        bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
         timelock.schedule(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)));
 
-        bytes memory regTargetVaultData =
-            abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
+        bytes memory regTargetVaultData = abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
         timelock.schedule(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));
@@ -146,26 +149,18 @@ contract IntegrationTest is Test {
     function test_HappyPath_DeFiLifecycle() public {
         // 1. Approve Vault (via executeViaAdapter -> approveAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(approveAdapter),
-            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18)
-        );
+        wallet.executeViaAdapter(address(approveAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18));
         assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10 ** 18);
 
         // 2. Deposit into Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18)
-        );
+        wallet.executeViaAdapter(address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18));
         assertEq(vault.balances(address(wallet)), 500 * 10 ** 18);
         assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18);
 
         // 3. Withdraw from Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter),
-            abi.encodeWithSelector(VaultAdapter.withdraw.selector, address(vault), 200 * 10 ** 18)
-        );
+        wallet.executeViaAdapter(address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.withdraw.selector, address(vault), 200 * 10 ** 18));
         assertEq(vault.balances(address(wallet)), 300 * 10 ** 18);
         assertEq(usdc.balanceOf(address(wallet)), 700 * 10 ** 18);
     }
@@ -175,10 +170,7 @@ contract IntegrationTest is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(AgentWallet.AdapterNotRegistered.selector, address(maliciousAdapter)));
-        wallet.executeViaAdapter(
-            address(maliciousAdapter),
-            abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(user), 1000 * 10 ** 18)
-        );
+        wallet.executeViaAdapter(address(maliciousAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(user), 1000 * 10 ** 18));
     }
 
     function test_Security_CannotExecuteDirectly() public {
@@ -300,7 +292,7 @@ contract IntegrationTest is Test {
         wallet.withdrawAllTokenToUser(address(usdc), hacker);
     }
 
-    function test_Storage_AccessorFunctions() public {
+    function test_Storage_AccessorFunctions() public view {
         // Verify accessor functions return correct values
         assertEq(wallet.owner(), user, "owner() should return user");
         assertEq(address(wallet.actionRegistry()), address(registry), "actionRegistry() should return registry");
@@ -332,9 +324,6 @@ contract IntegrationTest is Test {
     }
 
     function test_Storage_OwnerCanBeUpdated() public {
-        // This test verifies that storage is mutable (not just preserved)
-        address newOwner = address(0x777);
-
         // Transfer ownership (this writes to ERC-7201 storage)
         vm.prank(user);
         // Note: AgentWallet doesn't have transferOwnership, so we test via upgrade

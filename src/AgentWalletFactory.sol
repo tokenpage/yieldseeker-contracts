@@ -3,7 +3,6 @@ pragma solidity ^0.8.23;
 
 import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
-import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -68,11 +67,7 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
         if (codeSize > 0) {
             return AgentWallet(payable(addr));
         }
-        ret = AgentWallet(
-            payable(new ERC1967Proxy{salt: bytes32(salt)}(
-                    address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
-                ))
-        );
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: bytes32(salt)}(address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry)))));
         emit AgentWalletCreated(address(ret), owner, salt);
     }
 
@@ -83,16 +78,6 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @return The predicted wallet address
      */
     function getAddress(address owner, uint256 salt) public view returns (address) {
-        return Create2.computeAddress(
-            bytes32(salt),
-            keccak256(
-                abi.encodePacked(
-                    type(ERC1967Proxy).creationCode,
-                    abi.encode(
-                        address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))
-                    )
-                )
-            )
-        );
+        return Create2.computeAddress(bytes32(salt), keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(accountImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))))));
     }
 }

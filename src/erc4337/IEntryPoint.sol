@@ -16,15 +16,7 @@ interface IEntryPoint {
     function depositTo(address account) external payable;
     function withdrawTo(address payable withdrawAddress, uint256 withdrawAmount) external;
 
-    event UserOperationEvent(
-        bytes32 indexed userOpHash,
-        address indexed sender,
-        address indexed paymaster,
-        uint256 nonce,
-        bool success,
-        uint256 actualGasCost,
-        uint256 actualGasUsed
-    );
+    event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed);
 
     event AccountDeployed(bytes32 indexed userOpHash, address indexed sender, address factory, address paymaster);
 

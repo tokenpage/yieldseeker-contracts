@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 contract YieldSeekerActionRegistry is AccessControl {
     bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
@@ -31,8 +31,12 @@ contract YieldSeekerActionRegistry is AccessControl {
     error TargetAlreadyRegistered(address target);
 
     modifier whenNotPaused() {
-        if (paused) revert RegistryPaused();
+        _requireNotPaused();
         _;
+    }
+
+    function _requireNotPaused() internal view {
+        if (paused) revert RegistryPaused();
     }
 
     /// @param timelock Address of the AdminTimelock contract (gets admin roles for dangerous operations)
