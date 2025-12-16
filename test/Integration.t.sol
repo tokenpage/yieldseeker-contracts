@@ -81,7 +81,7 @@ contract IntegrationTest is Test {
         proposers[0] = owner;
         address[] memory executors = new address[](1);
         executors[0] = owner;
-        timelock = new YieldSeekerAdminTimelock(proposers, executors, address(0));
+        timelock = new YieldSeekerAdminTimelock(0, proposers, executors, address(0));
 
         // Deploy Registry and Factory with timelock as admin
         registry = new ActionRegistry(address(timelock), owner); // owner gets EMERGENCY_ROLE
@@ -122,12 +122,14 @@ contract IntegrationTest is Test {
         timelock.execute(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)));
 
         // Register Targets (Required for new Peek-Verify logic) (via timelock)
-        bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
+        bytes memory regTargetUsdcData =
+            abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
         timelock.schedule(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)));
 
-        bytes memory regTargetVaultData = abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
+        bytes memory regTargetVaultData =
+            abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
         timelock.schedule(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));

@@ -40,7 +40,7 @@ contract DeployYieldSeeker is Script {
         proposers[0] = proposer;
         address[] memory executors = new address[](1);
         executors[0] = executor;
-        timelock = new YieldSeekerAdminTimelock(proposers, executors, address(0));
+        timelock = new YieldSeekerAdminTimelock(1 hours, proposers, executors, address(0));
         console.log("YieldSeekerAdminTimelock:", address(timelock));
         console.log("=== Phase 2: Deploying Registry & Router ===");
         registry = new ActionRegistry(address(timelock));

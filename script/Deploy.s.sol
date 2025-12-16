@@ -27,6 +27,10 @@ contract DeployScript is Script {
     // Change this if you want a fresh deployment at new addresses
     uint256 constant SALT = 0x123456789;
 
+    // Testing Mode: Set to true to deploy with 0-delay timelock for faster testing
+    // Set to false for production (uses default 1-hour delay)
+    bool constant TESTING_MODE = true;
+
     // ============================================================
     // HARDCODED ADDRESSES (uncomment to skip deployment)
     // ============================================================
@@ -51,6 +55,7 @@ contract DeployScript is Script {
         console.log("=================================================");
         console.log("Deploying with account:", deployer);
         console.log("Deployment Salt:", SALT);
+        console.log("Testing Mode:", TESTING_MODE ? "YES (0-delay timelock)" : "NO (1-hour delay)");
         console.log("");
 
         vm.startBroadcast(deployerPrivateKey);
@@ -66,9 +71,15 @@ contract DeployScript is Script {
         proposers[0] = deployer;
         address[] memory executors = new address[](1);
         executors[0] = deployer;
-        timelock = new YieldSeekerAdminTimelock{salt: bytes32(SALT)}(proposers, executors, address(0));
-        console.log("AdminTimelock deployed at:", address(timelock));
-        // }
+
+        timedelay = TESTING_MODE ? 0 : 72 hours;
+        timelock = new YieldSeekerAdminTimelock{salt: bytes32(SALT)}(timedelay, proposers, executors, address(0));
+        console.log("AdminTimelock deployed at:", address(timelock), " delay: ", timedelay);
+
+        // Make timelock its own admin for self-governance (best practice)
+        timelock.grantRole(timelock.DEFAULT_ADMIN_ROLE(), address(timelock));
+        timelock.revokeRole(timelock.DEFAULT_ADMIN_ROLE(), deployer);
+        console.log("Timelock is now self-administered");
 
         // 2. Deploy or use hardcoded YieldSeekerAgentWalletFactory
         YieldSeekerAgentWalletFactory factory;
@@ -158,7 +169,9 @@ contract DeployScript is Script {
         console.log("  Schedule:");
         console.log("    cast send", address(timelock), "\"schedule(address,uint256,bytes,bytes32,bytes32,uint256)\"");
         console.log("      ", address(factory), "0");
-        console.log("      \"$(cast calldata 'setImplementation(address)'", address(implementation), ")\" 0x0 0x0 86400");
+        console.log(
+            "      \"$(cast calldata 'setImplementation(address)'", address(implementation), ")\" 0x0 0x0 86400"
+        );
         console.log("  Wait 24 hours, then execute:");
         console.log("    cast send", address(timelock), "\"execute(address,uint256,bytes,bytes32,bytes32)\"");
         console.log("      ", address(factory), "0");

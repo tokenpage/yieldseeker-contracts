@@ -46,7 +46,7 @@ contract ServerAuthTest is Test {
         proposers[0] = admin;
         address[] memory executors = new address[](1);
         executors[0] = admin;
-        timelock = new YieldSeekerAdminTimelock(proposers, executors, address(0));
+        timelock = new YieldSeekerAdminTimelock(0, proposers, executors, address(0));
 
         // Deploy contracts with timelock as admin
         registry = new ActionRegistry(address(timelock), admin);
