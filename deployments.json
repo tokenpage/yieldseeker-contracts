@@ -1,0 +1,8 @@
+{
+  "aaveV3Adapter": "0x8e720F90014fA4De02627f4A4e217B7e3942d5e8",
+  "actionRegistry": "0xCc6A9B2f25844f6da0Ab22a5f7dCbCf7D4C5B400",
+  "adminTimelock": "0x7aad38ac82B2FAf01317dd5428Dd3B9845A24e0C",
+  "agentWalletFactory": "0xe91bCbA2c36EBbD15e807873531B33Ee7508555b",
+  "agentWalletImplementation": "0x2bdf32fF929C6c95FbBb80D9656a5067F9Ec3257",
+  "erc4626Adapter": "0x0025a63e11cF699D94cEa5D25BA955192d467303"
+}
