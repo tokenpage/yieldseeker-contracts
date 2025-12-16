@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -10,17 +10,25 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 /**
  * @title YieldSeekerAgentWalletFactory
  * @notice Factory for deploying AgentWallet proxies using CREATE2
- * @dev Based on SimpleAccountFactory pattern from eth-infinitism/account-abstraction v0.6
- *      Adds AccessControl for permissioned wallet creation and ActionRegistry integration
+ * @dev Each agent wallet is tied to a specific base asset (e.g., USDC)
+ *      Users can create multiple agents with different ownerAgentIndex values
+ *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
  */
 contract YieldSeekerAgentWalletFactory is AccessControl {
     bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
     AgentWallet public agentWalletImplementation;
-    ActionRegistry public actionRegistry;
+    AdapterRegistry public adapterRegistry;
 
-    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 salt);
-    event RegistryUpdated(address indexed oldRegistry, address indexed newActionRegistry);
+    /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
+    mapping(address => mapping(uint256 => address)) public userWallets;
+
+    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset);
+    event RegistryUpdated(address indexed oldRegistry, address indexed newAdapterRegistry);
     event ImplementationSet(address indexed newAgentWalletImplementation);
+
+    error InvalidAddress();
+    error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
+    error NoImplementationSet();
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentCreator Address that can create agent wallets (typically backend server)
@@ -36,46 +44,61 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @param newAgentWalletImplementation Address of the new AgentWallet logic
      */
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(address(newAgentWalletImplementation) != address(0), "Invalid newAgentWalletImplementation");
+        if (address(newAgentWalletImplementation) == address(0)) revert InvalidAddress();
         agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
     }
 
     /**
-     * @notice Update the ActionRegistry address for future wallet deployments
-     * @param newActionRegistry The new registry contract
+     * @notice Update the AdapterRegistry address for future wallet deployments
+     * @param newAdapterRegistry The new registry contract
      */
-    function setActionRegistry(ActionRegistry newActionRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(address(newActionRegistry) != address(0), "Invalid newActionRegistry");
-        ActionRegistry oldActionRegistry = this.actionRegistry();
-        actionRegistry = newActionRegistry;
-        emit RegistryUpdated(address(oldActionRegistry), address(newActionRegistry));
+    function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (address(newAdapterRegistry) == address(0)) revert InvalidAddress();
+        AdapterRegistry oldAdapterRegistry = this.adapterRegistry();
+        adapterRegistry = newAdapterRegistry;
+        emit RegistryUpdated(address(oldAdapterRegistry), address(newAdapterRegistry));
     }
 
     /**
-     * @notice Create an AgentWallet for the given owner
-     * @dev Returns existing address if already deployed (for EntryPoint.getSenderAddress compatibility)
+     * @notice Create an AgentWallet for the given owner with deterministic CREATE2 address
      * @param owner The owner address for the wallet
-     * @param salt Salt for CREATE2 deterministic deployment
-     * @return ret The deployed or existing AgentWallet
+     * @param ownerAgentIndex Index of this agent for the owner (enables multiple agents per owner)
+     * @param baseAsset Base asset token address for this agent (e.g., USDC)
+     * @return ret The deployed AgentWallet
      */
-    function createAccount(address owner, uint256 salt) public onlyRole(AGENT_CREATOR_ROLE) returns (AgentWallet ret) {
-        address addr = getAddress(owner, salt);
-        uint256 codeSize = addr.code.length;
-        if (codeSize > 0) {
-            return AgentWallet(payable(addr));
-        }
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: bytes32(salt)}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry)))));
-        emit AgentWalletCreated(address(ret), owner, salt);
+    function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_CREATOR_ROLE) returns (AgentWallet ret) {
+        if (owner == address(0)) revert InvalidAddress();
+        if (baseAsset == address(0)) revert InvalidAddress();
+        if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
+        if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
+        bytes32 salt = keccak256(abi.encodePacked(owner, ownerAgentIndex));
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(
+            address(agentWalletImplementation),
+            abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry))
+        )));
+        userWallets[owner][ownerAgentIndex] = address(ret);
+        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
     }
 
     /**
      * @notice Calculate the counterfactual address of an AgentWallet
      * @param owner The owner address for the wallet
-     * @param salt Salt for CREATE2
+     * @param ownerAgentIndex Index of this agent for the owner
+     * @param baseAsset Base asset token address for this agent
      * @return The predicted wallet address
      */
-    function getAddress(address owner, uint256 salt) public view returns (address) {
-        return Create2.computeAddress(bytes32(salt), keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, actionRegistry))))));
+    function getAddress(address owner, uint256 ownerAgentIndex, address baseAsset) public view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(owner, ownerAgentIndex));
+        return Create2.computeAddress(
+            salt,
+            keccak256(abi.encodePacked(
+                type(ERC1967Proxy).creationCode,
+                abi.encode(
+                    address(agentWalletImplementation),
+                    abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry))
+                )
+            ))
+        );
     }
 }

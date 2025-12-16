@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "../src/ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
@@ -25,7 +25,7 @@ import {console2} from "forge-std/console2.sol";
  * {
  *   "adminTimelock": "0x0000000000000000000000000000000000000000",
  *   "agentWalletFactory": "0x0000000000000000000000000000000000000000",
- *   "actionRegistry": "0x0000000000000000000000000000000000000000",
+ *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
  *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
  *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
  *   "aaveV3Adapter": "0x0000000000000000000000000000000000000000"
@@ -39,7 +39,7 @@ contract DeployScript is Script {
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     // Deployment Salt for deterministic addresses
-    uint256 constant SALT = 0x1;
+    uint256 constant SALT = 0x2;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 72-hour delay)
@@ -49,7 +49,7 @@ contract DeployScript is Script {
     struct Deployments {
         address adminTimelock;
         address agentWalletFactory;
-        address actionRegistry;
+        address adapterRegistry;
         address agentWalletImplementation;
         address erc4626Adapter;
         address aaveV3Adapter;
@@ -77,7 +77,7 @@ contract DeployScript is Script {
             deployments = Deployments({
                 adminTimelock: deployJson.readAddress(".adminTimelock"),
                 agentWalletFactory: deployJson.readAddress(".agentWalletFactory"),
-                actionRegistry: deployJson.readAddress(".actionRegistry"),
+                adapterRegistry: deployJson.readAddress(".adapterRegistry"),
                 agentWalletImplementation: deployJson.readAddress(".agentWalletImplementation"),
                 erc4626Adapter: deployJson.readAddress(".erc4626Adapter"),
                 aaveV3Adapter: deployJson.readAddress(".aaveV3Adapter")
@@ -93,7 +93,7 @@ contract DeployScript is Script {
             address[] memory executors = new address[](1);
             executors[0] = deployerAddress;
             uint256 delay = TESTING_MODE ? 0 : 72 hours;
-            AdminTimelock newAdminTimelock = new AdminTimelock(delay, proposers, executors, address(0));
+            AdminTimelock newAdminTimelock = new AdminTimelock{salt: bytes32(SALT)}(delay, proposers, executors, address(0));
             deployments.adminTimelock = address(newAdminTimelock);
             console2.log("-> AdminTimelock deployed at:", address(newAdminTimelock));
             console2.log("   delay (seconds):", delay);
@@ -113,25 +113,25 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWallet Implementation
         if (deployments.agentWalletImplementation == address(0)) {
-            AgentWallet newAgentWalletImplementation = new AgentWallet{salt: bytes32(SALT)}(IEntryPoint(ENTRYPOINT), deployments.agentWalletFactory);
+            AgentWallet newAgentWalletImplementation = new AgentWallet{salt: bytes32(SALT)}(deployments.agentWalletFactory);
             deployments.agentWalletImplementation = address(newAgentWalletImplementation);
             console2.log("-> AgentWallet Implementation deployed at:", address(newAgentWalletImplementation));
         } else {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
         }
 
-        // Deploy or reuse ActionRegistry
-        if (deployments.actionRegistry == address(0)) {
-            ActionRegistry newActionRegistry = new ActionRegistry(deployments.adminTimelock, deployerAddress);
-            deployments.actionRegistry = address(newActionRegistry);
-            console2.log("-> ActionRegistry deployed at:", address(newActionRegistry));
+        // Deploy or reuse AdapterRegistry
+        if (deployments.adapterRegistry == address(0)) {
+            AdapterRegistry newAdapterRegistry = new AdapterRegistry{salt: bytes32(SALT)}(deployments.adminTimelock, deployerAddress);
+            deployments.adapterRegistry = address(newAdapterRegistry);
+            console2.log("-> AdapterRegistry deployed at:", address(newAdapterRegistry));
         } else {
-            console2.log("-> Using existing actionRegistry:", deployments.actionRegistry);
+            console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
         // Deploy or reuse ERC4626 Adapter
         if (deployments.erc4626Adapter == address(0)) {
-            ERC4626Adapter erc4626Adapter = new ERC4626Adapter();
+            ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
             deployments.erc4626Adapter = address(erc4626Adapter);
             console2.log("-> ERC4626Adapter deployed at:", address(erc4626Adapter));
         } else {
@@ -140,7 +140,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse Aave V3 Adapter
         if (deployments.aaveV3Adapter == address(0)) {
-            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter();
+            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter{salt: bytes32(SALT)}();
             deployments.aaveV3Adapter = address(aaveV3Adapter);
             console2.log("-> AaveV3Adapter deployed at:", address(aaveV3Adapter));
         } else {
@@ -151,7 +151,7 @@ contract DeployScript is Script {
         string memory json = "json";
         vm.serializeAddress(json, "adminTimelock", deployments.adminTimelock);
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
-        vm.serializeAddress(json, "actionRegistry", deployments.actionRegistry);
+        vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         string memory finalJson = vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
@@ -163,21 +163,21 @@ contract DeployScript is Script {
         console2.log("=================================================");
         console2.log("POST-DEPLOYMENT CONFIGURATION");
         console2.log("=================================================");
-        ActionRegistry actionRegistry = ActionRegistry(deployments.actionRegistry);
+        AdapterRegistry adapterRegistry = AdapterRegistry(deployments.adapterRegistry);
         AgentWalletFactory agentWalletFactory = AgentWalletFactory(deployments.agentWalletFactory);
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
         // 1. Configure Factory
         console2.log("-> Configuring agentWalletFactory...");
         scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))), timelockDelay, bytes32(uint256(1000)));
-        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setActionRegistry, (actionRegistry)), timelockDelay, bytes32(uint256(1001)));
+        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry)), timelockDelay, bytes32(uint256(1001)));
         // 2. Register Adapters
         console2.log("-> Registering adapters...");
-        scheduleAndExecute(adminTimelock, deployments.actionRegistry, abi.encodeCall(actionRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
-        scheduleAndExecute(adminTimelock, deployments.actionRegistry, abi.encodeCall(actionRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
+        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
+        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
         // 3. Set YieldSeeker Server
         console2.log("-> Setting YieldSeeker server:", serverAddress);
-        scheduleAndExecute(adminTimelock, deployments.actionRegistry, abi.encodeCall(actionRegistry.setYieldSeekerServer, (serverAddress)), timelockDelay, bytes32(uint256(1004)));
+        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.setYieldSeekerServer, (serverAddress)), timelockDelay, bytes32(uint256(1004)));
         console2.log("-> Configuration complete!");
         console2.log("=================================================");
         console2.log("You will need to register any specific vaults manually");

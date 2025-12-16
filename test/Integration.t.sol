@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "../src/ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
+import {UserOperation} from "../src/erc4337/UserOperation.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -65,7 +66,7 @@ contract VaultAdapter {
 contract IntegrationTest is Test {
     YieldSeekerAdminTimelock public timelock;
     YieldSeekerAgentWalletFactory public factory;
-    ActionRegistry public registry;
+    AdapterRegistry public registry;
     MockUSDC public usdc;
     MockVault public vault;
     TokenApproveAdapter public approveAdapter;
@@ -73,7 +74,7 @@ contract IntegrationTest is Test {
 
     address public owner;
     address public user;
-    address public entryPoint = address(0x123); // Mock EntryPoint
+    address public entryPoint = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789; // ERC-4337 v0.6 canonical EntryPoint
 
     AgentWallet public wallet;
 
@@ -89,11 +90,11 @@ contract IntegrationTest is Test {
         timelock = new YieldSeekerAdminTimelock(0, proposers, executors, address(0));
 
         // Deploy Registry and Factory with timelock as admin
-        registry = new ActionRegistry(address(timelock), owner); // owner gets EMERGENCY_ROLE
+        registry = new AdapterRegistry(address(timelock), owner); // owner gets EMERGENCY_ROLE
         factory = new YieldSeekerAgentWalletFactory(address(timelock), owner); // owner gets AGENT_CREATOR_ROLE
 
         // Deploy Implementation
-        AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet impl = new AgentWallet(address(factory));
 
         // Configure Factory (via timelock)
         // For tests, we'll schedule and execute immediately by warping time
@@ -102,10 +103,10 @@ contract IntegrationTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(0));
 
-        bytes memory setActionRegistryData = abi.encodeWithSelector(factory.setActionRegistry.selector, registry);
-        timelock.schedule(address(factory), 0, setActionRegistryData, bytes32(0), bytes32(0), 24 hours);
+        bytes memory setAdapterRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, registry);
+        timelock.schedule(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(factory), 0, setActionRegistryData, bytes32(0), bytes32(0));
+        timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0));
 
         // Deploy Mocks
         usdc = new MockUSDC();
@@ -137,9 +138,8 @@ contract IntegrationTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));
 
-        // Create Agent Wallet
-        // Correct createAccount: owner, salt. (Registry is baked into factory)
-        AgentWallet walletContract = factory.createAccount(user, 0);
+        // Create Agent Wallet with ownerAgentIndex=0 and baseAsset=USDC
+        AgentWallet walletContract = factory.createAccount(user, 0, address(usdc));
         wallet = AgentWallet(payable(address(walletContract)));
 
         // Fund wallet
@@ -193,33 +193,35 @@ contract IntegrationTest is Test {
 
     function test_Factory_RegistryUpdate() public {
         // Deploy a new registry with timelock
-        ActionRegistry newRegistry = new ActionRegistry(address(timelock), owner);
+        AdapterRegistry newRegistry = new AdapterRegistry(address(timelock), owner);
 
         // Update factory to use new registry (via timelock)
-        bytes memory setNewRegistryData = abi.encodeWithSelector(factory.setActionRegistry.selector, newRegistry);
+        bytes memory setNewRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, newRegistry);
         timelock.schedule(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)));
 
-        assertEq(address(factory.actionRegistry()), address(newRegistry));
+        assertEq(address(factory.adapterRegistry()), address(newRegistry));
 
-        // Create specific salt for this test to avoid collision
-        uint256 testSalt = 999;
+        // Create specific ownerAgentIndex for this test to avoid collision
+        uint256 testAgentIndex = 999;
 
         // Create new wallet with new registry
-        AgentWallet newWalletContract = factory.createAccount(user, testSalt);
+        AgentWallet newWalletContract = factory.createAccount(user, testAgentIndex, address(usdc));
         AgentWallet newWallet = AgentWallet(payable(address(newWalletContract)));
 
         // Verify new wallet uses new registry
-        assertEq(address(newWallet.actionRegistry()), address(newRegistry));
+        assertEq(address(newWallet.adapterRegistry()), address(newRegistry));
+        assertEq(newWallet.ownerAgentIndex(), testAgentIndex);
+        assertEq(address(newWallet.baseAsset()), address(usdc));
 
         // Verify OLD wallet still uses OLD registry
-        assertEq(address(wallet.actionRegistry()), address(registry));
+        assertEq(address(wallet.adapterRegistry()), address(registry));
     }
 
     function test_Factory_ImplementationUpdate() public {
         // Deploy a new implementation
-        AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet newImpl = new AgentWallet(address(factory));
 
         // Update factory to use new implementation (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
@@ -229,20 +231,20 @@ contract IntegrationTest is Test {
 
         assertEq(address(factory.agentWalletImplementation()), address(newImpl));
 
-        // Create specific salt for this test
-        uint256 testSalt = 888;
+        // Create specific ownerAgentIndex for this test
+        uint256 testAgentIndex = 888;
 
         // Create new wallet
-        AgentWallet newWalletContract = factory.createAccount(user, testSalt);
+        AgentWallet newWalletContract = factory.createAccount(user, testAgentIndex, address(usdc));
 
         // Verify address prediction works with new implementation
-        address predicted = factory.getAddress(user, testSalt);
+        address predicted = factory.getAddress(user, testAgentIndex, address(usdc));
         assertEq(address(newWalletContract), predicted);
     }
 
     function test_Security_CannotUpgradeToArbitrary() public {
         // Deploy malicious implementation
-        AgentWallet maliciousImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet maliciousImpl = new AgentWallet(address(factory));
 
         // Try to upgrade to it (NOT registered in factory)
         vm.prank(user);
@@ -252,7 +254,7 @@ contract IntegrationTest is Test {
 
     function test_UpgradeToLatest() public {
         // 1. Deploy new implementation
-        AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet newImpl = new AgentWallet(address(factory));
 
         // 2. Register it in factory (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
@@ -270,18 +272,19 @@ contract IntegrationTest is Test {
     }
 
     function test_SafeWithdrawals() public {
-        // 1. Wallet is already funded in setUp with 1000 USDC
+        // 1. Wallet is already funded in setUp with 1000 USDC (base asset)
         assertEq(usdc.balanceOf(address(wallet)), 1000 * 10 ** 18);
+        assertEq(address(wallet.baseAsset()), address(usdc), "Base asset should be USDC");
 
         // 2. Withdraw Some
         vm.prank(user);
-        wallet.withdrawTokenToUser(address(usdc), user, 500 * 10 ** 18);
+        wallet.withdrawBaseAssetToUser(user, 500 * 10 ** 18);
         assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18);
         assertEq(usdc.balanceOf(user), 500 * 10 ** 18);
 
         // 3. Withdraw All
         vm.prank(user);
-        wallet.withdrawAllTokenToUser(address(usdc), user);
+        wallet.withdrawAllBaseAssetToUser(user);
         assertEq(usdc.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(user), 1000 * 10 ** 18);
 
@@ -289,23 +292,25 @@ contract IntegrationTest is Test {
         address hacker = address(0x999);
         vm.prank(hacker);
         vm.expectRevert("only owner");
-        wallet.withdrawAllTokenToUser(address(usdc), hacker);
+        wallet.withdrawAllBaseAssetToUser(hacker);
     }
 
     function test_Storage_AccessorFunctions() public view {
         // Verify accessor functions return correct values
         assertEq(wallet.owner(), user, "owner() should return user");
-        assertEq(address(wallet.actionRegistry()), address(registry), "actionRegistry() should return registry");
+        assertEq(wallet.ownerAgentIndex(), 0, "ownerAgentIndex() should return 0");
+        assertEq(address(wallet.baseAsset()), address(usdc), "baseAsset() should return USDC");
+        assertEq(address(wallet.adapterRegistry()), address(registry), "adapterRegistry() should return registry");
     }
 
     function test_Storage_PreservedAfterUpgrade() public {
         // Record state before upgrade
         address ownerBefore = wallet.owner();
-        address registryBefore = address(wallet.actionRegistry());
+        address registryBefore = address(wallet.adapterRegistry());
         uint256 usdcBalanceBefore = usdc.balanceOf(address(wallet));
 
         // Deploy new implementation
-        AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet newImpl = new AgentWallet(address(factory));
 
         // Register it in factory (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
@@ -319,7 +324,7 @@ contract IntegrationTest is Test {
 
         // Verify critical state preserved (ERC-7201 storage should prevent collisions)
         assertEq(wallet.owner(), ownerBefore, "Owner should be preserved after upgrade");
-        assertEq(address(wallet.actionRegistry()), registryBefore, "Registry should be synced (matches factory)");
+        assertEq(address(wallet.adapterRegistry()), registryBefore, "Registry should be synced (matches factory)");
         assertEq(usdc.balanceOf(address(wallet)), usdcBalanceBefore, "USDC balance should be preserved after upgrade");
     }
 
@@ -334,23 +339,23 @@ contract IntegrationTest is Test {
 
     function test_UpgradeToLatest_SyncsRegistryFromFactory() public {
         // Record initial registry
-        address initialRegistry = address(wallet.actionRegistry());
+        address initialRegistry = address(wallet.adapterRegistry());
         assertEq(initialRegistry, address(registry), "Initial registry should match");
 
         // 1. Deploy new registry and update factory
-        ActionRegistry newRegistry = new ActionRegistry(address(timelock), address(this));
-        bytes memory setRegistryData = abi.encodeWithSelector(factory.setActionRegistry.selector, newRegistry);
+        AdapterRegistry newRegistry = new AdapterRegistry(address(timelock), address(this));
+        bytes memory setRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, newRegistry);
         timelock.schedule(address(factory), 0, setRegistryData, bytes32(0), bytes32(uint256(400)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setRegistryData, bytes32(0), bytes32(uint256(400)));
 
         // Verify factory now has new registry
-        assertEq(address(factory.actionRegistry()), address(newRegistry), "Factory should have new registry");
+        assertEq(address(factory.adapterRegistry()), address(newRegistry), "Factory should have new registry");
         // But wallet still has old registry
-        assertEq(address(wallet.actionRegistry()), initialRegistry, "Wallet still has old registry");
+        assertEq(address(wallet.adapterRegistry()), initialRegistry, "Wallet still has old registry");
 
         // 2. Deploy new implementation
-        AgentWallet newImpl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet newImpl = new AgentWallet(address(factory));
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(401)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
@@ -361,7 +366,153 @@ contract IntegrationTest is Test {
         wallet.upgradeToLatest();
 
         // 4. Verify wallet now has new registry
-        assertEq(address(wallet.actionRegistry()), address(newRegistry), "Wallet should have synced to new registry");
-        assertEq(address(wallet.actionRegistry()), address(factory.actionRegistry()), "Wallet registry should match factory");
+        assertEq(address(wallet.adapterRegistry()), address(newRegistry), "Wallet should have synced to new registry");
+        assertEq(address(wallet.adapterRegistry()), address(factory.adapterRegistry()), "Wallet registry should match factory");
+    }
+
+    function test_UserDirect_ApproveViaAdapter() public {
+        // Users can call executeViaAdapter directly
+        bytes memory approveCallData = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            500 * 10 ** 18
+        );
+
+        vm.prank(user);
+        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "User should be able to approve tokens");
+    }
+
+    function test_UserDirect_ApproveViaAdapterBatch() public {
+        // Users can call executeViaAdapterBatch directly
+        address[] memory adapters = new address[](2);
+        adapters[0] = address(approveAdapter);
+        adapters[1] = address(vaultAdapter);
+
+        bytes[] memory datas = new bytes[](2);
+        datas[0] = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            1000 * 10 ** 18
+        );
+        datas[1] = abi.encodeWithSelector(
+            VaultAdapter.deposit.selector,
+            address(vault),
+            500 * 10 ** 18
+        );
+
+        vm.prank(user);
+        wallet.executeViaAdapterBatch(adapters, datas);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "Remaining allowance should be 500 after using 500");
+        assertEq(vault.balances(address(wallet)), 500 * 10 ** 18, "Deposit should succeed");
+        assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18, "USDC balance should be correct");
+    }
+
+    function test_ServerDirect_ExecuteViaAdapter() public {
+        // Setup: Create server and set as yieldSeekerServer
+        uint256 serverPrivateKey = 0xABCD;
+        address server = vm.addr(serverPrivateKey);
+
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(500)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(500)));
+
+        bytes memory approveCallData = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            1000 * 10 ** 18
+        );
+
+        // Server directly calls executeViaAdapter (allowed by updated access control)
+        vm.prank(server);
+        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10 ** 18, "Server should be able to approve directly");
+    }
+
+    function test_ServerDirect_ExecuteViaAdapterBatch() public {
+        // Setup: Create server and set as yieldSeekerServer
+        uint256 serverPrivateKey = 0xABCD;
+        address server = vm.addr(serverPrivateKey);
+
+        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(505)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(505)));
+
+        address[] memory adapters = new address[](2);
+        adapters[0] = address(approveAdapter);
+        adapters[1] = address(vaultAdapter);
+
+        bytes[] memory datas = new bytes[](2);
+        datas[0] = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            900 * 10 ** 18
+        );
+        datas[1] = abi.encodeWithSelector(
+            VaultAdapter.deposit.selector,
+            address(vault),
+            400 * 10 ** 18
+        );
+
+        // Server directly calls executeViaAdapterBatch
+        vm.prank(server);
+        wallet.executeViaAdapterBatch(adapters, datas);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "Remaining allowance should be 500 after using 400");
+        assertEq(vault.balances(address(wallet)), 400 * 10 ** 18, "Deposit should succeed");
+        assertEq(usdc.balanceOf(address(wallet)), 600 * 10 ** 18, "USDC balance should be correct");
+    }
+
+    function test_ServerViaEntryPoint_ExecuteViaAdapter() public {
+        // Setup: Server calls executeViaAdapter via EntryPoint (simulating bundler execution)
+        bytes memory approveCallData = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            750 * 10 ** 18
+        );
+
+        // EntryPoint calls executeViaAdapter on behalf of owner
+        vm.prank(address(entryPoint));
+        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 750 * 10 ** 18, "Server via EntryPoint should approve");
+    }
+
+    function test_ServerViaEntryPoint_ExecuteViaAdapterBatch() public {
+        // Setup: Server calls executeViaAdapterBatch via EntryPoint
+        address[] memory adapters = new address[](2);
+        adapters[0] = address(approveAdapter);
+        adapters[1] = address(vaultAdapter);
+
+        bytes[] memory datas = new bytes[](2);
+        datas[0] = abi.encodeWithSelector(
+            TokenApproveAdapter.approve.selector,
+            address(usdc),
+            address(vault),
+            1000 * 10 ** 18
+        );
+        datas[1] = abi.encodeWithSelector(
+            VaultAdapter.deposit.selector,
+            address(vault),
+            600 * 10 ** 18
+        );
+
+        // EntryPoint calls batch on behalf of owner
+        vm.prank(address(entryPoint));
+        wallet.executeViaAdapterBatch(adapters, datas);
+
+        assertEq(usdc.allowance(address(wallet), address(vault)), 400 * 10 ** 18, "Remaining allowance should be 400 after using 600");
+        assertEq(vault.balances(address(wallet)), 600 * 10 ** 18, "Deposit should succeed via EntryPoint");
+        assertEq(usdc.balanceOf(address(wallet)), 400 * 10 ** 18, "USDC balance should be correct");
     }
 }

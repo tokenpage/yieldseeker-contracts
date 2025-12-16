@@ -1,14 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "../src/ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Test} from "forge-std/Test.sol";
+
+// Mock USDC for testing
+contract MockUSDC is ERC20 {
+    constructor() ERC20("USDC", "USDC") {
+        _mint(msg.sender, 1000000 * 10 ** 18);
+    }
+
+    function mint(address to, uint256 amount) public {
+        _mint(to, amount);
+    }
+}
 
 /**
  * @title ServerAuthTest
@@ -20,8 +32,9 @@ contract ServerAuthTest is Test {
 
     YieldSeekerAdminTimelock public timelock;
     YieldSeekerAgentWalletFactory public factory;
-    ActionRegistry public registry;
+    AdapterRegistry public registry;
     AgentWallet public wallet;
+    MockUSDC public usdc;
 
     address public admin;
     address public user;
@@ -49,18 +62,21 @@ contract ServerAuthTest is Test {
         timelock = new YieldSeekerAdminTimelock(0, proposers, executors, address(0));
 
         // Deploy contracts with timelock as admin
-        registry = new ActionRegistry(address(timelock), admin);
+        registry = new AdapterRegistry(address(timelock), admin);
         factory = new YieldSeekerAgentWalletFactory(address(timelock), admin);
 
+        // Deploy mock USDC
+        usdc = new MockUSDC();
+
         // Deploy implementation
-        AgentWallet impl = new AgentWallet(IEntryPoint(entryPoint), address(factory));
+        AgentWallet impl = new AgentWallet(address(factory));
 
         // Configure factory (via timelock)
-        bytes memory setActionRegistryData = abi.encodeWithSelector(factory.setActionRegistry.selector, registry);
+        bytes memory setAdapterRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, registry);
         bytes32 salt1 = bytes32(uint256(1));
-        timelock.schedule(address(factory), 0, setActionRegistryData, bytes32(0), salt1, 24 hours);
+        timelock.schedule(address(factory), 0, setAdapterRegistryData, bytes32(0), salt1, 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(factory), 0, setActionRegistryData, bytes32(0), salt1);
+        timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), salt1);
 
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, impl);
         bytes32 salt2 = bytes32(uint256(2));
@@ -69,8 +85,8 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), salt2);
 
-        // Create wallet
-        AgentWallet walletContract = factory.createAccount(user, 0);
+        // Create wallet with ownerAgentIndex=0 and baseAsset=USDC
+        AgentWallet walletContract = factory.createAccount(user, 0, address(usdc));
         wallet = AgentWallet(payable(address(walletContract)));
     }
 
@@ -105,7 +121,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
 
         vm.expectEmit(true, true, false, false);
-        emit ActionRegistry.YieldSeekerServerUpdated(address(0), server);
+        emit AdapterRegistry.YieldSeekerServerUpdated(address(0), server);
         timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(101)));
     }
 

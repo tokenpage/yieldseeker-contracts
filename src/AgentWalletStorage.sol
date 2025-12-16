@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title YieldSeekerAgentWalletStorageV1
@@ -14,7 +15,9 @@ library YieldSeekerAgentWalletStorageV1 {
 
     struct Layout {
         address owner;
-        ActionRegistry actionRegistry;
+        uint256 ownerAgentIndex;
+        IERC20 baseAsset;
+        AdapterRegistry adapterRegistry;
     }
 
     function layout() internal pure returns (Layout storage l) {

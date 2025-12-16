@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "./ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
 import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
@@ -15,7 +15,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);
-    function actionRegistry() external view returns (ActionRegistry);
+    function adapterRegistry() external view returns (AdapterRegistry);
 }
 
 /**
@@ -33,7 +33,8 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
 
-    IEntryPoint private immutable _ENTRY_POINT;
+    // ERC-4337 v0.6 canonical EntryPoint address
+    IEntryPoint private constant _ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
     address public immutable FACTORY;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
@@ -50,12 +51,20 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     error NotApprovedImplementation();
 
     modifier onlyOwner() {
-        _onlyOwner();
+        require(msg.sender == owner(), "only owner");
         _;
     }
 
-    constructor(IEntryPoint anEntryPoint, address factory) {
-        _ENTRY_POINT = anEntryPoint;
+    modifier onlyFromEntryPointOrOwnerOrServer() {
+        address caller = msg.sender;
+        require(
+            caller == address(entryPoint()) || caller == owner() || caller == adapterRegistry().yieldSeekerServer(),
+            "account: not Owner, EntryPoint, or Server"
+        );
+        _;
+    }
+
+    constructor(address factory) {
         FACTORY = factory;
         _disableInitializers();
     }
@@ -64,11 +73,15 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
 
     // ============ Initializers ============
 
-    function initialize(address anOwner, ActionRegistry actionRegistry_) public virtual initializer {
+    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset, AdapterRegistry _adapterRegistry) public virtual initializer {
+        require(_owner != address(0), "Invalid owner");
+        require(_baseAsset != address(0), "Invalid base asset");
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
-        $.owner = anOwner;
-        $.actionRegistry = actionRegistry_;
-        emit AgentWalletInitialized(_ENTRY_POINT, anOwner);
+        $.owner = _owner;
+        $.ownerAgentIndex = _ownerAgentIndex;
+        $.baseAsset = IERC20(_baseAsset);
+        $.adapterRegistry = _adapterRegistry;
+        emit AgentWalletInitialized(_ENTRY_POINT, _owner);
     }
 
     // ============ Storage Accessors ============
@@ -82,11 +95,27 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     /**
-     * @notice Get the action registry
-     * @return ActionRegistry instance
+     * @notice Get the owner agent index
+     * @return Owner agent index
      */
-    function actionRegistry() public view returns (ActionRegistry) {
-        return AgentWalletStorageV1.layout().actionRegistry;
+    function ownerAgentIndex() public view returns (uint256) {
+        return AgentWalletStorageV1.layout().ownerAgentIndex;
+    }
+
+    /**
+     * @notice Get the base asset
+     * @return Base asset token
+     */
+    function baseAsset() public view returns (IERC20) {
+        return AgentWalletStorageV1.layout().baseAsset;
+    }
+
+    /**
+     * @notice Get the adapter registry
+     * @return AdapterRegistry instance
+     */
+    function adapterRegistry() public view returns (AdapterRegistry) {
+        return AgentWalletStorageV1.layout().adapterRegistry;
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
@@ -104,25 +133,13 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
             return 0;
         }
 
-        address authorizedServer = actionRegistry().yieldSeekerServer();
+        address authorizedServer = adapterRegistry().yieldSeekerServer();
         if (authorizedServer != address(0) && signer == authorizedServer) {
             return 0;
         }
 
         return SIG_VALIDATION_FAILED;
     }
-
-    // ============ Access Control ============
-
-    function _onlyOwner() internal view {
-        require(msg.sender == owner() || msg.sender == address(this), "only owner");
-    }
-
-    function _requireFromEntryPointOrOwner() internal view {
-        require(msg.sender == address(entryPoint()) || msg.sender == owner(), "account: not Owner or EntryPoint");
-    }
-
-    // ============ Execution (Direct - DISABLED) ============
 
     /**
      * @notice Standard execute disallowed to enforce authorized adapter usage
@@ -152,7 +169,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         address target = abi.decode(data[4:], (address));
 
         // 2. Verify: Check Registry
-        (bool valid, address expectedAdapter) = actionRegistry().isValidTarget(target);
+        (bool valid, address expectedAdapter) = adapterRegistry().isValidTarget(target);
         if (!valid || expectedAdapter != adapter) {
             revert AdapterNotRegistered(adapter);
         }
@@ -168,24 +185,18 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
 
     /**
      * @notice Execute a call through a registered adapter via delegatecall
-     */
-    /**
-     * @notice Execute a call through a registered adapter via delegatecall
      * @dev Implements "Peek and Verify" logic.
      */
-    function executeViaAdapter(address adapter, bytes calldata data) external payable virtual returns (bytes memory result) {
-        _requireFromEntryPointOrOwner();
+    function executeViaAdapter(address adapter, bytes calldata data) external payable onlyFromEntryPointOrOwnerOrServer returns (bytes memory result) {
         return _executeAdapterCall(adapter, data);
     }
 
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable virtual returns (bytes[] memory results) {
-        _requireFromEntryPointOrOwner();
+    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable onlyFromEntryPointOrOwnerOrServer returns (bytes[] memory results) {
         uint256 length = adapters.length;
         if (length != datas.length) revert InvalidAddress();
-
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             results[i] = _executeAdapterCall(adapters[i], datas[i]);
@@ -203,45 +214,40 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
 
         // Sync registry reference from factory
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
-        $.actionRegistry = factory.actionRegistry();
+        $.adapterRegistry = factory.adapterRegistry();
 
         upgradeToAndCall(latest, "");
     }
 
-    function _authorizeUpgrade(address newImplementation) internal view override {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         address currentImpl = IAgentWalletFactory(FACTORY).agentWalletImplementation();
         if (newImplementation != currentImpl) {
             revert NotApprovedImplementation();
         }
-        _onlyOwner();
     }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============
 
     /**
-     * @notice User withdraws ERC20 token from agent wallet
-     * @param token Address of the token to withdraw
-     * @param recipient Address to send the token to
+     * @notice User withdraws base asset from agent wallet
+     * @param recipient Address to send the base asset to
      * @param amount Amount to withdraw
      */
-    function withdrawTokenToUser(address token, address recipient, uint256 amount) external onlyOwner {
-        if (token == address(0)) revert InvalidAddress();
-        IERC20 asset = IERC20(token);
+    function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
+        IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
         if (balance < amount) revert InsufficientBalance();
-        _withdrawToken(asset, recipient, amount);
+        _withdrawBaseAsset(recipient, amount);
     }
 
     /**
-     * @notice User withdraws all of an ERC20 token from agent wallet
-     * @param token Address of the token to withdraw
-     * @param recipient Address to send the token to
+     * @notice User withdraws all base asset from agent wallet
+     * @param recipient Address to send the base asset to
      */
-    function withdrawAllTokenToUser(address token, address recipient) external onlyOwner {
-        if (token == address(0)) revert InvalidAddress();
-        IERC20 asset = IERC20(token);
+    function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
+        IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
-        _withdrawToken(asset, recipient, balance);
+        _withdrawBaseAsset(recipient, balance);
     }
 
     /**
@@ -265,13 +271,13 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     /**
-     * @notice Internal function to withdraw ERC20 token
-     * @param asset Token contract
-     * @param recipient Address to send the token to
+     * @notice Internal function to withdraw base asset
+     * @param recipient Address to send the base asset to
      * @param amount Amount to withdraw
      */
-    function _withdrawToken(IERC20 asset, address recipient, uint256 amount) internal {
+    function _withdrawBaseAsset(address recipient, uint256 amount) internal {
         if (recipient == address(0)) revert InvalidAddress();
+        IERC20 asset = baseAsset();
         asset.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
     }

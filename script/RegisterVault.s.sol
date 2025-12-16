@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {YieldSeekerActionRegistry as ActionRegistry} from "../src/ActionRegistry.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -37,7 +37,7 @@ contract RegisterVaultScript is Script {
         // Load deployment addresses
         // forge-lint: disable-next-line(unsafe-cheatcode)
         string memory json = vm.readFile("./deployments.json");
-        address registryAddress = json.readAddress(".actionRegistry");
+        address registryAddress = json.readAddress(".adapterRegistry");
         address timelockAddress = json.readAddress(".adminTimelock");
 
         // Get adapter address based on name
@@ -60,7 +60,7 @@ contract RegisterVaultScript is Script {
         console2.log("Timelock:", timelockAddress);
         console2.log("");
 
-        ActionRegistry registry = ActionRegistry(registryAddress);
+        AdapterRegistry registry = AdapterRegistry(registryAddress);
         AdminTimelock timelock = AdminTimelock(payable(timelockAddress));
         uint256 delay = timelock.getMinDelay();
 
