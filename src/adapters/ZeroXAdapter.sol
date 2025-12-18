@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract YieldSeekerZeroXAdapter {
+contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
     using SafeERC20 for IERC20;
 
     address public immutable ALLOWANCE_TARGET;
@@ -28,6 +29,7 @@ contract YieldSeekerZeroXAdapter {
         // IERC20 baseAsset = IAgentWallet(address(this)).baseAsset();
         // Then enforce: require(buyToken == address(baseAsset) || sellToken == address(baseAsset), "Must involve base asset");
         if (sellAmount == 0 || minBuyAmount == 0) revert ZeroAmount();
+        _requireBaseAsset(buyToken);
         if (sellToken == NATIVE_TOKEN) {
             // Ensure wallet has enough ETH to forward; do not rely on msg.value
             if (value < sellAmount) revert ZeroAmount();
