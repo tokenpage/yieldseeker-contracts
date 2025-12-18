@@ -35,8 +35,4 @@ contract YieldSeekerAaveV3Adapter {
         emit Withdrawn(address(this), pool, asset, withdrawn);
         return withdrawn;
     }
-
-    function getATokenBalance(address aToken, address wallet) external view returns (uint256) {
-        return IAToken(aToken).balanceOf(wallet);
-    }
 }

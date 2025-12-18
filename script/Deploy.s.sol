@@ -167,16 +167,30 @@ contract DeployScript is Script {
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
         // 1. Configure Factory
-        console2.log("-> Configuring agentWalletFactory...");
-        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))), timelockDelay, bytes32(uint256(1000)));
-        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry)), timelockDelay, bytes32(uint256(1001)));
+        console2.log("-> Syncing agentWalletFactory configuration...");
+        if (address(agentWalletFactory.agentWalletImplementation()) != deployments.agentWalletImplementation) {
+            scheduleAndExecute(
+                adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))), timelockDelay, bytes32(uint256(1000))
+            );
+        }
+        if (address(agentWalletFactory.adapterRegistry()) != deployments.adapterRegistry) {
+            scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry)), timelockDelay, bytes32(uint256(1001)));
+        }
         // 2. Register Adapters
-        console2.log("-> Registering adapters...");
-        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
-        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
+        console2.log("-> Checking adapter registration...");
+        if (!adapterRegistry.isRegisteredAdapter(deployments.erc4626Adapter)) {
+            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
+            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
+        }
         // 3. Set Agent Operator
-        console2.log("-> Granting AGENT_OPERATOR_ROLE to server:", serverAddress);
-        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)), timelockDelay, bytes32(uint256(1004)));
+        if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
+            console2.log("-> Granting AGENT_OPERATOR_ROLE to server:", serverAddress);
+            scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)), timelockDelay, bytes32(uint256(1004)));
+        } else {
+            console2.log("-> Server already has AGENT_OPERATOR_ROLE");
+        }
         console2.log("-> Configuration complete!");
         console2.log("=================================================");
         console2.log("You will need to register any specific vaults manually");

@@ -31,12 +31,12 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     error NoImplementationSet();
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
-    /// @param agentCreator Address that can create agent wallets (typically backend server)
-    constructor(address admin, address agentCreator) {
+    /// @param agentOperator Address that can create agent wallets (typically backend server)
+    constructor(address admin, address agentOperator) {
         require(admin != address(0), "Invalid admin");
-        require(agentCreator != address(0), "Invalid agent creator");
+        require(agentOperator != address(0), "Invalid agent creator");
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(AGENT_OPERATOR_ROLE, agentCreator);
+        _grantRole(AGENT_OPERATOR_ROLE, agentOperator);
     }
 
     function listAgentOperators() external view returns (address[] memory) {
@@ -81,14 +81,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
         if (baseAsset == address(0)) revert InvalidAddress();
         if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
-        bytes32 salt;
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, owner)
-            mstore(add(ptr, 0x20), ownerAgentIndex)
-            salt := keccak256(ptr, 0x40)
-        }
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry)))));
+        bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset)))));
         userWallets[owner][ownerAgentIndex] = address(ret);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
     }
@@ -101,15 +95,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @return The predicted wallet address
      */
     function getAddress(address owner, uint256 ownerAgentIndex, address baseAsset) public view returns (address) {
-        bytes32 salt;
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, owner)
-            mstore(add(ptr, 0x20), ownerAgentIndex)
-            salt := keccak256(ptr, 0x40)
-        }
-        return Create2.computeAddress(
-            salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry)))))
-        );
+        bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
+        return Create2.computeAddress(salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset))))));
     }
 }

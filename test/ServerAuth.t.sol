@@ -115,6 +115,39 @@ contract ServerAuthTest is Test {
         assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server should have role");
     }
 
+    function test_ServerAuth_SyncOnInitialization() public {
+        // 1. Grant role to server BEFORE creating wallet
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(1000)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(1000)));
+
+        // 2. Create wallet
+        AgentWallet newWallet = factory.createAccount(user, 1, address(usdc));
+
+        // 3. Verify server IS synced automatically
+        assertTrue(newWallet.isAgentOperator(server), "Server should be synced automatically on initialization");
+    }
+
+    function test_ServerAuth_SyncOnUpgrade() public {
+        // 1. Create wallet (no server yet)
+        AgentWallet newWallet = factory.createAccount(user, 2, address(usdc));
+        assertFalse(newWallet.isAgentOperator(server), "Server should not be in wallet initially");
+
+        // 2. Grant role to server in factory
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(2000)), 24 hours);
+        vm.warp(block.timestamp + 24 hours + 1);
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(2000)));
+
+        // 3. Upgrade wallet (this should trigger sync)
+        vm.prank(user);
+        newWallet.upgradeToLatest();
+
+        // 4. Verify server IS synced automatically after upgrade
+        assertTrue(newWallet.isAgentOperator(server), "Server should be synced automatically on upgradeToLatest");
+    }
+
     function test_ServerAuth_SetServer_EmitsEvent() public {
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(101)), 24 hours);
@@ -142,7 +175,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(102)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -164,7 +197,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(103)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -188,7 +221,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), salt1);
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         // Generate new server
         uint256 newServerPrivateKey = 0xABCD;
@@ -206,7 +239,7 @@ contract ServerAuthTest is Test {
         timelock.execute(address(factory), 0, setNewServerData, bytes32(0), salt2);
         timelock.execute(address(factory), 0, revokeOldServerData, bytes32(0), salt3);
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), newServer), "New server should have role");
         assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Old server should not have role");
@@ -230,7 +263,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(106)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
         assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server));
 
         // Revoke server via timelock
@@ -239,7 +272,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, revokeServerData, bytes32(0), bytes32(uint256(107)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server role should be revoked");
     }
@@ -251,7 +284,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(108)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         // Owner signature should still be valid
         bytes32 userOpHash = keccak256("userOp");
@@ -271,7 +304,7 @@ contract ServerAuthTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(109)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         bytes32 userOpHash = keccak256("userOp");
         bytes32 ethSignedHash = userOpHash.toEthSignedMessageHash();

@@ -50,20 +50,4 @@ contract YieldSeekerERC4626Adapter {
         assets = IERC4626(vault).redeem(shares, address(this), address(this));
         emit Withdrawn(address(this), vault, shares, assets);
     }
-
-    // ============ View Functions ============
-
-    /**
-     * @notice Get the underlying asset of a vault
-     */
-    function getAsset(address vault) external view returns (address) {
-        return IERC4626(vault).asset();
-    }
-
-    /**
-     * @notice Get share balance for a wallet
-     */
-    function getShareBalance(address vault, address wallet) external view returns (uint256) {
-        return IERC4626(vault).balanceOf(wallet);
-    }
 }

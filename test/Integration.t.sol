@@ -461,7 +461,7 @@ contract IntegrationTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(500)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
 
@@ -482,7 +482,7 @@ contract IntegrationTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(505)));
         vm.prank(user);
-        wallet.syncAgentOperators();
+        wallet.syncFromFactory();
 
         address[] memory adapters = new address[](2);
         adapters[0] = address(approveAdapter);

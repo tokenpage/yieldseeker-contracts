@@ -26,4 +26,4 @@ number_underscore = "preserve"
 sort_imports = true
 
 [lint]
-exclude_lints = ["unwrapped-modifier-logic"]
+exclude_lints = ["unwrapped-modifier-logic", "asm-keccak256"]

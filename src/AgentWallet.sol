@@ -35,8 +35,8 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
     // ERC-4337 v0.6 canonical EntryPoint address
-    IEntryPoint private constant _ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
-    address public immutable FACTORY;
+    IEntryPoint private constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
+    IAgentWalletFactory public immutable FACTORY;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event ExecutedViaAdapter(address indexed adapter, bytes data, bytes result);
@@ -57,17 +57,17 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     modifier onlySyncers() {
-        require(msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
+        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(FACTORY), "only syncers");
         _;
     }
 
     modifier onlyExecutors() {
-        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(entryPoint()), "only executors");
+        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(ENTRY_POINT), "only executors");
         _;
     }
 
     constructor(address factory) {
-        FACTORY = factory;
+        FACTORY = IAgentWalletFactory(factory);
         _disableInitializers();
     }
 
@@ -75,15 +75,15 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
 
     // ============ Initializers ============
 
-    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset, AdapterRegistry _adapterRegistry) public virtual initializer {
+    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) public virtual initializer {
         require(_owner != address(0), "Invalid owner");
         require(_baseAsset != address(0), "Invalid base asset");
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = _owner;
         $.ownerAgentIndex = _ownerAgentIndex;
         $.baseAsset = IERC20(_baseAsset);
-        $.adapterRegistry = _adapterRegistry;
-        emit AgentWalletInitialized(_ENTRY_POINT, _owner);
+        _syncFromFactory();
+        emit AgentWalletInitialized(ENTRY_POINT, _owner);
     }
 
     // ============ Storage Accessors ============
@@ -142,17 +142,25 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     /**
-     * @notice Sync all agent operators from the factory
+     * @notice Refresh configuration from the factory
      */
-    function syncAgentOperators() external onlySyncers {
+    function syncFromFactory() external onlySyncers {
+        _syncFromFactory();
+    }
+
+    /**
+     * @notice Internal helper to sync configuration from the factory
+     */
+    function _syncFromFactory() internal {
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
-        $.agentOperators = IAgentWalletFactory(FACTORY).listAgentOperators();
+        $.agentOperators = FACTORY.listAgentOperators();
+        $.adapterRegistry = FACTORY.adapterRegistry();
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
 
     function entryPoint() public view virtual override returns (IEntryPoint) {
-        return _ENTRY_POINT;
+        return ENTRY_POINT;
     }
 
     function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
@@ -239,16 +247,14 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
     function upgradeToLatest() external onlyOwner {
-        IAgentWalletFactory factory = IAgentWalletFactory(FACTORY);
-        address latest = factory.agentWalletImplementation();
-        // Sync registry reference from factory
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
-        $.adapterRegistry = factory.adapterRegistry();
+        address latest = FACTORY.agentWalletImplementation();
+        // Refresh all configuration before upgrading
+        _syncFromFactory();
         upgradeToAndCall(latest, "");
     }
 
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
-        address currentImpl = IAgentWalletFactory(FACTORY).agentWalletImplementation();
+        address currentImpl = FACTORY.agentWalletImplementation();
         if (newImplementation != currentImpl) {
             revert NotApprovedImplementation();
         }
