@@ -66,7 +66,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      */
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAdapterRegistry) == address(0)) revert InvalidAddress();
-        AdapterRegistry oldAdapterRegistry = this.adapterRegistry();
+        AdapterRegistry oldAdapterRegistry = adapterRegistry;
         adapterRegistry = newAdapterRegistry;
         emit RegistryUpdated(address(oldAdapterRegistry), address(newAdapterRegistry));
     }

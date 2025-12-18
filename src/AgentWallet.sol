@@ -12,6 +12,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {IAgentWallet} from "./IAgentWallet.sol";
 
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);
@@ -29,7 +30,7 @@ interface IAgentWalletFactory {
  *      - ERC-7201 namespaced storage
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  */
-contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
+contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
