@@ -8,6 +8,15 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 /**
+ * @title YieldSeekerAgentWalletProxy
+ * @notice A custom ERC1967Proxy that queries the Factory for its implementation.
+ * @dev This ensures the init-code hash is constant regardless of the implementation address.
+ */
+contract YieldSeekerAgentWalletProxy is ERC1967Proxy {
+    constructor() ERC1967Proxy(address(YieldSeekerAgentWalletFactory(msg.sender).agentWalletImplementation()), "") {}
+}
+
+/**
  * @title YieldSeekerAgentWalletFactory
  * @notice Factory for deploying AgentWallet proxies using CREATE2
  * @dev Each agent wallet is tied to a specific base asset (e.g., USDC)
@@ -55,6 +64,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      */
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAgentWalletImplementation) == address(0)) revert InvalidAddress();
+        if (address(newAgentWalletImplementation).code.length == 0) revert InvalidAddress();
         if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert InvalidImplementationFactory();
         agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
@@ -84,7 +94,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
         if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), "")));
+        ret = AgentWallet(payable(new YieldSeekerAgentWalletProxy{salt: salt}()));
         ret.initialize(owner, ownerAgentIndex, baseAsset);
         userWallets[owner][ownerAgentIndex] = address(ret);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
@@ -98,6 +108,6 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      */
     function getAddress(address owner, uint256 ownerAgentIndex) public view returns (address) {
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
-        return Create2.computeAddress(salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), ""))));
+        return Create2.computeAddress(salt, keccak256(type(YieldSeekerAgentWalletProxy).creationCode));
     }
 }

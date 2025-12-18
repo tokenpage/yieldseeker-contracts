@@ -239,14 +239,14 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @notice Execute a call through a registered adapter via delegatecall
      * @dev Implements "Peek and Verify" logic.
      */
-    function executeViaAdapter(address adapter, bytes calldata data) external payable onlyExecutors returns (bytes memory result) {
+    function executeViaAdapter(address adapter, bytes calldata data) external onlyExecutors returns (bytes memory result) {
         return _executeAdapterCall(adapter, data);
     }
 
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable onlyExecutors returns (bytes[] memory results) {
+    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
         if (length != datas.length) revert InvalidAddress();
         results = new bytes[](length);
