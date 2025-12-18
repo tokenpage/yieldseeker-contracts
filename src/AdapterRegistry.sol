@@ -21,6 +21,7 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
     error ZeroAddress();
     error AdapterNotRegistered(address adapter);
     error TargetNotRegistered(address target);
+    error NotAContract(address adapter);
 
     /// @param admin Address of the admin (gets admin roles for dangerous operations)
     /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
@@ -41,6 +42,7 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
 
     function registerAdapter(address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (adapter == address(0)) revert ZeroAddress();
+        if (adapter.code.length == 0) revert NotAContract(adapter);
         isRegisteredAdapter[adapter] = true;
         emit AdapterRegistered(adapter);
     }

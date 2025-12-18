@@ -51,6 +51,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     error InsufficientBalance();
     error TransferFailed();
     error NotApprovedImplementation();
+    error InvalidRegistry();
 
     modifier onlyOwner() {
         require(msg.sender == owner(), "only owner");
@@ -163,7 +164,9 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
             $.isAgentOperator[$.agentOperators[i]] = true;
         }
 
-        $.adapterRegistry = FACTORY.adapterRegistry();
+        AdapterRegistry newRegistry = FACTORY.adapterRegistry();
+        if (address(newRegistry) == address(0)) revert InvalidRegistry();
+        $.adapterRegistry = newRegistry;
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============

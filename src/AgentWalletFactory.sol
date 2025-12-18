@@ -37,8 +37,10 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
 
     error InvalidAddress();
     error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
-    error NoImplementationSet();
+    error NoAgentWalletImplementationSet();
+    error NoAdapterRegistrySet();
     error InvalidImplementationFactory();
+    error TooManyOperators();
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
@@ -56,6 +58,16 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
             operators[i] = getRoleMember(AGENT_OPERATOR_ROLE, i);
         }
         return operators;
+    }
+
+    /**
+     * @dev Internal override to enforce the operator limit
+     */
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= 10) {
+            revert TooManyOperators();
+        }
+        return super._grantRole(role, account);
     }
 
     /**
@@ -91,7 +103,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (owner == address(0)) revert InvalidAddress();
         if (baseAsset == address(0)) revert InvalidAddress();
-        if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
+        if (address(agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
+        if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new YieldSeekerAgentWalletProxy{salt: salt}()));
