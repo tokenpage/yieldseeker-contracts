@@ -682,10 +682,14 @@ Deployment addresses saved to `deployments.json`.
 ### Post-Deployment
 
 Use the helper script to register vaults with adapters:
-
+0xcaf2dA315f5a5499299A312b8a86faAfe4BAD959
 ```bash
-# Register an ERC4626 vault (Moonwell, Morpho, Yearn, etc.)
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x1234567890123456789012345678901234567890 erc4626
+# Register an ERC4626 vault (e.g. Morpho High Yield Clearstar)
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xE74c499fA461AF1844fCa84204490877787cED56 erc4626
+
+# Register ZeroX
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xcaf2dA315f5a5499299A312b8a86faAfe4BAD959 zeroex
+
 ```
 
 **Adapter names:**

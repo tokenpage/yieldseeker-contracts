@@ -40,7 +40,7 @@ contract DeployScript is Script {
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     // Deployment Salt for deterministic addresses
-    uint256 constant SALT = 0x3;
+    uint256 constant SALT = 0x4;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 72-hour delay)
@@ -68,6 +68,17 @@ contract DeployScript is Script {
         address zeroExAdapter;
     }
 
+    /**
+     * @notice Safely read an address from JSON, returning address(0) if the key doesn't exist
+     */
+    function safeReadAddress(string memory json, string memory key) internal pure returns (address) {
+        try vm.parseJsonAddress(json, key) returns (address addr) {
+            return addr;
+        } catch {
+            return address(0);
+        }
+    }
+
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -88,13 +99,13 @@ contract DeployScript is Script {
             // forge-lint: disable-next-line(unsafe-cheatcode)
             string memory deployJson = vm.readFile(path);
             deployments = Deployments({
-                adminTimelock: deployJson.readAddress(".adminTimelock"),
-                agentWalletFactory: deployJson.readAddress(".agentWalletFactory"),
-                adapterRegistry: deployJson.readAddress(".adapterRegistry"),
-                agentWalletImplementation: deployJson.readAddress(".agentWalletImplementation"),
-                erc4626Adapter: deployJson.readAddress(".erc4626Adapter"),
-                aaveV3Adapter: deployJson.readAddress(".aaveV3Adapter"),
-                zeroExAdapter: deployJson.readAddress(".zeroExAdapter")
+                adminTimelock: safeReadAddress(deployJson, ".adminTimelock"),
+                agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
+                adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
+                agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
+                erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
+                aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
+                zeroExAdapter: safeReadAddress(deployJson, ".zeroExAdapter")
             });
         }
 
@@ -194,51 +205,82 @@ contract DeployScript is Script {
         AgentWalletFactory agentWalletFactory = AgentWalletFactory(deployments.agentWalletFactory);
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
+
+        // Collect all operations to batch
+        address[] memory targets = new address[](6);
+        bytes[] memory datas = new bytes[](6);
+        uint256 operationCount = 0;
+
         // 1. Configure Factory
-        console2.log("-> Syncing agentWalletFactory configuration...");
+        console2.log("-> Preparing agentWalletFactory configuration...");
         if (address(agentWalletFactory.agentWalletImplementation()) != deployments.agentWalletImplementation) {
-            scheduleAndExecute(
-                adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))), timelockDelay, bytes32(uint256(1000))
-            );
+            targets[operationCount] = deployments.agentWalletFactory;
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation))));
+            operationCount++;
         }
         if (address(agentWalletFactory.adapterRegistry()) != deployments.adapterRegistry) {
-            scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry)), timelockDelay, bytes32(uint256(1001)));
+            targets[operationCount] = deployments.agentWalletFactory;
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry));
+            operationCount++;
         }
         // 2. Register Adapters
-        console2.log("-> Checking adapter registration...");
+        console2.log("-> Preparing adapter registration...");
         if (!adapterRegistry.isRegisteredAdapter(deployments.erc4626Adapter)) {
-            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter));
+            operationCount++;
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
-            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter));
+            operationCount++;
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.zeroExAdapter)) {
-            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.zeroExAdapter)), timelockDelay, bytes32(uint256(1005)));
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.zeroExAdapter));
+            operationCount++;
         }
         // 3. Set Agent Operator
         if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
-            console2.log("-> Granting AGENT_OPERATOR_ROLE to server:", serverAddress);
-            scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)), timelockDelay, bytes32(uint256(1004)));
+            console2.log("-> Preparing AGENT_OPERATOR_ROLE grant for server:", serverAddress);
+            targets[operationCount] = deployments.agentWalletFactory;
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress));
+            operationCount++;
         } else {
             console2.log("-> Server already has AGENT_OPERATOR_ROLE");
         }
-        console2.log("-> Configuration complete!");
+        // Execute batch if there are operations
+        if (operationCount > 0) {
+            // Resize arrays to actual operation count
+            address[] memory batchTargets = new address[](operationCount);
+            uint256[] memory batchValues = new uint256[](operationCount);
+            bytes[] memory batchDatas = new bytes[](operationCount);
+            for (uint256 i = 0; i < operationCount; i++) {
+                batchTargets[i] = targets[i];
+                batchValues[i] = 0;
+                batchDatas[i] = datas[i];
+            }
+            console2.log("-> Executing", operationCount, "operations in batch...");
+            scheduleAndExecuteBatch(adminTimelock, batchTargets, batchValues, batchDatas, timelockDelay, bytes32(uint256(1000)));
+            console2.log("-> Configuration complete!");
+        } else {
+            console2.log("-> No configuration needed, all settings are up to date!");
+        }
         console2.log("=================================================");
         console2.log("You will need to register any specific vaults manually");
         console2.log("=================================================");
-
         vm.stopBroadcast();
     }
 
-    function scheduleAndExecute(AdminTimelock adminTimelock, address target, bytes memory data, uint256 delay, bytes32 salt) internal {
+    function scheduleAndExecuteBatch(AdminTimelock adminTimelock, address[] memory targets, uint256[] memory values, bytes[] memory datas, uint256 delay, bytes32 salt) internal {
         if (delay == 0) {
             // Testing mode: execute directly
-            adminTimelock.schedule(target, 0, data, bytes32(0), salt, 0);
-            adminTimelock.execute(target, 0, data, bytes32(0), salt);
+            adminTimelock.scheduleBatch(targets, values, datas, bytes32(0), salt, 0);
+            adminTimelock.executeBatch(targets, values, datas, bytes32(0), salt);
         } else {
             // Production mode: only schedule (need to execute later)
-            adminTimelock.schedule(target, 0, data, bytes32(0), salt, delay);
-            console2.log("   Scheduled operation with salt:", vm.toString(salt));
+            adminTimelock.scheduleBatch(targets, values, datas, bytes32(0), salt, delay);
+            console2.log("   Scheduled batch operation with salt:", vm.toString(salt));
             console2.log("   Execute after delay:", delay);
         }
     }
