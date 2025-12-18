@@ -206,6 +206,11 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     /**
      * @notice Internal helper to validate and execute adapter call
+     * @dev This function implements the "Peek and Verify" pattern.
+     * It extracts the first argument from the calldata (the target) and verifies
+     * in the Registry that this adapter is authorized to call that target.
+     *
+     * IMPORTANT: All adapter functions MUST take the target address as their first argument.
      */
     function _executeAdapterCall(address adapter, bytes calldata data) private returns (bytes memory result) {
         // 1. Peek: Extract target from first 32 bytes of data (after selector is handled by adapter)
