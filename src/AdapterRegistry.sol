@@ -8,7 +8,6 @@ import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap
 contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
     using EnumerableMap for EnumerableMap.AddressToAddressMap;
 
-    bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     EnumerableMap.AddressToAddressMap private _targetToAdapter;
@@ -23,17 +22,12 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
     error AdapterNotRegistered(address adapter);
     error TargetNotRegistered(address target);
 
-    /// @param timelock Address of the AdminTimelock contract (gets admin roles for dangerous operations)
+    /// @param admin Address of the admin (gets admin roles for dangerous operations)
     /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
-    constructor(address timelock, address emergencyAdmin) {
-        if (timelock == address(0)) revert ZeroAddress();
+    constructor(address admin, address emergencyAdmin) {
+        if (admin == address(0)) revert ZeroAddress();
         if (emergencyAdmin == address(0)) revert ZeroAddress();
-
-        // Timelock controls dangerous operations (registerAdapter, registerTarget, etc.)
-        _grantRole(DEFAULT_ADMIN_ROLE, timelock);
-        _grantRole(REGISTRY_ADMIN_ROLE, timelock);
-
-        // Emergency admin can respond instantly to threats
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
 
@@ -41,17 +35,17 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         _pause();
     }
 
-    function unpause() external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
-    function registerAdapter(address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function registerAdapter(address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (adapter == address(0)) revert ZeroAddress();
         isRegisteredAdapter[adapter] = true;
         emit AdapterRegistered(adapter);
     }
 
-    function setTargetAdapter(address target, address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function setTargetAdapter(address target, address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (target == address(0)) revert ZeroAddress();
         if (!isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
         (bool exists, address previousAdapter) = _targetToAdapter.tryGet(target);
