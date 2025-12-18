@@ -45,17 +45,30 @@ Our system uses a layered validation approach:
 **Example Flow:**
 - Server signs UserOperation: `wallet.executeViaAdapter(ERC4626Adapter, deposit(MorphoVault, 1000))`
 - Wallet validates signature is from owner OR yieldSeekerServer
-- Wallet checks: `registry.isRegisteredAdapter(ERC4626Adapter)` ✓
+- Wallet checks: `registry.getTargetAdapter(MorphoVault)` → returns `ERC4626Adapter` ✓
+- Wallet verifies returned adapter matches the requested adapter ✓
 - Wallet DELEGATECALLs adapter code into wallet context
-- Adapter checks: `registry.isValidTarget(MorphoVault)` → returns `(true, ERC4626Adapter)` ✓
 - Adapter executes: `approve()` + `deposit()` in wallet's context
 
 **Why this works:**
 - Server can only call registered adapters
-- Adapters can only operate on targets registered for them
+- Adapters can only operate on targets registered for them in the registry
 - Solidity enforces function signatures - no arbitrary calldata
 - Amounts are user-controlled (intentional)
 - Single server key can manage all wallets without individual configuration
+
+### Emergency Controls and Stale Cache Mitigation
+
+The system uses a **caching mechanism** for performance and ERC-4337 compliance (avoiding external calls during validation). Wallets cache the `agentOperator` list and `adapterRegistry` address.
+
+**The Risk**: If an operator is revoked at the Factory, existing wallets will not know until they are synced.
+
+**The Mitigation**: The `AdapterRegistry` serves as a global **Kill Switch**.
+- All adapter actions call `registry.getTargetAdapter(target)`.
+- This function is `Pausable`.
+- **If an operator is compromised**, the admin can immediately `pause()` the `AdapterRegistry`.
+- This **instantly stops all agent actions** across all wallets globally, regardless of whether their operator cache is stale.
+- Once the registry is paused, admins can safely sync or upgrade wallets before unpausing.
 
 ### Standards Compliance
 
@@ -76,31 +89,28 @@ sequenceDiagram
     participant Server as YieldSeeker Server
     participant EP as EntryPoint (v0.6)
     participant Wallet as AgentWallet
-    participant Registry as ActionRegistry
-    participant Adapter as Adapter (ERC4626/Aave)
+    participant Registry as AdapterRegistry
+    participant Adapter as Adapter (ERC4626/ZeroX)
     participant Target as Target Contract (Vault/Pool)
 
     Note over Server: Server signs UserOperation<br/>for ANY user's wallet
 
     Server->>EP: handleOps([userOp], beneficiary)
     EP->>Wallet: validateUserOp(userOp, hash, missingFunds)
-    Wallet->>Registry: Check if signer is owner OR yieldSeekerServer
-    Registry-->>Wallet: yieldSeekerServer address
-    Wallet->>Wallet: Validate signature from owner OR server ✓
+    Wallet->>Wallet: Check if signer is owner OR cached agentOperator
+    Wallet->>Wallet: Validate signature from owner OR operator ✓
     Wallet->>Wallet: Pay prefund to EntryPoint
     Wallet-->>EP: validationData (0 = success)
 
     alt Validation Passed
         EP->>Wallet: executeViaAdapter(adapter, data)
-        Wallet->>Registry: isRegisteredAdapter(adapter)?
-        Registry-->>Wallet: true ✓
+        Wallet->>Registry: getTargetAdapter(target)
+        Registry-->>Wallet: registeredAdapter (e.g. ERC4626Adapter)
+        Note over Wallet: Verify registeredAdapter == requested adapter ✓
         Wallet->>Adapter: DELEGATECALL data
         Note over Wallet, Adapter: Adapter code runs in wallet context<br/>address(this) = wallet
-        Adapter->>Registry: isValidTarget(target)?
-        Registry-->>Adapter: (true, adapter) ✓
-        Adapter->>Adapter: Validate adapter matches self ✓
-        Adapter->>Target: approve() + deposit/supply()
-        Target-->>Wallet: Shares/aTokens minted to wallet
+        Adapter->>Target: approve() + deposit/swap()
+        Target-->>Wallet: Assets/Shares returned to wallet
         Wallet-->>EP: ✓
     end
 ```
@@ -133,109 +143,103 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `address` | Wallet owner (can withdraw, upgrade) |
-| `actionRegistry` | `address` | Reference to ActionRegistry |
+| `baseAsset` | `IERC20` | The primary asset this agent manages (e.g. USDC) |
+| `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
+| `adapterRegistry` | `AdapterRegistry` | Cached reference to AdapterRegistry from Factory |
 
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `initialize(owner, registry)` | Factory only | Sets up wallet with owner and registry |
-| `executeViaAdapter(adapter, data)` | EntryPoint/Owner | Execute via registered adapter (DELEGATECALL) |
-| `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR server) |
-| `withdrawTokenToUser(token, recipient, amount)` | Owner only | User withdraws ERC20 |
-| `withdrawAllToUser(recipient)` | Owner only | User withdraws all base asset |
+| `initialize(owner, index, asset)` | Factory only | Sets up wallet and syncs config from Factory |
+| `executeViaAdapter(adapter, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
+| `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
+| `syncFromFactory()` | Syncers | Refresh cached operators and registry address |
+| `withdrawBaseAssetToUser(recipient, amount)` | Owner only | User withdraws base asset |
 | `withdrawEthToUser(recipient, amount)` | Owner only | User withdraws ETH |
-| `upgradeToAndCall(newImpl, data)` | Owner only | Upgrade to approved implementation |
+| `upgradeToLatest()` | Owner only | Upgrade to latest approved implementation from Factory |
 | `execute()` | **DISABLED** | Reverts with `NotAllowed` |
 | `executeBatch()` | **DISABLED** | Reverts with `NotAllowed` |
 
-**Server Authorization:**
+**Operator Authorization:**
 The wallet validates UserOperation signatures from either:
 1. The wallet's owner (user's EOA)
-2. The `yieldSeekerServer` address from the ActionRegistry
-
-This allows a single server to manage all wallets without per-wallet configuration.
+2. Any address in the cached `agentOperators` list (synced from Factory)
 
 ---
 
 #### AgentWalletFactory (`src/AgentWalletFactory.sol`)
 
-Deploys new agent wallets as ERC1967 proxies with deterministic addresses.
+Deploys new agent wallets as ERC1967 proxies and manages global configuration.
+
+**Roles:**
+| Role | Description |
+|------|-------------|
+| `DEFAULT_ADMIN_ROLE` | Manages implementation, registry, and roles |
+| `AGENT_OPERATOR_ROLE` | Authorized to create wallets and sign for agents |
 
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `createAccount(owner, salt)` | Anyone | Deploys new wallet via CREATE2 |
-| `getAddress(owner, salt)` | View | Predicts address before deployment |
-| `setAgentWalletImplementation(newImpl)` | Owner only | Updates implementation for new wallets |
+| `createAccount(owner, index, asset)` | Operator | Deploys new wallet via CREATE2 |
+| `getAddress(owner, index)` | View | Predicts address before deployment |
+| `setAgentWalletImplementation(newImpl)` | Admin | Updates implementation for NEW wallets |
+| `setAdapterRegistry(newRegistry)` | Admin | Updates registry for NEW wallets |
 
 **Features:**
-- **Deterministic Addresses**: Same owner + salt = same address across chains
+- **Deterministic Addresses**: Same owner + index = same address across chains (Asset-agnostic)
 - **User Sovereignty**: Factory cannot force-upgrade existing wallets
 - **ERC-4337 Compatible**: Implements `IEntryPoint.getSenderAddress()` pattern
 
 ---
 
-#### ActionRegistry (`src/ActionRegistry.sol`)
+#### AdapterRegistry (`src/AdapterRegistry.sol`)
 
-The central registry that manages adapters, targets, and server authorization.
+The central registry that manages authorized adapters and their targets.
 
-**Roles (AccessControl):**
+**Roles:**
 | Role | Description |
 |------|-------------|
-| `DEFAULT_ADMIN_ROLE` | Can grant/revoke other roles |
-| `REGISTRY_ADMIN_ROLE` | Can register adapters, targets, and set server |
+| `DEFAULT_ADMIN_ROLE` | Can register adapters and targets |
 | `EMERGENCY_ROLE` | Can remove targets/adapters and pause instantly |
-
-**Storage:**
-```solidity
-mapping(address target => address adapter) public targetToAdapter;
-mapping(address adapter => bool registered) public isRegisteredAdapter;
-address public yieldSeekerServer;  // Centralized server authorization
-bool public paused;
-```
 
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `registerAdapter(adapter)` | REGISTRY_ADMIN_ROLE | Register a new adapter contract |
-| `registerTarget(target, adapter)` | REGISTRY_ADMIN_ROLE | Map a target to its adapter |
-| `updateTargetAdapter(target, newAdapter)` | REGISTRY_ADMIN_ROLE | Change adapter for existing target |
-| `removeTarget(target)` | EMERGENCY_ROLE | Remove target instantly |
-| `unregisterAdapter(adapter)` | EMERGENCY_ROLE | Unregister adapter instantly |
-| `setYieldSeekerServer(server)` | REGISTRY_ADMIN_ROLE | Set centralized server address |
-| `pause()` / `unpause()` | EMERGENCY_ROLE / REGISTRY_ADMIN_ROLE | Emergency pause/unpause |
-| `isValidTarget(target)` | View | Check if target is registered with valid adapter |
-| `isRegisteredAdapter(adapter)` | View | Check if adapter is registered |
+| `registerAdapter(adapter)` | Admin | Register a new adapter contract |
+| `setTargetAdapter(target, adapter)` | Admin | Map a target (vault/pool) to its adapter |
+| `removeTarget(target)` | Emergency | Remove target mapping instantly |
+| `pause()` / `unpause()` | Emergency / Admin | Emergency pause/unpause |
+| `getTargetAdapter(target)` | View | Returns adapter for target (reverts if paused) |
+| `getAllTargets()` | View | Returns list of all registered targets |
 
 **Resolution Flow:**
-1. Wallet calls `registry.isRegisteredAdapter(adapter)` → must be true
-2. Adapter (during DELEGATECALL) calls `registry.isValidTarget(target)` → must return `(true, self)`
+1. Wallet extracts `target` from calldata.
+2. Wallet calls `registry.getTargetAdapter(target)` → must return the requested `adapter`.
+3. If registry is **paused**, all adapter actions revert globally.
 
 ---
 
 ### Adapters (`src/adapters/`)
 
-Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. When called via DELEGATECALL from a wallet, `address(this)` equals the wallet address, allowing the adapter to execute operations in the wallet's context.
+Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. They inherit from `YieldSeekerAdapter` to enforce `baseAsset` constraints.
 
 #### ERC4626Adapter (`src/adapters/ERC4626Adapter.sol`)
 
 For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
-**Key Functions:**
+**Validation:**
+- Enforces that the vault's underlying asset matches the wallet's `baseAsset`.
 
-| Function | Context | Description |
-|----------|---------|-------------|
-| `deposit(vault, amount)` | DELEGATECALL | Approve vault, deposit assets, shares to wallet |
-| `withdraw(vault, shares)` | DELEGATECALL | Redeem shares, assets to wallet |
-| `getAsset(vault)` | View | Get underlying asset address |
-| `getShareBalance(vault, wallet)` | View | Get share balance for wallet |
+#### ZeroXAdapter (`src/adapters/ZeroXAdapter.sol`)
+
+For 0x API v2 swaps.
 
 **Validation:**
-- Checks `registry.isValidTarget(vault)` returns `(true, self)`
-- Reverts with `VaultNotRegistered` or `WrongAdapter` if validation fails
+- Enforces that either the `sellToken` or `buyToken` is the wallet's `baseAsset`.
+- Validates the 0x `allowanceTarget`.
 
 ---
 
@@ -247,7 +251,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 |-------|-------------|
 | **User** | EOA that owns a wallet. Can withdraw funds and upgrade their wallet. |
 | **YieldSeeker Server** | Centralized backend service that can sign UserOperations for ANY wallet. |
-| **Platform Admin** | Manages the ActionRegistry and Factory. |
+| **Platform Admin** | Manages the AdapterRegistry and Factory. |
 | **Emergency Admin** | Can instantly pause, remove adapters, or targets in case of compromise. |
 
 ---
@@ -278,18 +282,16 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 ---
 
-#### ActionRegistry
+#### AdapterRegistry
 
 | Action | Role Required | Timing | Description |
 |--------|---------------|--------|-------------|
 | `registerAdapter()` | `REGISTRY_ADMIN_ROLE` | Normal | Register a new adapter |
 | `unregisterAdapter()` | `EMERGENCY_ROLE` | Instant | Remove adapter immediately |
-| `registerTarget()` | `REGISTRY_ADMIN_ROLE` | Normal | Map target → adapter |
+| `setTargetAdapter()` | `REGISTRY_ADMIN_ROLE` | Normal | Map target → adapter |
 | `removeTarget()` | `EMERGENCY_ROLE` | Instant | Remove target mapping immediately |
-| `setYieldSeekerServer()` | `REGISTRY_ADMIN_ROLE` | Normal | Set centralized server address |
 | `pause()` / `unpause()` | `EMERGENCY_ROLE` / `REGISTRY_ADMIN_ROLE` | Instant | Emergency pause/unpause |
-| `isRegisteredAdapter()` | Anyone (view) | N/A | Check if adapter is registered |
-| `isValidTarget()` | Anyone (view) | N/A | Check target and return its adapter |
+| `getTargetAdapter()` | Anyone (view) | N/A | Check target and return its adapter |
 
 ---
 
@@ -305,7 +307,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 ❌ **CANNOT:**
 - Execute arbitrary calls (execute/executeBatch disabled)
-- Modify ActionRegistry configurations
+- Modify AdapterRegistry configurations
 - Affect other users' wallets
 
 ---
@@ -324,7 +326,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 - Approve tokens to non-registered contracts
 - Transfer tokens directly
 - Upgrade wallet implementations
-- Call adapters or targets not registered in ActionRegistry
+- Call adapters or targets not registered in AdapterRegistry
 - Execute standard `execute()` or `executeBatch()` (disabled)
 
 ---
@@ -334,7 +336,6 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 - Register new adapters
 - Register new targets (vaults, pools)
 - Update target-to-adapter mappings
-- Set the yieldSeekerServer address
 - Grant/revoke admin roles
 
 ❌ **CANNOT:**
@@ -381,17 +382,19 @@ sequenceDiagram
 
     User->>Factory: createAccount(user, salt)
     Factory->>Factory: Compute address: CREATE2(user, salt)
-    Factory->>Proxy: new ERC1967Proxy{salt}(impl, initData)
-    Proxy->>Wallet: delegatecall initialize(user, registry)
+    Factory->>Proxy: new ERC1967Proxy{salt}(impl, "")
+    Note over Factory, Proxy: Address depends ONLY on owner + index
+    Proxy->>Wallet: delegatecall initialize(user, index, asset)
     Wallet->>Wallet: Set owner = user
-    Wallet->>Wallet: Set actionRegistry = registry
+    Wallet->>Wallet: Set baseAsset = asset
+    Wallet->>Wallet: Set adapterRegistry = registry
     Wallet-->>Proxy: ✓
     Proxy-->>Factory: proxy address
     Factory-->>User: walletAddress
 ```
 
 **Result:**
-- New wallet deployed at deterministic address
+- New wallet deployed at deterministic address (Asset-agnostic)
 - User is owner (can withdraw, upgrade)
 - Wallet ready to receive deposits
 - Server can sign UserOperations for this wallet (no configuration needed)
@@ -401,7 +404,8 @@ sequenceDiagram
 // Anyone can create wallet for user
 address walletAddr = factory.createAccount(
     userAddress,     // Owner
-    0                // Salt (for multiple wallets)
+    0,               // Index
+    usdcAddress      // Base Asset
 );
 
 // User can now deposit USDC
@@ -420,9 +424,9 @@ IERC20(USDC).transfer(walletAddr, 1000e6);
 
 **Pre-requisites:**
 - Agent wallet already created for user
-- ERC4626Adapter registered in ActionRegistry
-- Target vault registered in ActionRegistry (mapped to ERC4626Adapter)
-- Server address set as `yieldSeekerServer` in ActionRegistry
+- ERC4626Adapter registered in AdapterRegistry
+- Target vault registered in AdapterRegistry (mapped to ERC4626Adapter)
+- Server address set as `agentOperator` in Factory
 
 **Step 1: User deposits USDC to their wallet**
 ```solidity
@@ -444,18 +448,14 @@ sequenceDiagram
     Server->>EP: handleOps([userOp], beneficiary)
     Note over Server: UserOp.callData = executeViaAdapter(adapter, deposit(...))
     EP->>Wallet: validateUserOp(userOp, hash, funds)
-    Wallet->>Registry: yieldSeekerServer
-    Registry-->>Wallet: serverAddress
-    Wallet->>Wallet: Validate signature from server ✓
+    Wallet->>Wallet: Check if signer is cached agentOperator ✓
     Wallet-->>EP: validationData = 0
     EP->>Wallet: executeViaAdapter(adapter, deposit(vault, 1000))
-    Wallet->>Registry: isRegisteredAdapter(adapter)?
-    Registry-->>Wallet: true
+    Wallet->>Registry: getTargetAdapter(vault)
+    Registry-->>Wallet: adapter
+    Note over Wallet: Verify adapter == requested adapter ✓
     Wallet->>Adapter: DELEGATECALL deposit(vault, 1000)
     Note over Wallet, Adapter: address(this) = wallet inside adapter
-    Adapter->>Registry: isValidTarget(vault)?
-    Registry-->>Adapter: (true, adapter)
-    Adapter->>Adapter: Validate adapter == self ✓
     Adapter->>Vault: USDC.approve(vault, 1000)
     Adapter->>Vault: vault.deposit(1000, wallet)
     Vault-->>Wallet: Shares minted to wallet
@@ -507,7 +507,7 @@ forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
 ```
 
 This deploys:
-- `ActionRegistry`
+- `AdapterRegistry`
 - `AgentWallet` (implementation)
 - `AgentWalletFactory`
 - `ERC4626Adapter`
@@ -519,13 +519,9 @@ This deploys:
 # Set additional env vars from Step 1 output
 export REGISTRY_ADDRESS=<deployed-registry>
 export ERC4626_ADAPTER=<deployed-erc4626-adapter>
-export SERVER_ADDRESS=<yieldseeker-server>
 
 # Register adapters
 cast send $REGISTRY_ADDRESS "registerAdapter(address)" $ERC4626_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
-
-# Set server address
-cast send $REGISTRY_ADDRESS "setYieldSeekerServer(address)" $SERVER_ADDRESS --private-key $DEPLOYER_PRIVATE_KEY
 ```
 
 ### Step 3: Register Targets
@@ -534,8 +530,7 @@ cast send $REGISTRY_ADDRESS "setYieldSeekerServer(address)" $SERVER_ADDRESS --pr
 # Register vaults
 export MORPHO_VAULT=<morpho-vault-address>
 
-cast send $REGISTRY_ADDRESS "registerTarget(address,address)" $MORPHO_VAULT $ERC4626_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
-cast send $REGISTRY_ADDRESS "registerTarget(address,address)" $AAVE_POOL $AAVE_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
+cast send $REGISTRY_ADDRESS "setTargetAdapter(address,address)" $MORPHO_VAULT $ERC4626_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
 ```
 
 ---
@@ -557,7 +552,6 @@ We have comprehensive tests in `test/`:
 | Test File | Description |
 |-----------|-------------|
 | `Integration.t.sol` | Full lifecycle tests (create wallet, deposit, withdraw) |
-| `ServerAuth.t.sol` | Server authorization tests (yieldSeekerServer validation) |
 
 **Key Tests:**
 - ✅ Happy path: Create wallet, deposit to vault, withdraw
@@ -578,10 +572,7 @@ We have comprehensive tests in `test/`:
 factory.setAgentWalletImplementation(newImplementationAddress);
 
 // User calls on their wallet to upgrade to new approved implementation
-wallet.upgradeToAndCall(
-    newImplementationAddress,
-    abi.encodeCall(WalletV2.initializeV2, (newParam))
-);
+wallet.upgradeToLatest();
 ```
 
 **Note**: Wallets can only upgrade to implementations approved by the factory. This prevents users from accidentally upgrading to malicious implementations.
@@ -592,17 +583,17 @@ wallet.upgradeToAndCall(
 
 ### How It Works
 
-The `yieldSeekerServer` address in the ActionRegistry acts as a **centralized operator** that can sign UserOperations for ANY wallet without per-wallet configuration.
+The `agentOperators` list in the Factory (cached in each wallet) defines which addresses can sign UserOperations for ANY wallet.
 
 **Validation Flow:**
 1. Server signs UserOperation with its private key
 2. EntryPoint calls `wallet.validateUserOp(userOp, hash, funds)`
 3. Wallet recovers signer from signature
-4. Wallet checks: `signer == owner OR signer == registry.yieldSeekerServer()`
+4. Wallet checks: `signer == owner OR isAgentOperator(signer)`
 5. If valid, wallet returns `validationData = 0` (success)
 
 **Benefits:**
-- **Easy Key Rotation**: Update one address in registry, all wallets updated
+- **Easy Key Rotation**: Update list in factory, wallets can sync
 - **No Per-Wallet Config**: New wallets automatically trust the server
 - **Centralized Management**: Single backend service manages all wallets
 - **User Sovereignty**: Users can still sign their own UserOperations
@@ -610,17 +601,17 @@ The `yieldSeekerServer` address in the ActionRegistry acts as a **centralized op
 **Security:**
 - Server can only execute via registered adapters (same constraints as owner)
 - Server cannot withdraw funds (only owner can call `withdrawTokenToUser`)
-- Server cannot upgrade wallets (only owner can call `upgradeToAndCall`)
+- Server cannot upgrade wallets (only owner can call `upgradeToLatest`)
 - Emergency admin can pause registry to block all adapter validation
 
 ### Rotating Server Keys
 
 ```solidity
-// Admin updates server address in registry
-registry.setYieldSeekerServer(newServerAddress);
+// Admin updates server address in factory
+factory.setAgentOperators(newOperators);
 
-// All wallets immediately trust new server
-// Old server can no longer sign valid UserOperations
+// Wallets can sync to trust new server
+wallet.syncFromFactory();
 ```
 
 ---
@@ -661,7 +652,6 @@ Deployment addresses saved to `deployments.json`.
 ### Post-Deployment
 
 Use the helper script to register vaults with adapters:
-0xcaf2dA315f5a5499299A312b8a86faAfe4BAD959
 ```bash
 # Register an ERC4626 vault (e.g. Morpho High Yield Clearstar)
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xE74c499fA461AF1844fCa84204490877787cED56 erc4626
@@ -671,8 +661,7 @@ forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_
 ```
 
 (temp) test with:
-```base
-
+```bash
 py scripts/agent_wallet_create_from_factory.py -u krishan-test -i 1
 
 export WALLET=<output from above>
@@ -682,7 +671,6 @@ py scripts/agent_wallet_vault_deposit_withdraw.py -w $WALLET -v 0xE74c499fA461AF
 
 py scripts/agent_wallet_swap.py -w $WALLET -t 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE -m direct
 py scripts/agent_wallet_swap.py -w $WALLET -t 0x4200000000000000000000000000000000000006 -m paymaster
-
 ```
 
 
@@ -698,7 +686,7 @@ Example `deployments.json` to redeploy only implementation:
 {
   "adminTimelock": "0x...",
   "agentWalletFactory": "0x...",
-  "actionRegistry": "0x...",
+  "adapterRegistry": "0x...",
   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
   "erc4626Adapter": "0x...",
   "zeroXAdapter": "0x..."

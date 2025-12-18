@@ -84,7 +84,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
         if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset)))));
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), "")));
+        ret.initialize(owner, ownerAgentIndex, baseAsset);
         userWallets[owner][ownerAgentIndex] = address(ret);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
     }
@@ -93,11 +94,10 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @notice Calculate the counterfactual address of an AgentWallet
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner
-     * @param baseAsset Base asset token address for this agent
      * @return The predicted wallet address
      */
-    function getAddress(address owner, uint256 ownerAgentIndex, address baseAsset) public view returns (address) {
+    function getAddress(address owner, uint256 ownerAgentIndex) public view returns (address) {
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
-        return Create2.computeAddress(salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset))))));
+        return Create2.computeAddress(salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), ""))));
     }
 }

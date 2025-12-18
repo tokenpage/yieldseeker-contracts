@@ -236,7 +236,7 @@ contract IntegrationTest is Test {
         AgentWallet newWalletContract = factory.createAccount(user, testAgentIndex, address(usdc));
 
         // Verify address prediction works with new implementation
-        address predicted = factory.getAddress(user, testAgentIndex, address(usdc));
+        address predicted = factory.getAddress(user, testAgentIndex);
         assertEq(address(newWalletContract), predicted);
     }
 

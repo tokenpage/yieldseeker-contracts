@@ -57,12 +57,12 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     modifier onlySyncers() {
-        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(FACTORY), "only syncers");
+        require(msg.sender == address(FACTORY) || msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
         _;
     }
 
     modifier onlyExecutors() {
-        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(ENTRY_POINT), "only executors");
+        require(msg.sender == address(ENTRY_POINT) || msg.sender == owner() || isAgentOperator(msg.sender), "only executors");
         _;
     }
 
@@ -133,12 +133,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
      * @return True if the address is a cached operator
      */
     function isAgentOperator(address operator) public view returns (bool) {
-        address[] storage operators = AgentWalletStorageV1.layout().agentOperators;
-        uint256 length = operators.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (operators[i] == operator) return true;
-        }
-        return false;
+        return AgentWalletStorageV1.layout().isAgentOperator[operator];
     }
 
     /**
@@ -153,7 +148,20 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
      */
     function _syncFromFactory() internal {
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+
+        // Clear old mapping
+        uint256 oldLength = $.agentOperators.length;
+        for (uint256 i = 0; i < oldLength; i++) {
+            $.isAgentOperator[$.agentOperators[i]] = false;
+        }
+
+        // Update array and mapping
         $.agentOperators = FACTORY.listAgentOperators();
+        uint256 newLength = $.agentOperators.length;
+        for (uint256 i = 0; i < newLength; i++) {
+            $.isAgentOperator[$.agentOperators[i]] = true;
+        }
+
         $.adapterRegistry = FACTORY.adapterRegistry();
     }
 

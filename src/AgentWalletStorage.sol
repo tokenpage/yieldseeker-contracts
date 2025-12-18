@@ -19,6 +19,8 @@ library YieldSeekerAgentWalletStorageV1 {
         IERC20 baseAsset;
         AdapterRegistry adapterRegistry;
         address[] agentOperators;
+        // NOTE(krishan711): keep a map for fast lookup
+        mapping(address => bool) isAgentOperator;
     }
 
     function layout() internal pure returns (Layout storage l) {
