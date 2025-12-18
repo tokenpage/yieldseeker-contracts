@@ -98,12 +98,12 @@ contract IntegrationTest is Test {
         // For tests, we'll schedule and execute immediately by warping time
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, impl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(0), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(0));
 
         bytes memory setAdapterRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, registry);
         timelock.schedule(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0));
 
         // Deploy Mocks
@@ -117,23 +117,23 @@ contract IntegrationTest is Test {
         // Register Adapters (via timelock)
         bytes memory regApproveData = abi.encodeWithSelector(registry.registerAdapter.selector, address(approveAdapter));
         timelock.schedule(address(registry), 0, regApproveData, bytes32(0), bytes32(uint256(1)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regApproveData, bytes32(0), bytes32(uint256(1)));
 
         bytes memory regVaultData = abi.encodeWithSelector(registry.registerAdapter.selector, address(vaultAdapter));
         timelock.schedule(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)));
 
         // Register Targets (Required for new Peek-Verify logic) (via timelock)
         bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
         timelock.schedule(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)));
 
         bytes memory regTargetVaultData = abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
         timelock.schedule(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));
 
         // Create Agent Wallet with ownerAgentIndex=0 and baseAsset=USDC
@@ -196,7 +196,7 @@ contract IntegrationTest is Test {
         // Update factory to use new registry (via timelock)
         bytes memory setNewRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, newRegistry);
         timelock.schedule(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setNewRegistryData, bytes32(0), bytes32(uint256(200)));
 
         assertEq(address(factory.adapterRegistry()), address(newRegistry));
@@ -224,7 +224,7 @@ contract IntegrationTest is Test {
         // Update factory to use new implementation (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(300)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(300)));
 
         assertEq(address(factory.agentWalletImplementation()), address(newImpl));
@@ -257,7 +257,7 @@ contract IntegrationTest is Test {
         // 2. Register it in factory (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)));
 
         // 3. User calls upgradeToLatest
@@ -368,7 +368,7 @@ contract IntegrationTest is Test {
         // Register it in factory (via timelock)
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)));
 
         // User upgrades wallet
@@ -399,7 +399,7 @@ contract IntegrationTest is Test {
         AdapterRegistry newRegistry = new AdapterRegistry(address(timelock), address(this));
         bytes memory setRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, newRegistry);
         timelock.schedule(address(factory), 0, setRegistryData, bytes32(0), bytes32(uint256(400)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setRegistryData, bytes32(0), bytes32(uint256(400)));
 
         // Verify factory now has new registry
@@ -411,7 +411,7 @@ contract IntegrationTest is Test {
         AgentWallet newImpl = new AgentWallet(address(factory));
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(401)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(401)));
 
         // 3. Upgrade wallet - should sync registry
@@ -458,7 +458,7 @@ contract IntegrationTest is Test {
 
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(500)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(500)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -479,7 +479,7 @@ contract IntegrationTest is Test {
 
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(505)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(505)));
         vm.prank(user);
         wallet.syncFromFactory();

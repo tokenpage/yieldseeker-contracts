@@ -75,14 +75,14 @@ contract ServerAuthTest is Test {
         bytes memory setAdapterRegistryData = abi.encodeWithSelector(factory.setAdapterRegistry.selector, registry);
         bytes32 salt1 = bytes32(uint256(1));
         timelock.schedule(address(factory), 0, setAdapterRegistryData, bytes32(0), salt1, 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), salt1);
 
         bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, impl);
         bytes32 salt2 = bytes32(uint256(2));
-        vm.warp(block.timestamp + 1); // Move time forward slightly to avoid timestamp collision
+        vm.warp(vm.getBlockTimestamp() + 1); // Move time forward slightly to avoid timestamp collision
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), salt2, 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), salt2);
 
         // Create wallet with ownerAgentIndex=0 and baseAsset=USDC
@@ -109,7 +109,7 @@ contract ServerAuthTest is Test {
         // Admin sets the server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(100)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(100)));
 
         assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server should have role");
@@ -119,7 +119,7 @@ contract ServerAuthTest is Test {
         // 1. Grant role to server BEFORE creating wallet
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(1000)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(1000)));
 
         // 2. Create wallet
@@ -137,7 +137,7 @@ contract ServerAuthTest is Test {
         // 2. Grant role to server in factory
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(2000)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(2000)));
 
         // 3. Upgrade wallet (this should trigger sync)
@@ -151,7 +151,7 @@ contract ServerAuthTest is Test {
     function test_ServerAuth_SetServer_EmitsEvent() public {
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(101)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
 
         vm.expectEmit(true, true, true, true);
         emit IAccessControl.RoleGranted(factory.AGENT_OPERATOR_ROLE(), server, address(timelock));
@@ -172,7 +172,7 @@ contract ServerAuthTest is Test {
         // Set server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(102)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(102)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -194,7 +194,7 @@ contract ServerAuthTest is Test {
         // Set server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(103)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(103)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -218,7 +218,7 @@ contract ServerAuthTest is Test {
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         bytes32 salt1 = bytes32(uint256(104));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), salt1, 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), salt1);
         vm.prank(user);
         wallet.syncFromFactory();
@@ -228,14 +228,14 @@ contract ServerAuthTest is Test {
         address newServer = vm.addr(newServerPrivateKey);
 
         // Rotate to new server via timelock (advance time to avoid operation collision)
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         bytes memory setNewServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), newServer));
         bytes memory revokeOldServerData = abi.encodeCall(factory.revokeRole, (factory.AGENT_OPERATOR_ROLE(), server));
         bytes32 salt2 = bytes32(uint256(105));
         bytes32 salt3 = bytes32(uint256(106));
         timelock.schedule(address(factory), 0, setNewServerData, bytes32(0), salt2, 24 hours);
         timelock.schedule(address(factory), 0, revokeOldServerData, bytes32(0), salt3, 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setNewServerData, bytes32(0), salt2);
         timelock.execute(address(factory), 0, revokeOldServerData, bytes32(0), salt3);
         vm.prank(user);
@@ -260,7 +260,7 @@ contract ServerAuthTest is Test {
         // Set server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(106)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(106)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -269,7 +269,7 @@ contract ServerAuthTest is Test {
         // Revoke server via timelock
         bytes memory revokeServerData = abi.encodeCall(factory.revokeRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, revokeServerData, bytes32(0), bytes32(uint256(107)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, revokeServerData, bytes32(0), bytes32(uint256(107)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -281,7 +281,7 @@ contract ServerAuthTest is Test {
         // Set server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(108)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(108)));
         vm.prank(user);
         wallet.syncFromFactory();
@@ -301,7 +301,7 @@ contract ServerAuthTest is Test {
         // Set server via timelock
         bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(109)), 24 hours);
-        vm.warp(block.timestamp + 24 hours + 1);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(109)));
         vm.prank(user);
         wallet.syncFromFactory();

@@ -7,6 +7,7 @@ import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
+import {YieldSeekerZeroExAdapter as ZeroExAdapter} from "../src/adapters/ZeroExAdapter.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -27,7 +28,8 @@ import {console2} from "forge-std/console2.sol";
  *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
  *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
  *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
- *   "aaveV3Adapter": "0x0000000000000000000000000000000000000000"
+ *   "aaveV3Adapter": "0x0000000000000000000000000000000000000000",
+ *   "zeroExAdapter": "0x0000000000000000000000000000000000000000"
  * }
  *
  * In this example, only the Factory and Implementation would be redeployed.
@@ -44,6 +46,17 @@ contract DeployScript is Script {
     // Set to false for production (uses 72-hour delay)
     bool constant TESTING_MODE = true;
 
+    /**
+     * @notice Get 0x AllowanceHolder address for a given chain
+     * @dev See https://github.com/0xProject/0x-settler/blob/master/README.md#allowanceholder-addresses
+     * AllowanceHolder serves as BOTH the allowance target and entry point for swaps.
+     */
+    function getZeroExAllowanceTarget(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) return 0x0000000000001fF3684f28c67538d4D072C22734; // Base
+        if (chainId == 84532) return 0x0000000000001fF3684f28c67538d4D072C22734; // Base Sepolia
+        revert("Unsupported chain for 0x");
+    }
+
     // State tracking
     struct Deployments {
         address adminTimelock;
@@ -52,6 +65,7 @@ contract DeployScript is Script {
         address agentWalletImplementation;
         address erc4626Adapter;
         address aaveV3Adapter;
+        address zeroExAdapter;
     }
 
     function run() public {
@@ -79,7 +93,8 @@ contract DeployScript is Script {
                 adapterRegistry: deployJson.readAddress(".adapterRegistry"),
                 agentWalletImplementation: deployJson.readAddress(".agentWalletImplementation"),
                 erc4626Adapter: deployJson.readAddress(".erc4626Adapter"),
-                aaveV3Adapter: deployJson.readAddress(".aaveV3Adapter")
+                aaveV3Adapter: deployJson.readAddress(".aaveV3Adapter"),
+                zeroExAdapter: deployJson.readAddress(".zeroExAdapter")
             });
         }
 
@@ -128,7 +143,7 @@ contract DeployScript is Script {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
-        // Deploy or reuse ERC4626 Adapter
+        // Deploy or reuse ERC4626 AdaptgetZeroExAllowanceTarget(block.chainid
         if (deployments.erc4626Adapter == address(0)) {
             ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
             deployments.erc4626Adapter = address(erc4626Adapter);
@@ -146,6 +161,18 @@ contract DeployScript is Script {
             console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
         }
 
+        // Deploy or reuse ZeroEx Adapter
+        address zeroExAllowanceTarget = getZeroExAllowanceTarget(block.chainid);
+        if (deployments.zeroExAdapter == address(0)) {
+            ZeroExAdapter zeroExAdapter = new ZeroExAdapter{salt: bytes32(SALT)}(zeroExAllowanceTarget);
+            deployments.zeroExAdapter = address(zeroExAdapter);
+            console2.log("-> ZeroExAdapter deployed at:", address(zeroExAdapter));
+            console2.log("   allowanceTarget:", zeroExAllowanceTarget);
+        } else {
+            console2.log("-> Using existing zeroExAdapter:", deployments.zeroExAdapter);
+            console2.log("   allowanceTarget:", ZeroExAdapter(deployments.zeroExAdapter).ALLOWANCE_TARGET());
+        }
+
         // Export deployments to JSON
         string memory json = "json";
         vm.serializeAddress(json, "adminTimelock", deployments.adminTimelock);
@@ -153,7 +180,8 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
-        string memory finalJson = vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
+        vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
+        string memory finalJson = vm.serializeAddress(json, "zeroExAdapter", deployments.zeroExAdapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
 
@@ -183,6 +211,9 @@ contract DeployScript is Script {
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
             scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.zeroExAdapter)) {
+            scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.zeroExAdapter)), timelockDelay, bytes32(uint256(1005)));
         }
         // 3. Set Agent Operator
         if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {

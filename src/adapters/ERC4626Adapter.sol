@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -32,6 +32,9 @@ contract YieldSeekerERC4626Adapter {
      * @return shares Amount of vault shares received
      */
     function deposit(address vault, uint256 amount) external returns (uint256 shares) {
+        // NOTE: Future enhancement - We can access baseAsset via delegatecall context:
+        // IERC20 baseAsset = IAgentWallet(address(this)).baseAsset();
+        // Then enforce: require(asset == address(baseAsset), "Vault must accept base asset");
         if (amount == 0) revert ZeroAmount();
         address asset = IERC4626(vault).asset();
         IERC20(asset).forceApprove(vault, amount);
