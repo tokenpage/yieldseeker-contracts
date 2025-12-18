@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
+import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Test, console} from "forge-std/Test.sol";
 
 // Mock USDC for testing
 contract MockUSDC is ERC20 {
     constructor() ERC20("USDC", "USDC") {
         _mint(msg.sender, 1000000 * 10 ** 18);
     }
+
     function mint(address to, uint256 amount) public {
         _mint(to, amount);
     }
@@ -67,17 +68,17 @@ contract GasComparisonTest is Test {
         registry = new YieldSeekerAdapterRegistry(admin, admin);
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
         AgentWallet impl = new AgentWallet(address(factory));
-        
+
         vm.startPrank(admin);
         factory.setAgentWalletImplementation(impl);
         factory.setAdapterRegistry(registry);
-        
+
         // Setup Mocks and Adapters
         usdc = new MockUSDC();
         vault = new MockVault(address(usdc));
         vaultAdapter = new VaultAdapter();
         approveAdapter = new TokenApproveAdapter();
-        
+
         registry.registerAdapter(address(vaultAdapter));
         registry.registerAdapter(address(approveAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
@@ -91,11 +92,11 @@ contract GasComparisonTest is Test {
         // Fund both user and wallet
         usdc.mint(user, 1000 * 10 ** 18);
         usdc.mint(address(wallet), 1000 * 10 ** 18);
-        
+
         // Pre-approve for direct deposit to avoid measuring approval gas
         vm.prank(user);
         usdc.approve(address(vault), type(uint256).max);
-        
+
         // Pre-approve for wallet deposit
         vm.prank(user);
         wallet.executeViaAdapter(address(approveAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), type(uint256).max));
