@@ -16,6 +16,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);
     function adapterRegistry() external view returns (AdapterRegistry);
+    function listAgentOperators() external view returns (address[] memory);
 }
 
 /**
@@ -55,12 +56,13 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         _;
     }
 
-    modifier onlyFromEntryPointOrOwnerOrServer() {
-        address caller = msg.sender;
-        require(
-            caller == address(entryPoint()) || caller == owner() || caller == adapterRegistry().yieldSeekerServer(),
-            "account: not Owner, EntryPoint, or Server"
-        );
+    modifier onlySyncers() {
+        require(msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
+        _;
+    }
+
+    modifier onlyExecutors() {
+        require(msg.sender == owner() || isAgentOperator(msg.sender) || msg.sender == address(entryPoint()), "only executors");
         _;
     }
 
@@ -118,6 +120,35 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         return AgentWalletStorageV1.layout().adapterRegistry;
     }
 
+    /**
+     * @notice Get the list of agent operators (cached)
+     */
+    function listAgentOperators() public view returns (address[] memory) {
+        return AgentWalletStorageV1.layout().agentOperators;
+    }
+
+    /**
+     * @notice Check if an address is a cached agent operator
+     * @param operator The address to check
+     * @return True if the address is a cached operator
+     */
+    function isAgentOperator(address operator) public view returns (bool) {
+        address[] storage operators = AgentWalletStorageV1.layout().agentOperators;
+        uint256 length = operators.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (operators[i] == operator) return true;
+        }
+        return false;
+    }
+
+    /**
+     * @notice Sync all agent operators from the factory
+     */
+    function syncAgentOperators() external onlySyncers {
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+        $.agentOperators = IAgentWalletFactory(FACTORY).listAgentOperators();
+    }
+
     // ============ ERC-4337 / BaseAccount Overrides ============
 
     function entryPoint() public view virtual override returns (IEntryPoint) {
@@ -133,8 +164,7 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
             return 0;
         }
 
-        address authorizedServer = adapterRegistry().yieldSeekerServer();
-        if (authorizedServer != address(0) && signer == authorizedServer) {
+        if (isAgentOperator(signer)) {
             return 0;
         }
 
@@ -187,14 +217,14 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
      * @notice Execute a call through a registered adapter via delegatecall
      * @dev Implements "Peek and Verify" logic.
      */
-    function executeViaAdapter(address adapter, bytes calldata data) external payable onlyFromEntryPointOrOwnerOrServer returns (bytes memory result) {
+    function executeViaAdapter(address adapter, bytes calldata data) external payable onlyExecutors returns (bytes memory result) {
         return _executeAdapterCall(adapter, data);
     }
 
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable onlyFromEntryPointOrOwnerOrServer returns (bytes[] memory results) {
+    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external payable onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
         if (length != datas.length) revert InvalidAddress();
         results = new bytes[](length);
@@ -211,11 +241,9 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
     function upgradeToLatest() external onlyOwner {
         IAgentWalletFactory factory = IAgentWalletFactory(FACTORY);
         address latest = factory.agentWalletImplementation();
-
         // Sync registry reference from factory
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.adapterRegistry = factory.adapterRegistry();
-
         upgradeToAndCall(latest, "");
     }
 

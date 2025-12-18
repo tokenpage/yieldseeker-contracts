@@ -5,7 +5,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -102,45 +102,47 @@ contract ServerAuthTest is Test {
         assertEq(recovered, user, "Owner signature should recover to user");
 
         // Verify server is not set
-        assertEq(registry.yieldSeekerServer(), address(0), "Server should not be set initially");
+        assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server should not have role initially");
     }
 
     function test_ServerAuth_SetServer_Success() public {
         // Admin sets the server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(100)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(100)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(100)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(100)));
 
-        assertEq(registry.yieldSeekerServer(), server, "Server should be set");
+        assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server should have role");
     }
 
     function test_ServerAuth_SetServer_EmitsEvent() public {
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(101)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(101)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
 
-        vm.expectEmit(true, true, false, false);
-        emit AdapterRegistry.YieldSeekerServerUpdated(address(0), server);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(101)));
+        vm.expectEmit(true, true, true, true);
+        emit IAccessControl.RoleGranted(factory.AGENT_OPERATOR_ROLE(), server, address(timelock));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(101)));
     }
 
     function test_ServerAuth_SetServer_OnlyAdmin() public {
         address randomUser = address(0x999);
 
         // Random user cannot schedule timelock operations
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         vm.prank(randomUser);
         vm.expectRevert();
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(110)), 24 hours);
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(110)), 24 hours);
     }
 
     function test_ServerAuth_ValidServerSignature_Accepted() public {
         // Set server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(102)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(102)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(102)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(102)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -157,10 +159,12 @@ contract ServerAuthTest is Test {
 
     function test_ServerAuth_InvalidServerSignature_Rejected() public {
         // Set server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(103)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(103)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(103)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(103)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         // Create a UserOp hash
         bytes32 userOpHash = keccak256("userOp");
@@ -178,11 +182,13 @@ contract ServerAuthTest is Test {
 
     function test_ServerAuth_ServerRotation_OldServerRejected() public {
         // Set initial server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
         bytes32 salt1 = bytes32(uint256(104));
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), salt1, 24 hours);
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), salt1, 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), salt1);
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), salt1);
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         // Generate new server
         uint256 newServerPrivateKey = 0xABCD;
@@ -190,13 +196,20 @@ contract ServerAuthTest is Test {
 
         // Rotate to new server via timelock (advance time to avoid operation collision)
         vm.warp(block.timestamp + 1);
-        bytes memory setNewServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, newServer);
+        bytes memory setNewServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), newServer));
+        bytes memory revokeOldServerData = abi.encodeCall(factory.revokeRole, (factory.AGENT_OPERATOR_ROLE(), server));
         bytes32 salt2 = bytes32(uint256(105));
-        timelock.schedule(address(registry), 0, setNewServerData, bytes32(0), salt2, 24 hours);
+        bytes32 salt3 = bytes32(uint256(106));
+        timelock.schedule(address(factory), 0, setNewServerData, bytes32(0), salt2, 24 hours);
+        timelock.schedule(address(factory), 0, revokeOldServerData, bytes32(0), salt3, 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setNewServerData, bytes32(0), salt2);
+        timelock.execute(address(factory), 0, setNewServerData, bytes32(0), salt2);
+        timelock.execute(address(factory), 0, revokeOldServerData, bytes32(0), salt3);
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
-        assertEq(registry.yieldSeekerServer(), newServer, "New server should be set");
+        assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), newServer), "New server should have role");
+        assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Old server should not have role");
 
         // Old server signature should not be valid anymore
         bytes32 userOpHash = keccak256("userOp");
@@ -212,27 +225,33 @@ contract ServerAuthTest is Test {
 
     function test_ServerAuth_ServerRevocation_ServerDisabled() public {
         // Set server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(106)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(106)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(106)));
-        assertEq(registry.yieldSeekerServer(), server);
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(106)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
+        assertTrue(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server));
 
-        // Revoke server by setting to address(0) via timelock
-        bytes memory revokeServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, address(0));
-        timelock.schedule(address(registry), 0, revokeServerData, bytes32(0), bytes32(uint256(107)), 24 hours);
+        // Revoke server via timelock
+        bytes memory revokeServerData = abi.encodeCall(factory.revokeRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, revokeServerData, bytes32(0), bytes32(uint256(107)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, revokeServerData, bytes32(0), bytes32(uint256(107)));
+        timelock.execute(address(factory), 0, revokeServerData, bytes32(0), bytes32(uint256(107)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
-        assertEq(registry.yieldSeekerServer(), address(0), "Server should be revoked");
+        assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), server), "Server role should be revoked");
     }
 
     function test_ServerAuth_OwnerSignatureAlwaysValid() public {
         // Set server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(108)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(108)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(108)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(108)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         // Owner signature should still be valid
         bytes32 userOpHash = keccak256("userOp");
@@ -247,10 +266,12 @@ contract ServerAuthTest is Test {
 
     function test_ServerAuth_BothOwnerAndServerValid() public {
         // Set server via timelock
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(109)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(109)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(109)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(109)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         bytes32 userOpHash = keccak256("userOp");
         bytes32 ethSignedHash = userOpHash.toEthSignedMessageHash();

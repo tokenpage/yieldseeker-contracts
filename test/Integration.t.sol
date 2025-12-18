@@ -5,8 +5,6 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
-import {UserOperation} from "../src/erc4337/UserOperation.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -91,7 +89,7 @@ contract IntegrationTest is Test {
 
         // Deploy Registry and Factory with timelock as admin
         registry = new AdapterRegistry(address(timelock), owner); // owner gets EMERGENCY_ROLE
-        factory = new YieldSeekerAgentWalletFactory(address(timelock), owner); // owner gets AGENT_CREATOR_ROLE
+        factory = new YieldSeekerAgentWalletFactory(address(timelock), owner); // owner gets AGENT_OPERATOR_ROLE
 
         // Deploy Implementation
         AgentWallet impl = new AgentWallet(address(factory));
@@ -427,12 +425,7 @@ contract IntegrationTest is Test {
 
     function test_UserDirect_ApproveViaAdapter() public {
         // Users can call executeViaAdapter directly
-        bytes memory approveCallData = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            500 * 10 ** 18
-        );
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 500 * 10 ** 18);
 
         vm.prank(user);
         wallet.executeViaAdapter(address(approveAdapter), approveCallData);
@@ -447,17 +440,8 @@ contract IntegrationTest is Test {
         adapters[1] = address(vaultAdapter);
 
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            1000 * 10 ** 18
-        );
-        datas[1] = abi.encodeWithSelector(
-            VaultAdapter.deposit.selector,
-            address(vault),
-            500 * 10 ** 18
-        );
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18);
 
         vm.prank(user);
         wallet.executeViaAdapterBatch(adapters, datas);
@@ -472,17 +456,14 @@ contract IntegrationTest is Test {
         uint256 serverPrivateKey = 0xABCD;
         address server = vm.addr(serverPrivateKey);
 
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(500)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(500)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(500)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(500)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
-        bytes memory approveCallData = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            1000 * 10 ** 18
-        );
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
 
         // Server directly calls executeViaAdapter (allowed by updated access control)
         vm.prank(server);
@@ -496,27 +477,20 @@ contract IntegrationTest is Test {
         uint256 serverPrivateKey = 0xABCD;
         address server = vm.addr(serverPrivateKey);
 
-        bytes memory setServerData = abi.encodeWithSelector(registry.setYieldSeekerServer.selector, server);
-        timelock.schedule(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(505)), 24 hours);
+        bytes memory setServerData = abi.encodeCall(factory.grantRole, (factory.AGENT_OPERATOR_ROLE(), server));
+        timelock.schedule(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(505)), 24 hours);
         vm.warp(block.timestamp + 24 hours + 1);
-        timelock.execute(address(registry), 0, setServerData, bytes32(0), bytes32(uint256(505)));
+        timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(505)));
+        vm.prank(user);
+        wallet.syncAgentOperators();
 
         address[] memory adapters = new address[](2);
         adapters[0] = address(approveAdapter);
         adapters[1] = address(vaultAdapter);
 
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            900 * 10 ** 18
-        );
-        datas[1] = abi.encodeWithSelector(
-            VaultAdapter.deposit.selector,
-            address(vault),
-            400 * 10 ** 18
-        );
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 900 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 400 * 10 ** 18);
 
         // Server directly calls executeViaAdapterBatch
         vm.prank(server);
@@ -529,12 +503,7 @@ contract IntegrationTest is Test {
 
     function test_ServerViaEntryPoint_ExecuteViaAdapter() public {
         // Setup: Server calls executeViaAdapter via EntryPoint (simulating bundler execution)
-        bytes memory approveCallData = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            750 * 10 ** 18
-        );
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 750 * 10 ** 18);
 
         // EntryPoint calls executeViaAdapter on behalf of owner
         vm.prank(address(entryPoint));
@@ -550,17 +519,8 @@ contract IntegrationTest is Test {
         adapters[1] = address(vaultAdapter);
 
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(
-            TokenApproveAdapter.approve.selector,
-            address(usdc),
-            address(vault),
-            1000 * 10 ** 18
-        );
-        datas[1] = abi.encodeWithSelector(
-            VaultAdapter.deposit.selector,
-            address(vault),
-            600 * 10 ** 18
-        );
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 600 * 10 ** 18);
 
         // EntryPoint calls batch on behalf of owner
         vm.prank(address(entryPoint));

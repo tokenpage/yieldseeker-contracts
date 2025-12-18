@@ -18,6 +18,7 @@ library YieldSeekerAgentWalletStorageV1 {
         uint256 ownerAgentIndex;
         IERC20 baseAsset;
         AdapterRegistry adapterRegistry;
+        address[] agentOperators;
     }
 
     function layout() internal pure returns (Layout storage l) {

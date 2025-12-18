@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
@@ -14,8 +14,8 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
  *      Users can create multiple agents with different ownerAgentIndex values
  *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
  */
-contract YieldSeekerAgentWalletFactory is AccessControl {
-    bytes32 public constant AGENT_CREATOR_ROLE = keccak256("AGENT_CREATOR_ROLE");
+contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
+    bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
     AgentWallet public agentWalletImplementation;
     AdapterRegistry public adapterRegistry;
 
@@ -36,7 +36,16 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
         require(admin != address(0), "Invalid admin");
         require(agentCreator != address(0), "Invalid agent creator");
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(AGENT_CREATOR_ROLE, agentCreator);
+        _grantRole(AGENT_OPERATOR_ROLE, agentCreator);
+    }
+
+    function listAgentOperators() external view returns (address[] memory) {
+        uint256 count = getRoleMemberCount(AGENT_OPERATOR_ROLE);
+        address[] memory operators = new address[](count);
+        for (uint256 i = 0; i < count; i++) {
+            operators[i] = getRoleMember(AGENT_OPERATOR_ROLE, i);
+        }
+        return operators;
     }
 
     /**
@@ -67,16 +76,19 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @param baseAsset Base asset token address for this agent (e.g., USDC)
      * @return ret The deployed AgentWallet
      */
-    function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_CREATOR_ROLE) returns (AgentWallet ret) {
+    function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (owner == address(0)) revert InvalidAddress();
         if (baseAsset == address(0)) revert InvalidAddress();
         if (address(agentWalletImplementation) == address(0)) revert NoImplementationSet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
-        bytes32 salt = keccak256(abi.encodePacked(owner, ownerAgentIndex));
-        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(
-            address(agentWalletImplementation),
-            abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry))
-        )));
+        bytes32 salt;
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, owner)
+            mstore(add(ptr, 0x20), ownerAgentIndex)
+            salt := keccak256(ptr, 0x40)
+        }
+        ret = AgentWallet(payable(new ERC1967Proxy{salt: salt}(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry)))));
         userWallets[owner][ownerAgentIndex] = address(ret);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
     }
@@ -89,16 +101,15 @@ contract YieldSeekerAgentWalletFactory is AccessControl {
      * @return The predicted wallet address
      */
     function getAddress(address owner, uint256 ownerAgentIndex, address baseAsset) public view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(owner, ownerAgentIndex));
+        bytes32 salt;
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, owner)
+            mstore(add(ptr, 0x20), ownerAgentIndex)
+            salt := keccak256(ptr, 0x40)
+        }
         return Create2.computeAddress(
-            salt,
-            keccak256(abi.encodePacked(
-                type(ERC1967Proxy).creationCode,
-                abi.encode(
-                    address(agentWalletImplementation),
-                    abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry))
-                )
-            ))
+            salt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(agentWalletImplementation), abi.encodeCall(AgentWallet.initialize, (owner, ownerAgentIndex, baseAsset, adapterRegistry)))))
         );
     }
 }

@@ -7,7 +7,6 @@ import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
-import {IEntryPoint} from "../src/erc4337/IEntryPoint.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -39,7 +38,7 @@ contract DeployScript is Script {
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     // Deployment Salt for deterministic addresses
-    uint256 constant SALT = 0x2;
+    uint256 constant SALT = 0x3;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 72-hour delay)
@@ -106,7 +105,7 @@ contract DeployScript is Script {
             AgentWalletFactory newAgentWalletFactory = new AgentWalletFactory{salt: bytes32(SALT)}(deployments.adminTimelock, serverAddress);
             deployments.agentWalletFactory = address(newAgentWalletFactory);
             console2.log("-> AgentWalletFactory deployed at:", address(newAgentWalletFactory));
-            console2.log("   AGENT_CREATOR_ROLE granted to:", serverAddress);
+            console2.log("   AGENT_OPERATOR_ROLE granted to:", serverAddress);
         } else {
             console2.log("-> Using existing agentWalletFactory:", deployments.agentWalletFactory);
         }
@@ -175,9 +174,9 @@ contract DeployScript is Script {
         console2.log("-> Registering adapters...");
         scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter)), timelockDelay, bytes32(uint256(1002)));
         scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter)), timelockDelay, bytes32(uint256(1003)));
-        // 3. Set YieldSeeker Server
-        console2.log("-> Setting YieldSeeker server:", serverAddress);
-        scheduleAndExecute(adminTimelock, deployments.adapterRegistry, abi.encodeCall(adapterRegistry.setYieldSeekerServer, (serverAddress)), timelockDelay, bytes32(uint256(1004)));
+        // 3. Set Agent Operator
+        console2.log("-> Granting AGENT_OPERATOR_ROLE to server:", serverAddress);
+        scheduleAndExecute(adminTimelock, deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)), timelockDelay, bytes32(uint256(1004)));
         console2.log("-> Configuration complete!");
         console2.log("=================================================");
         console2.log("You will need to register any specific vaults manually");
