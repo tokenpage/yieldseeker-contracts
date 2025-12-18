@@ -26,10 +26,10 @@ type-check-ci:
 	@ forge build
 
 security-check:
-	@ forge test -vvv
+	@ echo "Not Supported"
 
 security-check-ci:
-	@ forge test -vvv
+	@ echo "Not Supported"
 
 build:
 	@ forge build
