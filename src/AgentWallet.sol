@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
+import {IAgentWallet} from "./IAgentWallet.sol";
 import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
 import {UserOperation} from "./erc4337/UserOperation.sol";
@@ -12,7 +13,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {IAgentWallet} from "./IAgentWallet.sol";
 
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);

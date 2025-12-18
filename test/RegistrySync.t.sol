@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
-import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
+import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract RegistrySyncTest is Test {
     YieldSeekerAgentWalletFactory factory;
@@ -82,6 +82,7 @@ contract RegistrySyncTest is Test {
         vm.startPrank(admin);
         // We already have 1 operator from constructor
         for (uint256 i = 0; i < 9; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast)
             factory.grantRole(factory.AGENT_OPERATOR_ROLE(), address(uint160(0x100 + i)));
         }
         // Now we have 10 operators. The 11th should revert.
