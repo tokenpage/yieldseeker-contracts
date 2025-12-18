@@ -239,24 +239,6 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 ---
 
-#### AaveV3Adapter (`src/adapters/AaveV3Adapter.sol`)
-
-For Aave V3 lending pools.
-
-**Key Functions:**
-
-| Function | Context | Description |
-|----------|---------|-------------|
-| `supply(pool, asset, amount)` | DELEGATECALL | Approve pool, supply asset, aTokens to wallet |
-| `withdraw(pool, asset, amount)` | DELEGATECALL | Withdraw from pool, assets to wallet |
-| `getATokenBalance(aToken, wallet)` | View | Get aToken balance for wallet |
-
-**Validation:**
-- Checks `registry.isValidTarget(pool)` returns `(true, self)`
-- Reverts with `PoolNotRegistered` or `WrongAdapter` if validation fails
-
----
-
 ## Security Model
 
 ### Actors
@@ -529,7 +511,7 @@ This deploys:
 - `AgentWallet` (implementation)
 - `AgentWalletFactory`
 - `ERC4626Adapter`
-- `AaveV3Adapter`
+- `ZeroXAdapter`
 
 ### Step 2: Configure Registry
 
@@ -537,12 +519,10 @@ This deploys:
 # Set additional env vars from Step 1 output
 export REGISTRY_ADDRESS=<deployed-registry>
 export ERC4626_ADAPTER=<deployed-erc4626-adapter>
-export AAVE_ADAPTER=<deployed-aave-adapter>
 export SERVER_ADDRESS=<yieldseeker-server>
 
 # Register adapters
 cast send $REGISTRY_ADDRESS "registerAdapter(address)" $ERC4626_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
-cast send $REGISTRY_ADDRESS "registerAdapter(address)" $AAVE_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
 
 # Set server address
 cast send $REGISTRY_ADDRESS "setYieldSeekerServer(address)" $SERVER_ADDRESS --private-key $DEPLOYER_PRIVATE_KEY
@@ -551,9 +531,8 @@ cast send $REGISTRY_ADDRESS "setYieldSeekerServer(address)" $SERVER_ADDRESS --pr
 ### Step 3: Register Targets
 
 ```bash
-# Register vaults and pools
+# Register vaults
 export MORPHO_VAULT=<morpho-vault-address>
-export AAVE_POOL=<aave-pool-address>
 
 cast send $REGISTRY_ADDRESS "registerTarget(address,address)" $MORPHO_VAULT $ERC4626_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
 cast send $REGISTRY_ADDRESS "registerTarget(address,address)" $AAVE_POOL $AAVE_ADAPTER --private-key $DEPLOYER_PRIVATE_KEY
@@ -722,6 +701,6 @@ Example `deployments.json` to redeploy only implementation:
   "actionRegistry": "0x...",
   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
   "erc4626Adapter": "0x...",
-  "aaveV3Adapter": "0x..."
+  "zeroXAdapter": "0x..."
 }
 ```

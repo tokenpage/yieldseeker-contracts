@@ -5,7 +5,6 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
 import {Script} from "forge-std/Script.sol";
@@ -28,7 +27,6 @@ import {console2} from "forge-std/console2.sol";
  *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
  *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
  *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
- *   "aaveV3Adapter": "0x0000000000000000000000000000000000000000",
  *   "zeroXAdapter": "0x0000000000000000000000000000000000000000"
  * }
  *
@@ -64,7 +62,6 @@ contract DeployScript is Script {
         address adapterRegistry;
         address agentWalletImplementation;
         address erc4626Adapter;
-        address aaveV3Adapter;
         address zeroXAdapter;
     }
 
@@ -104,7 +101,6 @@ contract DeployScript is Script {
                 adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
                 agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
-                aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
                 zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter")
             });
         }
@@ -163,15 +159,6 @@ contract DeployScript is Script {
             console2.log("-> Using existing erc4626Adapter:", deployments.erc4626Adapter);
         }
 
-        // Deploy or reuse Aave V3 Adapter
-        if (deployments.aaveV3Adapter == address(0)) {
-            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter{salt: bytes32(SALT)}();
-            deployments.aaveV3Adapter = address(aaveV3Adapter);
-            console2.log("-> AaveV3Adapter deployed at:", address(aaveV3Adapter));
-        } else {
-            console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
-        }
-
         // Deploy or reuse ZeroX Adapter
         address zeroXAllowanceTarget = getZeroXAllowanceTarget(block.chainid);
         if (deployments.zeroXAdapter == address(0)) {
@@ -191,7 +178,6 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
-        vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
         string memory finalJson = vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
@@ -228,11 +214,6 @@ contract DeployScript is Script {
         if (!adapterRegistry.isRegisteredAdapter(deployments.erc4626Adapter)) {
             targets[operationCount] = deployments.adapterRegistry;
             datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter));
-            operationCount++;
-        }
-        if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
-            targets[operationCount] = deployments.adapterRegistry;
-            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter));
             operationCount++;
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.zeroXAdapter)) {
