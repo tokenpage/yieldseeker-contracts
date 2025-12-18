@@ -126,12 +126,12 @@ contract IntegrationTest is Test {
         timelock.execute(address(registry), 0, regVaultData, bytes32(0), bytes32(uint256(2)));
 
         // Register Targets (Required for new Peek-Verify logic) (via timelock)
-        bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.registerTarget.selector, address(usdc), address(approveAdapter));
+        bytes memory regTargetUsdcData = abi.encodeWithSelector(registry.setTargetAdapter.selector, address(usdc), address(approveAdapter));
         timelock.schedule(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)), 24 hours);
         vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetUsdcData, bytes32(0), bytes32(uint256(3)));
 
-        bytes memory regTargetVaultData = abi.encodeWithSelector(registry.registerTarget.selector, address(vault), address(vaultAdapter));
+        bytes memory regTargetVaultData = abi.encodeWithSelector(registry.setTargetAdapter.selector, address(vault), address(vaultAdapter));
         timelock.schedule(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)), 24 hours);
         vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));

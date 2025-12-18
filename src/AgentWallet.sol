@@ -207,8 +207,8 @@ contract YieldSeekerAgentWallet is BaseAccount, Initializable, UUPSUpgradeable {
         address target = abi.decode(data[4:], (address));
 
         // 2. Verify: Check Registry
-        (bool valid, address expectedAdapter) = adapterRegistry().isValidTarget(target);
-        if (!valid || expectedAdapter != adapter) {
+        address registeredAdapter = adapterRegistry().getTargetAdapter(target);
+        if (registeredAdapter == address(0) || registeredAdapter != adapter) {
             revert AdapterNotRegistered(adapter);
         }
 

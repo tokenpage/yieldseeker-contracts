@@ -70,28 +70,25 @@ contract RegisterVaultScript is Script {
         console2.log("Adapter registered:", adapterIsRegistered);
         require(adapterIsRegistered, "Adapter not registered in registry");
 
-        address currentAdapter = registry.targetToAdapter(vaultAddress);
+        address currentAdapter = registry.getTargetAdapter(vaultAddress);
         console2.log("Current adapter for vault:", currentAdapter);
         if (currentAdapter == adapterAddress) {
             console2.log("Vault is already registered to this adapter; nothing to do.");
             return;
         }
 
-        bool isUpdate = currentAdapter != address(0);
-        bytes32 salt = keccak256(abi.encodePacked(isUpdate ? "update-vault-" : "register-vault-", vaultAddress, adapterAddress));
-        bytes memory data = isUpdate ? abi.encodeCall(registry.updateTargetAdapter, (vaultAddress, adapterAddress)) : abi.encodeCall(registry.registerTarget, (vaultAddress, adapterAddress));
-
-        vm.startBroadcast(deployerPrivateKey);
-
         // Schedule operation
-        console2.log(isUpdate ? "-> Scheduling update..." : "-> Scheduling registration...");
+        bytes32 salt = keccak256(abi.encodePacked("set-vault-", vaultAddress, adapterAddress));
+        bytes memory data = abi.encodeCall(registry.setTargetAdapter, (vaultAddress, adapterAddress));
+        vm.startBroadcast(deployerPrivateKey);
+        console2.log("-> Scheduling target adapter set...");
         timelock.schedule(registryAddress, 0, data, bytes32(0), salt, delay);
 
         if (delay == 0) {
             // Testing mode: execute immediately
             console2.log("-> Executing immediately (testing mode)...");
             timelock.execute(registryAddress, 0, data, bytes32(0), salt);
-            console2.log(isUpdate ? "-> Vault adapter updated successfully!" : "-> Vault registered successfully!");
+            console2.log("-> Target adapter set successfully!");
         } else {
             // Production mode: just schedule
             console2.log("-> Scheduled successfully!");

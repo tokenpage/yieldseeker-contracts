@@ -2,38 +2,26 @@
 pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 
-contract YieldSeekerAdapterRegistry is AccessControl {
+contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
+    using EnumerableMap for EnumerableMap.AddressToAddressMap;
+
     bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
-    mapping(address target => address adapter) public targetToAdapter;
+    EnumerableMap.AddressToAddressMap private _targetToAdapter;
     mapping(address adapter => bool registered) public isRegisteredAdapter;
-    address[] public registeredTargets;
-    mapping(address target => uint256 index) private _targetIndex;
-    bool public paused;
 
     event AdapterRegistered(address indexed adapter);
     event AdapterUnregistered(address indexed adapter);
     event TargetRegistered(address indexed target, address indexed adapter);
     event TargetRemoved(address indexed target, address indexed previousAdapter);
-    event Paused(address indexed by);
-    event Unpaused(address indexed by);
 
-    error RegistryPaused();
     error ZeroAddress();
     error AdapterNotRegistered(address adapter);
     error TargetNotRegistered(address target);
-    error TargetAlreadyRegistered(address target);
-
-    modifier whenNotPaused() {
-        _requireNotPaused();
-        _;
-    }
-
-    function _requireNotPaused() internal view {
-        if (paused) revert RegistryPaused();
-    }
 
     /// @param timelock Address of the AdminTimelock contract (gets admin roles for dangerous operations)
     /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
@@ -49,44 +37,40 @@ contract YieldSeekerAdapterRegistry is AccessControl {
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
 
+    function pause() external onlyRole(EMERGENCY_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(REGISTRY_ADMIN_ROLE) {
+        _unpause();
+    }
+
     function registerAdapter(address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
         if (adapter == address(0)) revert ZeroAddress();
         isRegisteredAdapter[adapter] = true;
         emit AdapterRegistered(adapter);
     }
 
-    function registerTarget(address target, address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function setTargetAdapter(address target, address adapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
         if (target == address(0)) revert ZeroAddress();
         if (!isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
-        if (targetToAdapter[target] != address(0)) revert TargetAlreadyRegistered(target);
-        targetToAdapter[target] = adapter;
-        _targetIndex[target] = registeredTargets.length;
-        registeredTargets.push(target);
-        emit TargetRegistered(target, adapter);
-    }
-
-    function updateTargetAdapter(address target, address newAdapter) external onlyRole(REGISTRY_ADMIN_ROLE) {
-        if (targetToAdapter[target] == address(0)) revert TargetNotRegistered(target);
-        if (!isRegisteredAdapter[newAdapter]) revert AdapterNotRegistered(newAdapter);
-        address previousAdapter = targetToAdapter[target];
-        targetToAdapter[target] = newAdapter;
-        emit TargetRemoved(target, previousAdapter);
-        emit TargetRegistered(target, newAdapter);
+        (bool exists, address previousAdapter) = _targetToAdapter.tryGet(target);
+        if (exists) {
+            if (previousAdapter != adapter) {
+                _targetToAdapter.set(target, adapter);
+                emit TargetRemoved(target, previousAdapter);
+                emit TargetRegistered(target, adapter);
+            }
+        } else {
+            _targetToAdapter.set(target, adapter);
+            emit TargetRegistered(target, adapter);
+        }
     }
 
     function removeTarget(address target) external onlyRole(EMERGENCY_ROLE) {
-        address adapter = targetToAdapter[target];
-        if (adapter == address(0)) revert TargetNotRegistered(target);
-        delete targetToAdapter[target];
-        uint256 index = _targetIndex[target];
-        uint256 lastIndex = registeredTargets.length - 1;
-        if (index != lastIndex) {
-            address lastTarget = registeredTargets[lastIndex];
-            registeredTargets[index] = lastTarget;
-            _targetIndex[lastTarget] = index;
-        }
-        registeredTargets.pop();
-        delete _targetIndex[target];
+        (bool exists, address adapter) = _targetToAdapter.tryGet(target);
+        if (!exists) revert TargetNotRegistered(target);
+        _targetToAdapter.remove(target);
         emit TargetRemoved(target, adapter);
     }
 
@@ -96,30 +80,12 @@ contract YieldSeekerAdapterRegistry is AccessControl {
         emit AdapterUnregistered(adapter);
     }
 
-    function pause() external onlyRole(EMERGENCY_ROLE) {
-        paused = true;
-        emit Paused(msg.sender);
-    }
-
-    function unpause() external onlyRole(REGISTRY_ADMIN_ROLE) {
-        paused = false;
-        emit Unpaused(msg.sender);
-    }
-
-    function getAdapter(address target) external view returns (address) {
-        return targetToAdapter[target];
-    }
-
-    function isValidTarget(address target) external view whenNotPaused returns (bool valid, address adapter) {
-        adapter = targetToAdapter[target];
-        valid = adapter != address(0) && isRegisteredAdapter[adapter];
+    function getTargetAdapter(address target) external view whenNotPaused returns (address) {
+        (bool exists, address adapter) = _targetToAdapter.tryGet(target);
+        return (exists && isRegisteredAdapter[adapter]) ? adapter : address(0);
     }
 
     function getAllTargets() external view returns (address[] memory) {
-        return registeredTargets;
-    }
-
-    function getTargetCount() external view returns (uint256) {
-        return registeredTargets.length;
+        return _targetToAdapter.keys();
     }
 }
