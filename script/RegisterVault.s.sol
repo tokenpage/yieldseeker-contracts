@@ -46,10 +46,10 @@ contract RegisterVaultScript is Script {
             adapterAddress = json.readAddress(".erc4626Adapter");
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("aave")) || keccak256(bytes(adapterName)) == keccak256(bytes("aavev3"))) {
             adapterAddress = json.readAddress(".aaveV3Adapter");
-        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("zeroex")) || keccak256(bytes(adapterName)) == keccak256(bytes("0x"))) {
-            adapterAddress = json.readAddress(".zeroExAdapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("zerox")) || keccak256(bytes(adapterName)) == keccak256(bytes("0x"))) {
+            adapterAddress = json.readAddress(".zeroXAdapter");
         } else {
-            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'aave', or 'zeroex'"));
+            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'aave', or 'zerox'"));
         }
 
         console2.log("=================================================");
@@ -66,23 +66,32 @@ contract RegisterVaultScript is Script {
         AdminTimelock timelock = AdminTimelock(payable(timelockAddress));
         uint256 delay = timelock.getMinDelay();
 
-        // Generate unique salt based on vault address
-        bytes32 salt = keccak256(abi.encodePacked("register-vault-", vaultAddress));
+        bool adapterIsRegistered = registry.isRegisteredAdapter(adapterAddress);
+        console2.log("Adapter registered:", adapterIsRegistered);
+        require(adapterIsRegistered, "Adapter not registered in registry");
 
-        // Prepare call data
-        bytes memory data = abi.encodeCall(registry.registerTarget, (vaultAddress, adapterAddress));
+        address currentAdapter = registry.targetToAdapter(vaultAddress);
+        console2.log("Current adapter for vault:", currentAdapter);
+        if (currentAdapter == adapterAddress) {
+            console2.log("Vault is already registered to this adapter; nothing to do.");
+            return;
+        }
+
+        bool isUpdate = currentAdapter != address(0);
+        bytes32 salt = keccak256(abi.encodePacked(isUpdate ? "update-vault-" : "register-vault-", vaultAddress, adapterAddress));
+        bytes memory data = isUpdate ? abi.encodeCall(registry.updateTargetAdapter, (vaultAddress, adapterAddress)) : abi.encodeCall(registry.registerTarget, (vaultAddress, adapterAddress));
 
         vm.startBroadcast(deployerPrivateKey);
 
         // Schedule operation
-        console2.log("-> Scheduling registration...");
+        console2.log(isUpdate ? "-> Scheduling update..." : "-> Scheduling registration...");
         timelock.schedule(registryAddress, 0, data, bytes32(0), salt, delay);
 
         if (delay == 0) {
             // Testing mode: execute immediately
             console2.log("-> Executing immediately (testing mode)...");
             timelock.execute(registryAddress, 0, data, bytes32(0), salt);
-            console2.log("-> Vault registered successfully!");
+            console2.log(isUpdate ? "-> Vault adapter updated successfully!" : "-> Vault registered successfully!");
         } else {
             // Production mode: just schedule
             console2.log("-> Scheduled successfully!");
