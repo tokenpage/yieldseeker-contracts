@@ -530,4 +530,21 @@ contract IntegrationTest is Test {
         assertEq(vault.balances(address(wallet)), 600 * 10 ** 18, "Deposit should succeed via EntryPoint");
         assertEq(usdc.balanceOf(address(wallet)), 400 * 10 ** 18, "USDC balance should be correct");
     }
+
+    function test_Factory_RevertOnInvalidImplementation() public {
+        // Deploy a second factory
+        YieldSeekerAgentWalletFactory factory2 = new YieldSeekerAgentWalletFactory(address(timelock), owner);
+
+        // Deploy an implementation bound to factory2
+        AgentWallet implForFactory2 = new AgentWallet(address(factory2));
+
+        // Try to set implForFactory2 on the original factory
+        // This should revert with InvalidImplementationFactory
+        bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, implForFactory2);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(0), 24 hours);
+        vm.warp(block.timestamp + 24 hours);
+
+        vm.expectRevert(abi.encodeWithSignature("InvalidImplementationFactory()"));
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(0));
+    }
 }

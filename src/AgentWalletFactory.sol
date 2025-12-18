@@ -29,6 +29,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     error InvalidAddress();
     error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
     error NoImplementationSet();
+    error InvalidImplementationFactory();
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
@@ -54,6 +55,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      */
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAgentWalletImplementation) == address(0)) revert InvalidAddress();
+        if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert InvalidImplementationFactory();
         agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
     }
