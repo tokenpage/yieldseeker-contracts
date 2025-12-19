@@ -4,9 +4,9 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
-import {BaseAccount} from "./erc4337/BaseAccount.sol";
-import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
-import {UserOperation} from "./erc4337/UserOperation.sol";
+import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
+import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -86,6 +86,11 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     modifier onlyOwner() {
         require(msg.sender == owner(), "only owner");
+        _;
+    }
+
+    modifier onlySyncers() {
+        require(msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
         _;
     }
 
@@ -177,7 +182,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     /**
      * @notice Refresh configuration from the factory
      */
-    function syncFromFactory() external {
+    function syncFromFactory() external onlySyncers {
         _syncFromFactory();
     }
 

@@ -88,7 +88,8 @@ contract YieldSeekerFeeLedger is Initializable, AccessControlUpgradeable, UUPSUp
     }
 
     function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (_feeRateBps > 5000) revert InvalidFeeRate();
+        // NOTE(krishan711): Max fee rate is 50%
+        if (_feeRateBps > 5e3) revert InvalidFeeRate();
         if (_feeCollector == address(0)) revert ZeroAddress();
         FeeLedgerStorage.Layout storage $ = FeeLedgerStorage.layout();
         $.feeRateBps = _feeRateBps;
@@ -131,7 +132,7 @@ contract YieldSeekerFeeLedger is Initializable, AccessControlUpgradeable, UUPSUp
 
     function getFeesOwed(address wallet) external view returns (uint256) {
         FeeLedgerStorage.Layout storage $ = FeeLedgerStorage.layout();
-        uint256 totalFeesDue = ($.realizedYield[wallet] * $.feeRateBps) / 10000;
+        uint256 totalFeesDue = ($.realizedYield[wallet] * $.feeRateBps) / 1e4;
         return totalFeesDue > $.feesPaid[wallet] ? totalFeesDue - $.feesPaid[wallet] : 0;
     }
 

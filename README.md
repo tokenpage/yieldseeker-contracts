@@ -103,6 +103,24 @@ The contracts use Solidity `0.8.28`, which defaults to the `shanghai` EVM versio
 
 ---
 
+## Fee Model
+
+The system implements a **performance-based fee model** tracked on-chain via the `FeeLedger`. Fees are calculated based on **realized yield** rather than total assets under management.
+
+### Lifecycle of a Fee
+1. **Recording Cost Basis**: When an adapter performs a deposit (e.g., into a Morpho vault), it calls `FeeLedger.recordVaultShareDeposit()`. This records the `assetAmount` (cost basis) and the `sharesReceived`.
+2. **Tracking Yield**: As the vault earns interest, the value of the shares increases. This yield remains "unrealized" until a withdrawal occurs.
+3. **Realizing Yield**: When an adapter performs a withdrawal, it calls `FeeLedger.recordVaultShareWithdraw()`. The ledger calculates the difference between the current asset value of the shares and their original cost basis.
+4. **Fee Calculation**: If the withdrawal results in a profit, the configured `feeRateBps` (e.g., 10% or 1000 BPS) is applied to the profit and added to the wallet's `feesOwed`.
+5. **Fee Collection**: The `feeCollector` (configured in the `FeeLedger`) can call `AgentWallet.collectFees()` to transfer the accumulated fees from the wallet to the collector address.
+
+### Key Properties
+- **Loss Protection**: If a withdrawal results in a loss, the cost basis for remaining shares is adjusted, and no fees are accrued.
+- **Transparency**: Users can query `feeLedger().getFeesOwed(wallet)` at any time to see their outstanding fee balance.
+- **Non-Custodial**: Fees are only collected from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
+
+---
+
 ## Architecture Overview
 
 ### Execution Flow
@@ -379,6 +397,34 @@ For 0x API v2 swaps.
 - Access user funds
 - Grant or revoke roles
 - Execute actions on wallets
+
+---
+
+### Security Considerations & Trust Model
+
+While the system is designed to be as trustless as possible, it operates under a specific trust model:
+
+#### 1. Trust in the YieldSeeker Server
+The server is an authorized `agentOperator`. While it **cannot steal funds** (it cannot call `withdrawTokenToUser` or approve tokens to arbitrary addresses), it has the power to:
+- **Griefing**: The server could execute sub-optimal swaps or enter/exit vault positions frequently to waste gas.
+- **Stale Cache**: If a server key is revoked in the Factory, the wallet must be `syncFromFactory()` to stop trusting it. The `AdapterRegistry` pause serves as the primary mitigation for this.
+
+#### 2. Trust in the Platform Admin
+The Admin manages the `AdapterRegistry`. They have the power to:
+- **Add Malicious Adapters**: If an admin registers a malicious adapter, they could potentially drain wallets via `delegatecall`.
+- **Add Malicious Targets**: If an admin maps a malicious contract as a "vault" to a legitimate adapter, the adapter might be tricked into approving tokens to that malicious contract.
+- **Mitigation**: All critical admin actions are behind an `AdminTimelock`, giving users time to withdraw funds if they disagree with a registry change.
+
+#### 3. Adapter Immutability
+The security of `delegatecall` relies entirely on the code at the adapter address.
+- **Requirement**: Adapters must be **immutable** and **non-upgradeable**.
+- **Requirement**: Adapters must not contain `selfdestruct` (mitigated by EIP-6780 on Base).
+
+#### 4. User Sovereignty
+The user (Owner) always has the highest priority:
+- **Withdrawal**: The owner can always bypass adapters and withdraw all funds.
+- **Upgrades**: Only the owner can upgrade their wallet implementation.
+- **Revocation**: The owner can call `syncFromFactory()` to update their local security state if the global factory configuration changes.
 
 ---
 
