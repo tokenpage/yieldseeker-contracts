@@ -4,41 +4,59 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract MockUSDC is ERC20 {
+    constructor() ERC20("USDC", "USDC") {}
+}
 
 contract RegistrySyncTest is Test {
     YieldSeekerAgentWalletFactory factory;
     AgentWallet impl;
     YieldSeekerAdapterRegistry registry;
+    FeeLedger ledger;
+    MockUSDC usdc;
 
     address admin = address(0xAD);
     address operator = address(0x01);
     address owner = address(0x02);
-    address usdc = address(0x03);
 
     function setUp() public {
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
         impl = new AgentWallet(address(factory));
         registry = new YieldSeekerAdapterRegistry(admin, admin);
+        usdc = new MockUSDC();
+
+        FeeLedger ledgerImpl = new FeeLedger();
+        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, admin));
+        ledger = FeeLedger(address(ledgerProxy));
 
         vm.prank(admin);
         factory.setAgentWalletImplementation(impl);
     }
 
     function test_RevertOnCreateWithoutRegistry() public {
+        vm.prank(admin);
+        factory.setFeeLedger(ledger);
+
         vm.prank(operator);
         vm.expectRevert(YieldSeekerAgentWalletFactory.NoAdapterRegistrySet.selector);
-        factory.createAccount(owner, 1, usdc);
+        factory.createAccount(owner, 1, address(usdc));
     }
 
     function test_RevertOnSyncWithZeroRegistry() public {
-        // 1. Setup with registry
-        vm.prank(admin);
+        // 1. Setup with registry and ledger
+        vm.startPrank(admin);
         factory.setAdapterRegistry(registry);
+        factory.setFeeLedger(ledger);
+        vm.stopPrank();
 
         // 2. Create wallet
         vm.prank(operator);
-        AgentWallet wallet = factory.createAccount(owner, 1, usdc);
+        AgentWallet wallet = factory.createAccount(owner, 1, address(usdc));
         assertEq(address(wallet.adapterRegistry()), address(registry));
 
         // 3. Simulate a broken factory state (this shouldn't happen with our current setAdapterRegistry check,
@@ -53,11 +71,13 @@ contract RegistrySyncTest is Test {
     }
 
     function test_SuccessfulSync() public {
-        vm.prank(admin);
+        vm.startPrank(admin);
         factory.setAdapterRegistry(registry);
+        factory.setFeeLedger(ledger);
+        vm.stopPrank();
 
         vm.prank(operator);
-        AgentWallet wallet = factory.createAccount(owner, 1, usdc);
+        AgentWallet wallet = factory.createAccount(owner, 1, address(usdc));
 
         // Update registry in factory
         YieldSeekerAdapterRegistry registry2 = new YieldSeekerAdapterRegistry(admin, admin);

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -84,6 +86,18 @@ contract ServerAuthTest is Test {
         timelock.schedule(address(factory), 0, setImplData, bytes32(0), salt2, 24 hours);
         vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setImplData, bytes32(0), salt2);
+
+        // Deploy FeeLedger
+        FeeLedger ledgerImpl = new FeeLedger();
+        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, address(timelock)));
+        FeeLedger ledger = FeeLedger(address(ledgerProxy));
+
+        bytes memory setFeeLedgerData = abi.encodeWithSelector(factory.setFeeLedger.selector, ledger);
+        bytes32 salt3 = bytes32(uint256(3));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        timelock.schedule(address(factory), 0, setFeeLedgerData, bytes32(0), salt3, 24 hours);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
+        timelock.execute(address(factory), 0, setFeeLedgerData, bytes32(0), salt3);
 
         // Create wallet with ownerAgentIndex=0 and baseAsset=USDC
         AgentWallet walletContract = factory.createAccount(user, 0, address(usdc));

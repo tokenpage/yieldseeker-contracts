@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
+import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -27,12 +28,14 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
     AgentWallet public agentWalletImplementation;
     AdapterRegistry public adapterRegistry;
+    FeeLedger public feeLedger;
 
     /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
     mapping(address => mapping(uint256 => address)) public userWallets;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset);
     event RegistryUpdated(address indexed oldRegistry, address indexed newAdapterRegistry);
+    event LedgerUpdated(address indexed oldLedger, address indexed newLedger);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
     error InvalidAddress();
@@ -88,9 +91,22 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      */
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAdapterRegistry) == address(0)) revert InvalidAddress();
+        if (address(newAdapterRegistry).code.length == 0) revert InvalidAddress();
         AdapterRegistry oldAdapterRegistry = adapterRegistry;
         adapterRegistry = newAdapterRegistry;
         emit RegistryUpdated(address(oldAdapterRegistry), address(newAdapterRegistry));
+    }
+
+    /**
+     * @notice Update the FeeLedger address for future wallet deployments
+     * @param newFeeLedger The new ledger contract
+     */
+    function setFeeLedger(FeeLedger newFeeLedger) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (address(newFeeLedger) == address(0)) revert InvalidAddress();
+        if (address(newFeeLedger).code.length == 0) revert InvalidAddress();
+        FeeLedger oldFeeLedger = feeLedger;
+        feeLedger = newFeeLedger;
+        emit LedgerUpdated(address(oldFeeLedger), address(newFeeLedger));
     }
 
     /**
@@ -100,9 +116,11 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @param baseAsset Base asset token address for this agent (e.g., USDC)
      * @return ret The deployed AgentWallet
      */
+    // Rename to createAgentWallet
     function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (owner == address(0)) revert InvalidAddress();
         if (baseAsset == address(0)) revert InvalidAddress();
+        if (baseAsset.code.length == 0) revert InvalidAddress();
         if (address(agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
         if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);

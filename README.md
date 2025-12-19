@@ -80,6 +80,29 @@ The system uses a **caching mechanism** for performance and ERC-4337 compliance 
 
 ---
 
+## Deployment & Security Requirements
+
+### Chain Compatibility
+This system is designed for EVM-compatible chains that have implemented **EIP-6780** (introduced in the Dencun upgrade), such as **Base Mainnet**.
+
+**Why EIP-6780 is required:**
+The security model relies on `delegatecall` to whitelisted adapter addresses. On chains without EIP-6780, a malicious adapter could potentially `selfdestruct` and be replaced by a different contract at the same address using `CREATE2`. EIP-6780 significantly mitigates this by restricting `selfdestruct` to only work within the same transaction the contract was created.
+
+**PUSH0 Opcode Compatibility:**
+The contracts use Solidity `0.8.28`, which defaults to the `shanghai` EVM version (including the `PUSH0` opcode). While supported on Base and most modern L2s, if deploying to older or specific EVM-compatible chains that do not support `PUSH0`, the compiler's `evm_version` must be explicitly set to `paris` or earlier to avoid deployment failure.
+
+### Adapter Requirements
+- **Immutability**: All registered adapters MUST be immutable. They should not have upgradeability patterns (like `UUPS` or `TransparentProxy`) unless the proxy admin is the same as the `AdapterRegistry` admin.
+- **No Self-Destruct**: Adapters MUST NOT contain the `selfdestruct` opcode.
+- **Validation**: Adapters MUST follow the "Peek and Verify" pattern, taking the `target` address as their first argument to allow the `AgentWallet` to validate the call against the `AdapterRegistry`.
+
+### Technical Stack
+- **Solidity Version**: `0.8.28`
+- **Framework**: Foundry
+- **ERC-4337 Version**: v0.6
+
+---
+
 ## Architecture Overview
 
 ### Execution Flow

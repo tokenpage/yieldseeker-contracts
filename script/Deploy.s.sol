@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -26,6 +28,7 @@ import {console2} from "forge-std/console2.sol";
  *   "agentWalletFactory": "0x0000000000000000000000000000000000000000",
  *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
  *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
+ *   "feeLedger": "0x0000000000000000000000000000000000000000",
  *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
  *   "zeroXAdapter": "0x0000000000000000000000000000000000000000"
  * }
@@ -61,6 +64,7 @@ contract DeployScript is Script {
         address agentWalletFactory;
         address adapterRegistry;
         address agentWalletImplementation;
+        address feeLedger;
         address erc4626Adapter;
         address zeroXAdapter;
     }
@@ -100,6 +104,7 @@ contract DeployScript is Script {
                 agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
                 adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
                 agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
+                feeLedger: safeReadAddress(deployJson, ".feeLedger"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
                 zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter")
             });
@@ -150,6 +155,17 @@ contract DeployScript is Script {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
+        // Deploy or reuse FeeLedger (UUPS Proxy)
+        if (deployments.feeLedger == address(0)) {
+            FeeLedger feeLedgerImpl = new FeeLedger{salt: bytes32(SALT)}();
+            ERC1967Proxy feeLedgerProxy = new ERC1967Proxy{salt: bytes32(SALT + 1)}(address(feeLedgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, deployments.adminTimelock));
+            deployments.feeLedger = address(feeLedgerProxy);
+            console2.log("-> FeeLedger deployed at:", address(feeLedgerProxy));
+            console2.log("   implementation:", address(feeLedgerImpl));
+        } else {
+            console2.log("-> Using existing feeLedger:", deployments.feeLedger);
+        }
+
         // Deploy or reuse ERC4626 AdaptgetZeroXAllowanceTarget(block.chainid
         if (deployments.erc4626Adapter == address(0)) {
             ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
@@ -177,6 +193,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
         vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
+        vm.serializeAddress(json, "feeLedger", deployments.feeLedger);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         string memory finalJson = vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
         vm.writeJson(finalJson, "./deployments.json");
@@ -193,8 +210,8 @@ contract DeployScript is Script {
         uint256 timelockDelay = adminTimelock.getMinDelay();
 
         // Collect all operations to batch
-        address[] memory targets = new address[](6);
-        bytes[] memory datas = new bytes[](6);
+        address[] memory targets = new address[](7);
+        bytes[] memory datas = new bytes[](7);
         uint256 operationCount = 0;
 
         // 1. Configure Factory
@@ -207,6 +224,11 @@ contract DeployScript is Script {
         if (address(agentWalletFactory.adapterRegistry()) != deployments.adapterRegistry) {
             targets[operationCount] = deployments.agentWalletFactory;
             datas[operationCount] = abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry));
+            operationCount++;
+        }
+        if (address(agentWalletFactory.feeLedger()) != deployments.feeLedger) {
+            targets[operationCount] = deployments.agentWalletFactory;
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.setFeeLedger, (FeeLedger(deployments.feeLedger)));
             operationCount++;
         }
         // 2. Register Adapters

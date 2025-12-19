@@ -81,7 +81,32 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         return (exists && isRegisteredAdapter[adapter]) ? adapter : address(0);
     }
 
+    /**
+     * @notice Get all targets that are currently mapped to registered adapters
+     * @return An array of active target addresses
+     */
     function getAllTargets() external view returns (address[] memory) {
-        return _targetToAdapter.keys();
+        uint256 total = _targetToAdapter.length();
+        uint256 activeCount = 0;
+
+        // First pass to count active targets
+        for (uint256 i = 0; i < total; i++) {
+            (, address adapter) = _targetToAdapter.at(i);
+            if (isRegisteredAdapter[adapter]) {
+                activeCount++;
+            }
+        }
+
+        // Second pass to populate the result array
+        address[] memory activeTargets = new address[](activeCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < total; i++) {
+            (address target, address adapter) = _targetToAdapter.at(i);
+            if (isRegisteredAdapter[adapter]) {
+                activeTargets[index] = target;
+                index++;
+            }
+        }
+        return activeTargets;
     }
 }

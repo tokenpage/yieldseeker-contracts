@@ -37,6 +37,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerAdapter {
         _requireBaseAsset(asset);
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit(amount, address(this));
+        _feeLedger().recordVaultShareDeposit(vault, amount, shares);
         emit Deposited(address(this), vault, amount, shares);
     }
 
@@ -51,6 +52,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerAdapter {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         assets = IERC4626(vault).redeem(shares, address(this), address(this));
+        _feeLedger().recordVaultShareWithdraw(vault, shares, assets);
         emit Withdrawn(address(this), vault, shares, assets);
     }
 }

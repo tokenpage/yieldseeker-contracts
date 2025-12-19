@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
-import {YieldSeekerAgentWalletStorageV1 as AgentWalletStorageV1} from "./AgentWalletStorage.sol";
+import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {BaseAccount} from "./erc4337/BaseAccount.sol";
 import {IEntryPoint} from "./erc4337/IEntryPoint.sol";
@@ -17,7 +17,36 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);
     function adapterRegistry() external view returns (AdapterRegistry);
+    function feeLedger() external view returns (FeeLedger);
     function listAgentOperators() external view returns (address[] memory);
+}
+
+/**
+ * @title AgentWalletStorageV1
+ * @notice Storage layout for AgentWallet V1 using ERC-7201 namespaced storage pattern
+ * @dev Uses deterministic storage slot to avoid collisions with proxy storage and future versions
+ */
+library AgentWalletStorageV1 {
+    /// @custom:storage-location erc7201:yieldseeker.agentwallet.storage.v1
+    bytes32 private constant STORAGE_LOCATION = keccak256("yieldseeker.agentwallet.storage.v1");
+
+    struct Layout {
+        address owner;
+        uint256 ownerAgentIndex;
+        IERC20 baseAsset;
+        AdapterRegistry adapterRegistry;
+        FeeLedger feeLedger;
+        address[] agentOperators;
+        // NOTE(krishan711): keep a map for fast lookup
+        mapping(address => bool) isAgentOperator;
+    }
+
+    function layout() internal pure returns (Layout storage l) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            l.slot := slot
+        }
+    }
 }
 
 /**
@@ -43,6 +72,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     event ExecutedViaAdapter(address indexed adapter, bytes data, bytes result);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
+    event FeesCollected(address indexed collector, uint256 amount);
 
     error AdapterNotRegistered(address adapter);
     error AdapterExecutionFailed(bytes reason);
@@ -52,14 +82,10 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     error TransferFailed();
     error NotApprovedImplementation();
     error InvalidRegistry();
+    error InvalidLedger();
 
     modifier onlyOwner() {
         require(msg.sender == owner(), "only owner");
-        _;
-    }
-
-    modifier onlySyncers() {
-        require(msg.sender == address(FACTORY) || msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
         _;
     }
 
@@ -77,9 +103,11 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     // ============ Initializers ============
 
+    // TODO(krishan711): this might need to be called something else if we actually do an upgrade
     function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) public virtual initializer {
         require(_owner != address(0), "Invalid owner");
         require(_baseAsset != address(0), "Invalid base asset");
+        require(_baseAsset.code.length > 0, "Invalid base asset");
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = _owner;
         $.ownerAgentIndex = _ownerAgentIndex;
@@ -123,6 +151,14 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     }
 
     /**
+     * @notice Get the fee ledger
+     * @return FeeLedger instance
+     */
+    function feeLedger() public view returns (FeeLedger) {
+        return AgentWalletStorageV1.layout().feeLedger;
+    }
+
+    /**
      * @notice Get the list of agent operators (cached)
      */
     function listAgentOperators() public view returns (address[] memory) {
@@ -141,7 +177,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     /**
      * @notice Refresh configuration from the factory
      */
-    function syncFromFactory() external onlySyncers {
+    function syncFromFactory() external {
         _syncFromFactory();
     }
 
@@ -166,7 +202,13 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
         AdapterRegistry newRegistry = FACTORY.adapterRegistry();
         if (address(newRegistry) == address(0)) revert InvalidRegistry();
+        if (address(newRegistry).code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = newRegistry;
+
+        FeeLedger newLedger = FACTORY.feeLedger();
+        if (address(newLedger) == address(0)) revert InvalidLedger();
+        if (address(newLedger).code.length == 0) revert InvalidLedger();
+        $.feeLedger = newLedger;
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
@@ -263,21 +305,40 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     /**
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
+    // TODO(krishan711): do we need to upate itratively thorugh all the versions or is it fine to skip to latest?
+    // TODO(krishan711): does this really need to be onlyOwner, cos actually things should be safe regardless of this.
     function upgradeToLatest() external onlyOwner {
-        address latest = FACTORY.agentWalletImplementation();
-        // Refresh all configuration before upgrading
+        upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
         _syncFromFactory();
-        upgradeToAndCall(latest, "");
     }
 
-    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
-        address currentImpl = FACTORY.agentWalletImplementation();
-        if (newImplementation != currentImpl) {
+    function _authorizeUpgrade(address newImplementation) internal view override {
+        address approvedImplementation = FACTORY.agentWalletImplementation();
+        if (newImplementation != approvedImplementation) {
             revert NotApprovedImplementation();
         }
     }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============
+
+    /**
+     * @notice Collect any owed fees from the wallet
+     * @dev Can be called by executors during normal operations
+     */
+    function collectFees() external onlyExecutors {
+        FeeLedger ledger = feeLedger();
+        uint256 owed = ledger.getFeesOwed(address(this));
+        if (owed == 0) return;
+        IERC20 asset = baseAsset();
+        uint256 available = asset.balanceOf(address(this));
+        uint256 toCollect = owed > available ? available : owed;
+        if (toCollect > 0) {
+            address collector = ledger.feeCollector();
+            asset.safeTransfer(collector, toCollect);
+            ledger.recordFeePaid(toCollect);
+            emit FeesCollected(collector, toCollect);
+        }
+    }
 
     /**
      * @notice User withdraws base asset from agent wallet
@@ -287,7 +348,9 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
-        if (balance < amount) revert InsufficientBalance();
+        uint256 feesOwed = feeLedger().getFeesOwed(address(this));
+        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+        if (withdrawable < amount) revert InsufficientBalance();
         _withdrawBaseAsset(recipient, amount);
     }
 
@@ -298,7 +361,9 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
-        _withdrawBaseAsset(recipient, balance);
+        uint256 feesOwed = feeLedger().getFeesOwed(address(this));
+        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+        _withdrawBaseAsset(recipient, withdrawable);
     }
 
     /**
