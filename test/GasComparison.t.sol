@@ -5,6 +5,7 @@ import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -39,15 +40,43 @@ contract MockVault {
 }
 
 // Adapter to interact with the vault
-contract VaultAdapter {
-    function deposit(address vault, uint256 amount) external {
+contract VaultAdapter is IYieldSeekerAdapter {
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.deposit.selector) {
+            uint256 amount = abi.decode(data[4:], (uint256));
+            deposit(target, amount);
+            return "";
+        }
+        revert("Unknown selector");
+    }
+
+    function deposit(uint256 amount) public pure {
+        revert("Use execute");
+    }
+
+    function deposit(address vault, uint256 amount) internal {
         MockVault(vault).deposit(amount);
     }
 }
 
 // Adapter to approve tokens
-contract TokenApproveAdapter {
-    function approve(address token, address spender, uint256 amount) external {
+contract TokenApproveAdapter is IYieldSeekerAdapter {
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.approve.selector) {
+            (address spender, uint256 amount) = abi.decode(data[4:], (address, uint256));
+            approve(target, spender, amount);
+            return "";
+        }
+        revert("Unknown selector");
+    }
+
+    function approve(address spender, uint256 amount) public pure {
+        revert("Use execute");
+    }
+
+    function approve(address token, address spender, uint256 amount) internal {
         ERC20(token).approve(spender, amount);
     }
 }
@@ -106,7 +135,7 @@ contract GasComparisonTest is Test {
 
         // Pre-approve for wallet deposit
         vm.prank(user);
-        wallet.executeViaAdapter(address(approveAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), type(uint256).max));
+        wallet.executeViaAdapter(address(approveAdapter), address(usdc), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), type(uint256).max));
     }
 
     function test_CompareDepositGas() public {
@@ -121,7 +150,7 @@ contract GasComparisonTest is Test {
         // 2. Wallet Deposit (via executeViaAdapter)
         vm.prank(user);
         uint256 startGasWallet = gasleft();
-        wallet.executeViaAdapter(address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), amount));
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeWithSelector(VaultAdapter.deposit.selector, amount));
         uint256 gasUsedWallet = startGasWallet - gasleft();
 
         console.log("--------------------------------------------------");
@@ -153,13 +182,17 @@ contract GasComparisonTest is Test {
         adapters[0] = address(vaultAdapter);
         adapters[1] = address(vaultAdapter);
 
+        address[] memory targets = new address[](2);
+        targets[0] = address(vault);
+        targets[1] = address(vault);
+
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), amount);
-        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), amount);
+        datas[0] = abi.encodeWithSelector(VaultAdapter.deposit.selector, amount);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, amount);
 
         vm.prank(user);
         uint256 startGasBatch = gasleft();
-        wallet.executeViaAdapterBatch(adapters, datas);
+        wallet.executeViaAdapterBatch(adapters, targets, datas);
         uint256 gasUsedBatch = startGasBatch - gasleft();
 
         console.log("--------------------------------------------------");

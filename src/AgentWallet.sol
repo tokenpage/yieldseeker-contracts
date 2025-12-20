@@ -4,15 +4,16 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
-import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
-import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+import {IYieldSeekerAdapter} from "./adapters/IAdapter.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
+import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
 interface IAgentWalletFactory {
     function agentWalletImplementation() external view returns (address);
@@ -256,29 +257,19 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     /**
      * @notice Internal helper to validate and execute adapter call
-     * @dev This function implements the "Peek and Verify" pattern.
-     * It extracts the first argument from the calldata (the target) and verifies
-     * in the Registry that this adapter is authorized to call that target.
-     *
-     * IMPORTANT: All adapter functions MUST take the target address as their first argument.
+     * @dev Enforces the standard IYieldSeekerAdapter interface.
      */
-    function _executeAdapterCall(address adapter, bytes calldata data) private returns (bytes memory result) {
-        // 1. Peek: Extract target from first 32 bytes of data (after selector is handled by adapter)
-        // Convention: Adapter functions MUST take `target` as the first argument.
-        if (data.length < 36) revert InvalidAddress(); // 4 bytes selector + 32 bytes address
-
-        // Skip selector (4 bytes) and decode first argument
-        address target = abi.decode(data[4:], (address));
-
-        // 2. Verify: Check Registry
+    function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
+        // 1. Verify: Check Registry
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) {
             revert AdapterNotRegistered(adapter);
         }
 
-        // 3. Execute
+        // 2. Execute: Construct the call using the standard IYieldSeekerAdapter interface
+        bytes memory callData = abi.encodeWithSelector(IYieldSeekerAdapter.execute.selector, target, data);
         bool success;
-        (success, result) = adapter.delegatecall(data);
+        (success, result) = adapter.delegatecall(callData);
         if (!success) {
             revert AdapterExecutionFailed(result);
         }
@@ -287,21 +278,23 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     /**
      * @notice Execute a call through a registered adapter via delegatecall
-     * @dev Implements "Peek and Verify" logic.
+     * @param adapter The address of the adapter to use
+     * @param target The target contract the adapter will interact with
+     * @param data The operation data for the adapter
      */
-    function executeViaAdapter(address adapter, bytes calldata data) external onlyExecutors returns (bytes memory result) {
-        return _executeAdapterCall(adapter, data);
+    function executeViaAdapter(address adapter, address target, bytes calldata data) external onlyExecutors returns (bytes memory result) {
+        return _executeAdapterCall(adapter, target, data);
     }
 
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(address[] calldata adapters, bytes[] calldata datas) external onlyExecutors returns (bytes[] memory results) {
+    function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
-        if (length != datas.length) revert InvalidAddress();
+        if (length != targets.length || length != datas.length) revert InvalidAddress();
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
-            results[i] = _executeAdapterCall(adapters[i], datas[i]);
+            results[i] = _executeAdapterCall(adapters[i], targets[i], datas[i]);
         }
     }
 

@@ -3,7 +3,6 @@ install:
 	@ forge install
 
 install-updates:
-	@ curl -L https://foundry.paradigm.xyz | bash
 	@ foundryup
 	@ forge install
 
@@ -20,7 +19,7 @@ lint-fix:
 	@ forge fmt
 
 type-check:
-	@ forge build
+	@ forge build --force
 
 type-check-ci:
 	@ forge build

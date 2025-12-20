@@ -6,6 +6,7 @@ import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -46,19 +47,55 @@ contract MockVault {
 }
 
 // Adapter to approve tokens
-contract TokenApproveAdapter {
-    function approve(address token, address spender, uint256 amount) external {
+contract TokenApproveAdapter is IYieldSeekerAdapter {
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.approve.selector) {
+            (address spender, uint256 amount) = abi.decode(data[4:], (address, uint256));
+            approve(target, spender, amount);
+            return "";
+        }
+        revert("Unknown selector");
+    }
+
+    function approve(address spender, uint256 amount) public pure {
+        revert("Use execute");
+    }
+
+    function approve(address token, address spender, uint256 amount) internal {
         ERC20(token).approve(spender, amount);
     }
 }
 
 // Adapter to interact with Vault
-contract VaultAdapter {
-    function deposit(address vault, uint256 amount) external {
+contract VaultAdapter is IYieldSeekerAdapter {
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.deposit.selector) {
+            uint256 amount = abi.decode(data[4:], (uint256));
+            deposit(target, amount);
+            return "";
+        } else if (selector == this.withdraw.selector) {
+            uint256 amount = abi.decode(data[4:], (uint256));
+            withdraw(target, amount);
+            return "";
+        }
+        revert("Unknown selector");
+    }
+
+    function deposit(uint256 amount) public pure {
+        revert("Use execute");
+    }
+
+    function withdraw(uint256 amount) public pure {
+        revert("Use execute");
+    }
+
+    function deposit(address vault, uint256 amount) internal {
         MockVault(vault).deposit(amount);
     }
 
-    function withdraw(address vault, uint256 amount) external {
+    function withdraw(address vault, uint256 amount) internal {
         MockVault(vault).withdraw(amount);
     }
 }
@@ -159,18 +196,18 @@ contract IntegrationTest is Test {
     function test_HappyPath_DeFiLifecycle() public {
         // 1. Approve Vault (via executeViaAdapter -> approveAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(address(approveAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18));
+        wallet.executeViaAdapter(address(approveAdapter), address(usdc), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 1000 * 10 ** 18));
         assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10 ** 18);
 
         // 2. Deposit into Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18));
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeWithSelector(VaultAdapter.deposit.selector, 500 * 10 ** 18));
         assertEq(vault.balances(address(wallet)), 500 * 10 ** 18);
         assertEq(usdc.balanceOf(address(wallet)), 500 * 10 ** 18);
 
         // 3. Withdraw from Vault (via executeViaAdapter -> vaultAdapter)
         vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), abi.encodeWithSelector(VaultAdapter.withdraw.selector, address(vault), 200 * 10 ** 18));
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeWithSelector(VaultAdapter.withdraw.selector, 200 * 10 ** 18));
         assertEq(vault.balances(address(wallet)), 300 * 10 ** 18);
         assertEq(usdc.balanceOf(address(wallet)), 700 * 10 ** 18);
     }
@@ -180,7 +217,7 @@ contract IntegrationTest is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(AgentWallet.AdapterNotRegistered.selector, address(maliciousAdapter)));
-        wallet.executeViaAdapter(address(maliciousAdapter), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(user), 1000 * 10 ** 18));
+        wallet.executeViaAdapter(address(maliciousAdapter), address(usdc), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(user), 1000 * 10 ** 18));
     }
 
     function test_Security_CannotExecuteDirectly() public {
@@ -437,10 +474,10 @@ contract IntegrationTest is Test {
 
     function test_UserDirect_ApproveViaAdapter() public {
         // Users can call executeViaAdapter directly
-        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 500 * 10 ** 18);
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 500 * 10 ** 18);
 
         vm.prank(user);
-        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+        wallet.executeViaAdapter(address(approveAdapter), address(usdc), approveCallData);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "User should be able to approve tokens");
     }
@@ -451,12 +488,16 @@ contract IntegrationTest is Test {
         adapters[0] = address(approveAdapter);
         adapters[1] = address(vaultAdapter);
 
+        address[] memory targets = new address[](2);
+        targets[0] = address(usdc);
+        targets[1] = address(vault);
+
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
-        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 500 * 10 ** 18);
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 1000 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, 500 * 10 ** 18);
 
         vm.prank(user);
-        wallet.executeViaAdapterBatch(adapters, datas);
+        wallet.executeViaAdapterBatch(adapters, targets, datas);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "Remaining allowance should be 500 after using 500");
         assertEq(vault.balances(address(wallet)), 500 * 10 ** 18, "Deposit should succeed");
@@ -475,11 +516,11 @@ contract IntegrationTest is Test {
         vm.prank(user);
         wallet.syncFromFactory();
 
-        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 1000 * 10 ** 18);
 
         // Server directly calls executeViaAdapter (allowed by updated access control)
         vm.prank(server);
-        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+        wallet.executeViaAdapter(address(approveAdapter), address(usdc), approveCallData);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 1000 * 10 ** 18, "Server should be able to approve directly");
     }
@@ -500,13 +541,17 @@ contract IntegrationTest is Test {
         adapters[0] = address(approveAdapter);
         adapters[1] = address(vaultAdapter);
 
+        address[] memory targets = new address[](2);
+        targets[0] = address(usdc);
+        targets[1] = address(vault);
+
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 900 * 10 ** 18);
-        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 400 * 10 ** 18);
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 900 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, 400 * 10 ** 18);
 
         // Server directly calls executeViaAdapterBatch
         vm.prank(server);
-        wallet.executeViaAdapterBatch(adapters, datas);
+        wallet.executeViaAdapterBatch(adapters, targets, datas);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 500 * 10 ** 18, "Remaining allowance should be 500 after using 400");
         assertEq(vault.balances(address(wallet)), 400 * 10 ** 18, "Deposit should succeed");
@@ -515,11 +560,11 @@ contract IntegrationTest is Test {
 
     function test_ServerViaEntryPoint_ExecuteViaAdapter() public {
         // Setup: Server calls executeViaAdapter via EntryPoint (simulating bundler execution)
-        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 750 * 10 ** 18);
+        bytes memory approveCallData = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 750 * 10 ** 18);
 
         // EntryPoint calls executeViaAdapter on behalf of owner
         vm.prank(address(entryPoint));
-        wallet.executeViaAdapter(address(approveAdapter), approveCallData);
+        wallet.executeViaAdapter(address(approveAdapter), address(usdc), approveCallData);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 750 * 10 ** 18, "Server via EntryPoint should approve");
     }
@@ -530,13 +575,17 @@ contract IntegrationTest is Test {
         adapters[0] = address(approveAdapter);
         adapters[1] = address(vaultAdapter);
 
+        address[] memory targets = new address[](2);
+        targets[0] = address(usdc);
+        targets[1] = address(vault);
+
         bytes[] memory datas = new bytes[](2);
-        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(usdc), address(vault), 1000 * 10 ** 18);
-        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, address(vault), 600 * 10 ** 18);
+        datas[0] = abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(vault), 1000 * 10 ** 18);
+        datas[1] = abi.encodeWithSelector(VaultAdapter.deposit.selector, 600 * 10 ** 18);
 
         // EntryPoint calls batch on behalf of owner
         vm.prank(address(entryPoint));
-        wallet.executeViaAdapterBatch(adapters, datas);
+        wallet.executeViaAdapterBatch(adapters, targets, datas);
 
         assertEq(usdc.allowance(address(wallet), address(vault)), 400 * 10 ** 18, "Remaining allowance should be 400 after using 600");
         assertEq(vault.balances(address(wallet)), 600 * 10 ** 18, "Deposit should succeed via EntryPoint");

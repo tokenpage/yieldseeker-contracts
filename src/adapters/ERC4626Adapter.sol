@@ -22,16 +22,42 @@ contract YieldSeekerERC4626Adapter is YieldSeekerAdapter {
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
     error ZeroAmount();
+    error UnknownOperation();
 
-    // ============ Vault Operations (called via DELEGATECALL) ============
+    // ============ Standard Adapter Entry Point ============
+
+    /**
+     * @notice Standard entry point for all adapter logic
+     * @param target The vault address
+     * @param data The operation data (encoded deposit or withdraw call)
+     */
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.deposit.selector) {
+            uint256 amount = abi.decode(data[4:], (uint256));
+            uint256 shares = _deposit(target, amount);
+            return abi.encode(shares);
+        }
+        if (selector == this.withdraw.selector) {
+            uint256 shares = abi.decode(data[4:], (uint256));
+            uint256 assets = _withdraw(target, shares);
+            return abi.encode(assets);
+        }
+        revert UnknownOperation();
+    }
+
+    // ============ Vault Operations (Internal) ============
 
     /**
      * @notice Deposit assets into an ERC4626 vault
-     * @param vault Address of the ERC4626 vault (must be registered)
      * @param amount Amount of assets to deposit
      * @return shares Amount of vault shares received
      */
-    function deposit(address vault, uint256 amount) external returns (uint256 shares) {
+    function deposit(uint256 amount) external pure returns (uint256 shares) {
+        revert("Use execute");
+    }
+
+    function _deposit(address vault, uint256 amount) internal returns (uint256 shares) {
         if (amount == 0) revert ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
@@ -43,11 +69,14 @@ contract YieldSeekerERC4626Adapter is YieldSeekerAdapter {
 
     /**
      * @notice Withdraw assets from an ERC4626 vault
-     * @param vault Address of the ERC4626 vault (must be registered)
      * @param shares Amount of shares to redeem
      * @return assets Amount of underlying assets received
      */
-    function withdraw(address vault, uint256 shares) external returns (uint256 assets) {
+    function withdraw(uint256 shares) external pure returns (uint256 assets) {
+        revert("Use execute");
+    }
+
+    function _withdraw(address vault, uint256 shares) internal returns (uint256 assets) {
         if (shares == 0) revert ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);

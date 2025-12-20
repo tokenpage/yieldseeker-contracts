@@ -18,16 +18,37 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
     error SwapFailed(bytes reason);
     error InsufficientOutput(uint256 received, uint256 minExpected);
     error InsufficientEth(uint256 have, uint256 need);
+    error UnknownOperation();
 
     constructor(address allowanceTarget_) {
         if (allowanceTarget_ == address(0)) revert InvalidAllowanceTarget();
         ALLOWANCE_TARGET = allowanceTarget_;
     }
 
-    function swap(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256 buyAmount) {
-        // NOTE: Future enhancement - We can access baseAsset via delegatecall context:
-        // IERC20 baseAsset = IAgentWallet(address(this)).baseAsset();
-        // Then enforce: require(buyToken == address(baseAsset) || sellToken == address(baseAsset), "Must involve base asset");
+    // ============ Standard Adapter Entry Point ============
+
+    /**
+     * @notice Standard entry point for all adapter logic
+     * @param target The 0x Exchange Proxy address
+     * @param data The operation data (encoded swap call)
+     */
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.swap.selector) {
+            (address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) = abi.decode(data[4:], (address, address, uint256, uint256, bytes, uint256));
+            uint256 buyAmount = _swap(target, sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value);
+            return abi.encode(buyAmount);
+        }
+        revert UnknownOperation();
+    }
+
+    // ============ Swap Operations (Internal) ============
+
+    function swap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256 buyAmount) {
+        revert("Use execute");
+    }
+
+    function _swap(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal returns (uint256 buyAmount) {
         if (sellAmount == 0 || minBuyAmount == 0) revert ZeroAmount();
         _requireBaseAsset(buyToken);
         if (sellToken == NATIVE_TOKEN) {
