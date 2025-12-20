@@ -54,15 +54,19 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal returns (uint256 buyAmount) {
         if (sellAmount == 0 || minBuyAmount == 0) revert ZeroAmount();
         _requireBaseAsset(buyToken);
+        // Security: For native ETH swaps, ignore the 'value' parameter from calldata and always send exactly sellAmount.
+        // This prevents a malicious operator from oversending ETH (e.g., value=10 ETH but sellAmount=1 ETH),
+        // which would trap excess ETH in the 0x proxy contract. We only send what we're actually selling.
+        uint256 ethToSend;
         if (sellToken == NATIVE_TOKEN) {
-            // Ensure wallet has enough ETH to forward; do not rely on msg.value
-            if (value < sellAmount) revert ZeroAmount();
-            if (address(this).balance < value) revert InsufficientEth(address(this).balance, value);
+            ethToSend = sellAmount;
+            if (address(this).balance < sellAmount) revert InsufficientEth(address(this).balance, sellAmount);
         } else {
+            ethToSend = 0;
             IERC20(sellToken).forceApprove(ALLOWANCE_TARGET, sellAmount);
         }
         uint256 buyBalanceBefore = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
-        (bool success, bytes memory reason) = target.call{value: value}(swapCallData);
+        (bool success, bytes memory reason) = target.call{value: ethToSend}(swapCallData);
         if (!success) revert SwapFailed(reason);
         uint256 buyBalanceAfter = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
         buyAmount = buyBalanceAfter - buyBalanceBefore;

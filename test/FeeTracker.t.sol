@@ -192,6 +192,106 @@ contract FeeTrackerTest is Test {
         assertEq(tracker.agentFeesPaid(wallet1), 10e6);
         assertEq(tracker.getFeesOwed(wallet1), 5e6);
     }
+
+    // ============ Vault Position Tracking Tests ============
+
+    /**
+     * @notice Test that realized losses adjust cost basis and prevent fees on loss recovery
+     * @dev This test verifies the fix for the audit finding:
+     *      "FeeLedger does not adjust remaining cost basis on realized losses"
+     *
+     * Scenario:
+     * 1. Deposit 100 assets → receive 100 shares (costBasis=100)
+     * 2. Withdraw 50 shares → receive 40 assets (10 asset loss)
+     * 3. Withdraw 50 shares → receive 60 assets (recovery)
+     * Total: Deposited 100, withdrew 100 (break-even)
+     *
+     * Expected: No fees charged (net P&L is zero)
+     * Bug would have: Charged fees on "10 yield" in step 3
+     */
+    function test_RealizedLoss_AdjustsCostBasis_NoFeesOnRecovery() public {
+        vm.startPrank(wallet1);
+
+        // Step 1: Deposit 100 assets for 100 shares
+        tracker.recordAgentVaultShareDeposit(vault1, 100e6, 100e18);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 100e6);
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 100e18);
+        assertEq(tracker.agentFeesCharged(wallet1), 0);
+
+        // Step 2: Withdraw 50 shares, receive 40 assets (realized loss of 10)
+        tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
+        // Cost basis should be: 100 - 40 = 60 (adjusted for realized loss)
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6, "Cost basis should be 60 after loss");
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 50e18);
+        assertEq(tracker.agentFeesCharged(wallet1), 0, "No fees on loss");
+
+        // Step 3: Withdraw remaining 50 shares, receive 60 assets (recovery)
+        tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 60e6);
+        // Cost basis should be: 60 - 60 = 0
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 0);
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 0);
+        // Net: Deposited 100, withdrew 40+60=100 → break-even, no fees
+        assertEq(tracker.agentFeesCharged(wallet1), 0, "No fees on break-even scenario");
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice Test vault position with profit after loss recovery
+     * @dev Ensures fees are only charged on net profit after accounting for losses
+     */
+    function test_RealizedLoss_FeesOnlyOnNetProfit() public {
+        vm.startPrank(wallet1);
+
+        // Deposit 100 assets for 100 shares
+        tracker.recordAgentVaultShareDeposit(vault1, 100e6, 100e18);
+
+        // Withdraw 50 shares at loss: receive 40 assets (10 loss)
+        tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6);
+        assertEq(tracker.agentFeesCharged(wallet1), 0);
+
+        // Withdraw remaining 50 shares at profit: receive 70 assets (10 gain)
+        tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 70e6);
+        // Net: Deposited 100, withdrew 40+70=110 → 10 net profit
+        // Expected fees: 10% of 10 = 1
+        assertEq(tracker.agentFeesCharged(wallet1), 1e6, "Fees only on 10 net profit");
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice Test multiple partial withdrawals with mixed losses and gains
+     */
+    function test_RealizedLoss_MultiplePartialWithdrawals() public {
+        vm.startPrank(wallet1);
+
+        // Deposit 100 assets for 100 shares
+        tracker.recordAgentVaultShareDeposit(vault1, 100e6, 100e18);
+
+        // First withdrawal: 50 shares → 40 assets (10 loss)
+        tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6); // 100 - 40
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 50e18);
+        assertEq(tracker.agentFeesCharged(wallet1), 0);
+
+        // Second withdrawal: 25 shares → 35 assets (profit on this portion)
+        // Proportional cost = 60 * 25 / 50 = 30
+        // Profit = 35 - 30 = 5
+        // Fee = 5 * 10% = 0.5
+        tracker.recordAgentVaultShareWithdraw(vault1, 25e18, 35e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 25e6); // 60 - 35
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 25e18);
+        assertEq(tracker.agentFeesCharged(wallet1), 0.5e6); // 10% of 5
+
+        // Third withdrawal: 25 shares → 25 assets (break-even for this portion)
+        tracker.recordAgentVaultShareWithdraw(vault1, 25e18, 25e6);
+        // Net total: Deposited 100, withdrew 40+35+25=100 → break-even overall
+        // But we already charged fees on the second withdrawal's profit
+        assertEq(tracker.agentFeesCharged(wallet1), 0.5e6, "Total fees only from second withdrawal");
+
+        vm.stopPrank();
+    }
 }
 
 // Note: Integration tests that involve vault position tracking have been removed
