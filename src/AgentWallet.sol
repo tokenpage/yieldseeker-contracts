@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {IYieldSeekerAdapter} from "./adapters/IAdapter.sol";
@@ -30,7 +30,7 @@ library AgentWalletStorageV1 {
         uint256 ownerAgentIndex;
         IERC20 baseAsset;
         AdapterRegistry adapterRegistry;
-        FeeLedger feeLedger;
+        FeeTracker feeTracker;
         address[] agentOperators;
         // NOTE(krishan711): keep a map for fast lookup
         mapping(address => bool) isAgentOperator;
@@ -75,7 +75,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     error TransferFailed();
     error NotApprovedImplementation();
     error InvalidRegistry();
-    error InvalidLedger();
+    error InvalidFeeTracker();
 
     modifier onlyOwner() {
         require(msg.sender == owner(), "only owner");
@@ -149,11 +149,11 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     }
 
     /**
-     * @notice Get the fee ledger
-     * @return FeeLedger instance
+     * @notice Get the fee tracker
+     * @return FeeTracker instance
      */
-    function feeLedger() public view returns (FeeLedger) {
-        return AgentWalletStorageV1.layout().feeLedger;
+    function feeTracker() public view returns (FeeTracker) {
+        return AgentWalletStorageV1.layout().feeTracker;
     }
 
     /**
@@ -203,10 +203,10 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
         if (address(newRegistry).code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = newRegistry;
 
-        FeeLedger newLedger = FACTORY.feeLedger();
-        if (address(newLedger) == address(0)) revert InvalidLedger();
-        if (address(newLedger).code.length == 0) revert InvalidLedger();
-        $.feeLedger = newLedger;
+        FeeTracker newTracker = FACTORY.feeTracker();
+        if (address(newTracker) == address(0)) revert InvalidFeeTracker();
+        if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
+        $.feeTracker = newTracker;
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
@@ -252,13 +252,10 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @dev Enforces the standard IYieldSeekerAdapter interface.
      */
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
-        // 1. Verify: Check Registry
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) {
             revert AdapterNotRegistered(adapter);
         }
-
-        // 2. Execute: Construct the call using the standard IYieldSeekerAdapter interface
         bytes memory callData = abi.encodeWithSelector(IYieldSeekerAdapter.execute.selector, target, data);
         bool success;
         (success, result) = adapter.delegatecall(callData);
@@ -314,16 +311,16 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @dev Can be called by executors during normal operations
      */
     function collectFees() external onlyExecutors {
-        FeeLedger ledger = feeLedger();
-        uint256 owed = ledger.getFeesOwed(address(this));
+        FeeTracker tracker = feeTracker();
+        uint256 owed = tracker.getFeesOwed(address(this));
         if (owed == 0) return;
         IERC20 asset = baseAsset();
         uint256 available = asset.balanceOf(address(this));
         uint256 toCollect = owed > available ? available : owed;
         if (toCollect > 0) {
-            address collector = ledger.feeCollector();
+            address collector = tracker.feeCollector();
             asset.safeTransfer(collector, toCollect);
-            ledger.recordFeePaid(toCollect);
+            tracker.recordFeePaid(toCollect);
         }
     }
 
@@ -335,7 +332,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
-        uint256 feesOwed = feeLedger().getFeesOwed(address(this));
+        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
         if (withdrawable < amount) revert InsufficientBalance();
         _withdrawBaseAsset(recipient, amount);
@@ -348,7 +345,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
-        uint256 feesOwed = feeLedger().getFeesOwed(address(this));
+        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
         _withdrawBaseAsset(recipient, withdrawable);
     }

@@ -4,12 +4,10 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerMerklAdapter} from "../src/adapters/MerklAdapter.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract MockToken is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -31,7 +29,7 @@ contract MockMerklDistributor {
 
 contract MerklAdapterTest is Test {
     AgentWallet wallet;
-    FeeLedger ledger;
+    FeeTracker tracker;
     AdapterRegistry registry;
     AgentWalletFactory factory;
     YieldSeekerMerklAdapter adapter;
@@ -48,16 +46,16 @@ contract MerklAdapterTest is Test {
         usdc = new MockToken("USDC", "USDC");
         aero = new MockToken("AERO", "AERO");
 
-        ledger = new FeeLedger(admin);
+        tracker = new FeeTracker(admin);
         vm.prank(admin);
-        ledger.setFeeConfig(1000, feeCollector); // 10% fee
+        tracker.setFeeConfig(1000, feeCollector); // 10% fee
 
         registry = new AdapterRegistry(admin, admin);
 
         factory = new AgentWalletFactory(admin, admin);
         vm.startPrank(admin);
         factory.setAdapterRegistry(registry);
-        factory.setFeeLedger(ledger);
+        factory.setFeeTracker(tracker);
         vm.stopPrank();
 
         // Deploy adapter and distributor
@@ -102,10 +100,10 @@ contract MerklAdapterTest is Test {
         assertEq(aero.balanceOf(address(wallet)), 100e18);
 
         // Check reward tracking
-        assertEq(ledger.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
+        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
 
         // No fees yet (only on swap to base asset)
-        assertEq(ledger.agentFeesCharged(address(wallet)), 0);
+        assertEq(tracker.agentFeesCharged(address(wallet)), 0);
     }
 
     function test_ClaimMultipleRewardTokens() public {
@@ -134,11 +132,11 @@ contract MerklAdapterTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 50e6);
 
         // Check reward tracking - AERO tracked, USDC counted as yield immediately
-        assertEq(ledger.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
-        assertEq(ledger.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0); // Not tracked, it's base asset
+        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
+        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0); // Not tracked, it's base asset
 
         // USDC is base asset, so fee charged immediately
-        assertEq(ledger.agentFeesCharged(address(wallet)), 5e6); // 10% of 50e6
+        assertEq(tracker.agentFeesCharged(address(wallet)), 5e6); // 10% of 50e6
     }
 
     function test_ClaimBaseAssetReward() public {
@@ -163,9 +161,9 @@ contract MerklAdapterTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 100e6);
 
         // USDC is base asset - should be recorded as yield immediately, not tracked
-        assertEq(ledger.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0);
+        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0);
 
         // Fee charged immediately
-        assertEq(ledger.agentFeesCharged(address(wallet)), 10e6); // 10% of 100e6
+        assertEq(tracker.agentFeesCharged(address(wallet)), 10e6); // 10% of 100e6
     }
 }

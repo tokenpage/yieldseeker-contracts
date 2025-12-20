@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -28,14 +28,14 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
     AgentWallet public agentWalletImplementation;
     AdapterRegistry public adapterRegistry;
-    FeeLedger public feeLedger;
+    FeeTracker public feeTracker;
 
     /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
     mapping(address => mapping(uint256 => address)) public userWallets;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset);
     event RegistryUpdated(address indexed oldRegistry, address indexed newAdapterRegistry);
-    event LedgerUpdated(address indexed oldLedger, address indexed newLedger);
+    event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
     error InvalidAddress();
@@ -98,15 +98,15 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
-     * @notice Update the FeeLedger address for future wallet deployments
-     * @param newFeeLedger The new ledger contract
+     * @notice Update the FeeTracker address for future wallet deployments
+     * @param newFeeTracker The new tracker contract
      */
-    function setFeeLedger(FeeLedger newFeeLedger) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(newFeeLedger) == address(0)) revert InvalidAddress();
-        if (address(newFeeLedger).code.length == 0) revert InvalidAddress();
-        FeeLedger oldFeeLedger = feeLedger;
-        feeLedger = newFeeLedger;
-        emit LedgerUpdated(address(oldFeeLedger), address(newFeeLedger));
+    function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (address(newFeeTracker) == address(0)) revert InvalidAddress();
+        if (address(newFeeTracker).code.length == 0) revert InvalidAddress();
+        FeeTracker oldFeeTracker = feeTracker;
+        feeTracker = newFeeTracker;
+        emit TrackerUpdated(address(oldFeeTracker), address(newFeeTracker));
     }
 
     /**

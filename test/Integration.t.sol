@@ -5,9 +5,8 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -145,13 +144,13 @@ contract IntegrationTest is Test {
         vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
         timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0));
 
-        // Deploy FeeLedger
-        FeeLedger ledger = new FeeLedger(address(timelock));
+        // Deploy FeeTracker
+        FeeTracker tracker = new FeeTracker(address(timelock));
 
-        bytes memory setFeeLedgerData = abi.encodeWithSelector(factory.setFeeLedger.selector, ledger);
-        timelock.schedule(address(factory), 0, setFeeLedgerData, bytes32(0), bytes32(uint256(100)), 24 hours);
+        bytes memory setFeeTrackerData = abi.encodeWithSelector(factory.setFeeTracker.selector, tracker);
+        timelock.schedule(address(factory), 0, setFeeTrackerData, bytes32(0), bytes32(uint256(100)), 24 hours);
         vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
-        timelock.execute(address(factory), 0, setFeeLedgerData, bytes32(0), bytes32(uint256(100)));
+        timelock.execute(address(factory), 0, setFeeTrackerData, bytes32(0), bytes32(uint256(100)));
 
         // Deploy Mocks
         usdc = new MockUSDC();

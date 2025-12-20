@@ -105,18 +105,18 @@ The contracts use Solidity `0.8.28`, which defaults to the `shanghai` EVM versio
 
 ## Fee Model
 
-The system implements a **performance-based fee model** tracked on-chain via the `FeeLedger`. Fees are calculated based on **realized yield** rather than total assets under management.
+The system implements a **performance-based fee model** tracked on-chain via the `FeeTracker`. Fees are calculated based on **realized yield** rather than total assets under management.
 
 ### Lifecycle of a Fee
-1. **Recording Cost Basis**: When an adapter performs a deposit (e.g., into a Morpho vault), it calls `FeeLedger.recordVaultShareDeposit()`. This records the `assetAmount` (cost basis) and the `sharesReceived`.
+1. **Recording Cost Basis**: When an adapter performs a deposit (e.g., into a Morpho vault), it calls `FeeTracker.recordVaultShareDeposit()`. This records the `assetAmount` (cost basis) and the `sharesReceived`.
 2. **Tracking Yield**: As the vault earns interest, the value of the shares increases. This yield remains "unrealized" until a withdrawal occurs.
-3. **Realizing Yield**: When an adapter performs a withdrawal, it calls `FeeLedger.recordVaultShareWithdraw()`. The ledger calculates the difference between the current asset value of the shares and their original cost basis.
+3. **Realizing Yield**: When an adapter performs a withdrawal, it calls `FeeTracker.recordVaultShareWithdraw()`. The feeTracker calculates the difference between the current asset value of the shares and their original cost basis.
 4. **Fee Calculation**: If the withdrawal results in a profit, the configured `feeRateBps` (e.g., 10% or 1000 BPS) is applied to the profit and added to the wallet's `feesOwed`.
-5. **Fee Collection**: The `feeCollector` (configured in the `FeeLedger`) can call `AgentWallet.collectFees()` to transfer the accumulated fees from the wallet to the collector address.
+5. **Fee Collection**: The `feeCollector` (configured in the `FeeTracker`) can call `AgentWallet.collectFees()` to transfer the accumulated fees from the wallet to the collector address.
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for remaining shares is adjusted, and no fees are accrued.
-- **Transparency**: Users can query `feeLedger().getFeesOwed(wallet)` at any time to see their outstanding fee balance.
+- **Transparency**: Users can query `feeTracker().getFeesOwed(wallet)` at any time to see their outstanding fee balance.
 - **Non-Custodial**: Fees are only collected from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---

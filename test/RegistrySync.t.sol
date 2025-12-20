@@ -4,8 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -17,7 +16,7 @@ contract RegistrySyncTest is Test {
     YieldSeekerAgentWalletFactory factory;
     AgentWallet impl;
     YieldSeekerAdapterRegistry registry;
-    FeeLedger ledger;
+    FeeTracker tracker;
     MockUSDC usdc;
 
     address admin = address(0xAD);
@@ -30,7 +29,7 @@ contract RegistrySyncTest is Test {
         registry = new YieldSeekerAdapterRegistry(admin, admin);
         usdc = new MockUSDC();
 
-        ledger = new FeeLedger(admin);
+        tracker = new FeeTracker(admin);
 
         vm.prank(admin);
         factory.setAgentWalletImplementation(impl);
@@ -38,7 +37,7 @@ contract RegistrySyncTest is Test {
 
     function test_RevertOnCreateWithoutRegistry() public {
         vm.prank(admin);
-        factory.setFeeLedger(ledger);
+        factory.setFeeTracker(tracker);
 
         vm.prank(operator);
         vm.expectRevert(YieldSeekerAgentWalletFactory.NoAdapterRegistrySet.selector);
@@ -46,10 +45,10 @@ contract RegistrySyncTest is Test {
     }
 
     function test_RevertOnSyncWithZeroRegistry() public {
-        // 1. Setup with registry and ledger
+        // 1. Setup with registry and tracker
         vm.startPrank(admin);
         factory.setAdapterRegistry(registry);
-        factory.setFeeLedger(ledger);
+        factory.setFeeTracker(tracker);
         vm.stopPrank();
 
         // 2. Create wallet
@@ -71,7 +70,7 @@ contract RegistrySyncTest is Test {
     function test_SuccessfulSync() public {
         vm.startPrank(admin);
         factory.setAdapterRegistry(registry);
-        factory.setFeeLedger(ledger);
+        factory.setFeeTracker(tracker);
         vm.stopPrank();
 
         vm.prank(operator);

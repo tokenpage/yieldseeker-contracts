@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Test} from "forge-std/Test.sol";
@@ -17,7 +17,7 @@ contract FactorySecurityTest is Test {
     YieldSeekerAgentWalletFactory factory;
     AgentWallet impl;
     AdapterRegistry registry;
-    FeeLedger ledger;
+    FeeTracker tracker;
     MockUSDC usdc;
 
     address admin = address(0xAD);
@@ -31,12 +31,12 @@ contract FactorySecurityTest is Test {
         registry = new AdapterRegistry(admin, admin);
         usdc = new MockUSDC();
 
-        ledger = new FeeLedger(admin);
+        tracker = new FeeTracker(admin);
 
         vm.startPrank(admin);
         factory.setAgentWalletImplementation(impl);
         factory.setAdapterRegistry(registry);
-        factory.setFeeLedger(ledger);
+        factory.setFeeTracker(tracker);
         vm.stopPrank();
     }
 
@@ -46,10 +46,10 @@ contract FactorySecurityTest is Test {
         factory.setAdapterRegistry(AdapterRegistry(eoa));
     }
 
-    function test_RevertSetFeeLedger_EOA() public {
+    function test_RevertSetFeeTracker_EOA() public {
         vm.prank(admin);
         vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
-        factory.setFeeLedger(FeeLedger(eoa));
+        factory.setFeeTracker(FeeTracker(eoa));
     }
 
     function test_RevertCreateAgentWallet_EOAAsset() public {

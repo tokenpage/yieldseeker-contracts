@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeLedger as FeeLedger} from "../FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {IYieldSeekerAdapter} from "./IAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -38,7 +38,7 @@ abstract contract YieldSeekerAdapter is IYieldSeekerAdapter {
         if (asset != _baseAssetAddress()) revert InvalidAsset();
     }
 
-    function _feeLedger() internal view returns (FeeLedger) {
-        return _agentWallet().feeLedger();
+    function _feeTracker() internal view returns (FeeTracker) {
+        return _agentWallet().feeTracker();
     }
 }

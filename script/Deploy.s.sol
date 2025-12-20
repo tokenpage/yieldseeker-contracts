@@ -5,10 +5,9 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -28,7 +27,7 @@ import {console2} from "forge-std/console2.sol";
  *   "agentWalletFactory": "0x0000000000000000000000000000000000000000",
  *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
  *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
- *   "feeLedger": "0x0000000000000000000000000000000000000000",
+ *   "feeTracker": "0x0000000000000000000000000000000000000000",
  *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
  *   "zeroXAdapter": "0x0000000000000000000000000000000000000000"
  * }
@@ -64,7 +63,7 @@ contract DeployScript is Script {
         address agentWalletFactory;
         address adapterRegistry;
         address agentWalletImplementation;
-        address feeLedger;
+        address feeTracker;
         address erc4626Adapter;
         address zeroXAdapter;
     }
@@ -104,7 +103,7 @@ contract DeployScript is Script {
                 agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
                 adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
                 agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
-                feeLedger: safeReadAddress(deployJson, ".feeLedger"),
+                feeTracker: safeReadAddress(deployJson, ".feeTracker"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
                 zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter")
             });
@@ -155,13 +154,13 @@ contract DeployScript is Script {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
-        // Deploy or reuse FeeLedger
-        if (deployments.feeLedger == address(0)) {
-            FeeLedger newFeeLedger = new FeeLedger{salt: bytes32(SALT)}(deployments.adminTimelock);
-            deployments.feeLedger = address(newFeeLedger);
-            console2.log("-> FeeLedger deployed at:", address(newFeeLedger));
+        // Deploy or reuse FeeTracker
+        if (deployments.feeTracker == address(0)) {
+            FeeTracker newFeeTracker = new FeeTracker{salt: bytes32(SALT)}(deployments.adminTimelock);
+            deployments.feeTracker = address(newFeeTracker);
+            console2.log("-> FeeTracker deployed at:", address(newFeeTracker));
         } else {
-            console2.log("-> Using existing feeLedger:", deployments.feeLedger);
+            console2.log("-> Using existing feeTracker:", deployments.feeTracker);
         }
 
         // Deploy or reuse ERC4626 AdaptgetZeroXAllowanceTarget(block.chainid
@@ -191,7 +190,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
         vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
-        vm.serializeAddress(json, "feeLedger", deployments.feeLedger);
+        vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         string memory finalJson = vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
         vm.writeJson(finalJson, "./deployments.json");
@@ -224,9 +223,9 @@ contract DeployScript is Script {
             datas[operationCount] = abi.encodeCall(agentWalletFactory.setAdapterRegistry, (adapterRegistry));
             operationCount++;
         }
-        if (address(agentWalletFactory.feeLedger()) != deployments.feeLedger) {
+        if (address(agentWalletFactory.feeTracker()) != deployments.feeTracker) {
             targets[operationCount] = deployments.agentWalletFactory;
-            datas[operationCount] = abi.encodeCall(agentWalletFactory.setFeeLedger, (FeeLedger(deployments.feeLedger)));
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.setFeeTracker, (FeeTracker(deployments.feeTracker)));
             operationCount++;
         }
         // 2. Register Adapters

@@ -4,9 +4,8 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerFeeLedger as FeeLedger} from "../src/FeeLedger.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -104,9 +103,9 @@ contract GasComparisonTest is Test {
         factory.setAgentWalletImplementation(impl);
         factory.setAdapterRegistry(registry);
 
-        // Deploy FeeLedger
-        FeeLedger ledger = new FeeLedger(admin);
-        factory.setFeeLedger(ledger);
+        // Deploy FeeTracker
+        FeeTracker tracker = new FeeTracker(admin);
+        factory.setFeeTracker(tracker);
 
         // Setup Mocks and Adapters
         usdc = new MockUSDC();

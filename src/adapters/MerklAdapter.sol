@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IAgentWallet} from "../IAgentWallet.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -60,9 +59,9 @@ contract YieldSeekerMerklAdapter is YieldSeekerAdapter {
             uint256 claimed = balanceAfter - balancesBefore[i];
             if (claimed > 0) {
                 if (tokens[i] == baseAsset) {
-                    _feeLedger().recordAgentYieldEarned(claimed);
+                    _feeTracker().recordAgentYieldEarned(claimed);
                 } else {
-                    _feeLedger().recordAgentRewardClaim(tokens[i], claimed);
+                    _feeTracker().recordAgentRewardClaim(tokens[i], claimed);
                 }
             }
         }
