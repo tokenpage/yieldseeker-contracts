@@ -88,9 +88,7 @@ contract ServerAuthTest is Test {
         timelock.execute(address(factory), 0, setImplData, bytes32(0), salt2);
 
         // Deploy FeeLedger
-        FeeLedger ledgerImpl = new FeeLedger();
-        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, address(timelock)));
-        FeeLedger ledger = FeeLedger(address(ledgerProxy));
+        FeeLedger ledger = new FeeLedger(address(timelock));
 
         bytes memory setFeeLedgerData = abi.encodeWithSelector(factory.setFeeLedger.selector, ledger);
         bytes32 salt3 = bytes32(uint256(3));
@@ -100,7 +98,7 @@ contract ServerAuthTest is Test {
         timelock.execute(address(factory), 0, setFeeLedgerData, bytes32(0), salt3);
 
         // Create wallet with ownerAgentIndex=0 and baseAsset=USDC
-        AgentWallet walletContract = factory.createAccount(user, 0, address(usdc));
+        AgentWallet walletContract = factory.createAgentWallet(user, 0, address(usdc));
         wallet = AgentWallet(payable(address(walletContract)));
     }
 
@@ -137,7 +135,7 @@ contract ServerAuthTest is Test {
         timelock.execute(address(factory), 0, setServerData, bytes32(0), bytes32(uint256(1000)));
 
         // 2. Create wallet
-        AgentWallet newWallet = factory.createAccount(user, 1, address(usdc));
+        AgentWallet newWallet = factory.createAgentWallet(user, 1, address(usdc));
 
         // 3. Verify server IS synced automatically
         assertTrue(newWallet.isAgentOperator(server), "Server should be synced automatically on initialization");
@@ -145,7 +143,7 @@ contract ServerAuthTest is Test {
 
     function test_ServerAuth_SyncOnUpgrade() public {
         // 1. Create wallet (no server yet)
-        AgentWallet newWallet = factory.createAccount(user, 2, address(usdc));
+        AgentWallet newWallet = factory.createAgentWallet(user, 2, address(usdc));
         assertFalse(newWallet.isAgentOperator(server), "Server should not be in wallet initially");
 
         // 2. Grant role to server in factory

@@ -30,9 +30,7 @@ contract RegistrySyncTest is Test {
         registry = new YieldSeekerAdapterRegistry(admin, admin);
         usdc = new MockUSDC();
 
-        FeeLedger ledgerImpl = new FeeLedger();
-        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, admin));
-        ledger = FeeLedger(address(ledgerProxy));
+        ledger = new FeeLedger(admin);
 
         vm.prank(admin);
         factory.setAgentWalletImplementation(impl);
@@ -44,7 +42,7 @@ contract RegistrySyncTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(YieldSeekerAgentWalletFactory.NoAdapterRegistrySet.selector);
-        factory.createAccount(owner, 1, address(usdc));
+        factory.createAgentWallet(owner, 1, address(usdc));
     }
 
     function test_RevertOnSyncWithZeroRegistry() public {
@@ -56,7 +54,7 @@ contract RegistrySyncTest is Test {
 
         // 2. Create wallet
         vm.prank(operator);
-        AgentWallet wallet = factory.createAccount(owner, 1, address(usdc));
+        AgentWallet wallet = factory.createAgentWallet(owner, 1, address(usdc));
         assertEq(address(wallet.adapterRegistry()), address(registry));
 
         // 3. Simulate a broken factory state (this shouldn't happen with our current setAdapterRegistry check,
@@ -77,7 +75,7 @@ contract RegistrySyncTest is Test {
         vm.stopPrank();
 
         vm.prank(operator);
-        AgentWallet wallet = factory.createAccount(owner, 1, address(usdc));
+        AgentWallet wallet = factory.createAgentWallet(owner, 1, address(usdc));
 
         // Update registry in factory
         YieldSeekerAdapterRegistry registry2 = new YieldSeekerAdapterRegistry(admin, admin);

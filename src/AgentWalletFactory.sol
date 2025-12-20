@@ -116,8 +116,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @param baseAsset Base asset token address for this agent (e.g., USDC)
      * @return ret The deployed AgentWallet
      */
-    // Rename to createAgentWallet
-    function createAccount(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
+    function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (owner == address(0)) revert InvalidAddress();
         if (baseAsset == address(0)) revert InvalidAddress();
         if (baseAsset.code.length == 0) revert InvalidAddress();

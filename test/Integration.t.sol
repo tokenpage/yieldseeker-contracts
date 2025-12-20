@@ -146,9 +146,7 @@ contract IntegrationTest is Test {
         timelock.execute(address(factory), 0, setAdapterRegistryData, bytes32(0), bytes32(0));
 
         // Deploy FeeLedger
-        FeeLedger ledgerImpl = new FeeLedger();
-        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, address(timelock)));
-        FeeLedger ledger = FeeLedger(address(ledgerProxy));
+        FeeLedger ledger = new FeeLedger(address(timelock));
 
         bytes memory setFeeLedgerData = abi.encodeWithSelector(factory.setFeeLedger.selector, ledger);
         timelock.schedule(address(factory), 0, setFeeLedgerData, bytes32(0), bytes32(uint256(100)), 24 hours);
@@ -186,7 +184,7 @@ contract IntegrationTest is Test {
         timelock.execute(address(registry), 0, regTargetVaultData, bytes32(0), bytes32(uint256(4)));
 
         // Create Agent Wallet with ownerAgentIndex=0 and baseAsset=USDC
-        AgentWallet walletContract = factory.createAccount(user, 0, address(usdc));
+        AgentWallet walletContract = factory.createAgentWallet(user, 0, address(usdc));
         wallet = AgentWallet(payable(address(walletContract)));
 
         // Fund wallet
@@ -254,7 +252,7 @@ contract IntegrationTest is Test {
         uint256 testAgentIndex = 999;
 
         // Create new wallet with new registry
-        AgentWallet newWalletContract = factory.createAccount(user, testAgentIndex, address(usdc));
+        AgentWallet newWalletContract = factory.createAgentWallet(user, testAgentIndex, address(usdc));
         AgentWallet newWallet = AgentWallet(payable(address(newWalletContract)));
 
         // Verify new wallet uses new registry
@@ -282,7 +280,7 @@ contract IntegrationTest is Test {
         uint256 testAgentIndex = 888;
 
         // Create new wallet
-        AgentWallet newWalletContract = factory.createAccount(user, testAgentIndex, address(usdc));
+        AgentWallet newWalletContract = factory.createAgentWallet(user, testAgentIndex, address(usdc));
 
         // Verify address prediction works with new implementation
         address predicted = factory.getAddress(user, testAgentIndex);

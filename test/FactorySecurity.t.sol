@@ -31,9 +31,7 @@ contract FactorySecurityTest is Test {
         registry = new AdapterRegistry(admin, admin);
         usdc = new MockUSDC();
 
-        FeeLedger ledgerImpl = new FeeLedger();
-        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, admin));
-        ledger = FeeLedger(address(ledgerProxy));
+        ledger = new FeeLedger(admin);
 
         vm.startPrank(admin);
         factory.setAgentWalletImplementation(impl);
@@ -54,10 +52,10 @@ contract FactorySecurityTest is Test {
         factory.setFeeLedger(FeeLedger(eoa));
     }
 
-    function test_RevertCreateAccount_EOAAsset() public {
+    function test_RevertCreateAgentWallet_EOAAsset() public {
         vm.prank(operator);
         vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
-        factory.createAccount(owner, 1, eoa);
+        factory.createAgentWallet(owner, 1, eoa);
     }
 
     function test_RevertInitialize_EOAAsset() public {
@@ -73,7 +71,7 @@ contract FactorySecurityTest is Test {
     function test_RevertSync_IfRegistryBecomesEOA() public {
         // Create a wallet first
         vm.prank(operator);
-        AgentWallet wallet = factory.createAccount(owner, 1, address(usdc));
+        AgentWallet wallet = factory.createAgentWallet(owner, 1, address(usdc));
 
         // Deploy a new registry
         AdapterRegistry registry2 = new AdapterRegistry(admin, admin);

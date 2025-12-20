@@ -105,9 +105,8 @@ contract GasComparisonTest is Test {
         factory.setAdapterRegistry(registry);
 
         // Deploy FeeLedger
-        FeeLedger ledgerImpl = new FeeLedger();
-        ERC1967Proxy ledgerProxy = new ERC1967Proxy(address(ledgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, admin));
-        factory.setFeeLedger(FeeLedger(address(ledgerProxy)));
+        FeeLedger ledger = new FeeLedger(admin);
+        factory.setFeeLedger(ledger);
 
         // Setup Mocks and Adapters
         usdc = new MockUSDC();
@@ -123,7 +122,7 @@ contract GasComparisonTest is Test {
 
         // Create Agent Wallet
         vm.prank(operator);
-        wallet = factory.createAccount(user, 0, address(usdc));
+        wallet = factory.createAgentWallet(user, 0, address(usdc));
 
         // Fund both user and wallet
         usdc.mint(user, 1000 * 10 ** 18);

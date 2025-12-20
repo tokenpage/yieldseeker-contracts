@@ -155,13 +155,11 @@ contract DeployScript is Script {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
-        // Deploy or reuse FeeLedger (UUPS Proxy)
+        // Deploy or reuse FeeLedger
         if (deployments.feeLedger == address(0)) {
-            FeeLedger feeLedgerImpl = new FeeLedger{salt: bytes32(SALT)}();
-            ERC1967Proxy feeLedgerProxy = new ERC1967Proxy{salt: bytes32(SALT + 1)}(address(feeLedgerImpl), abi.encodeWithSelector(FeeLedger.initialize.selector, deployments.adminTimelock));
-            deployments.feeLedger = address(feeLedgerProxy);
-            console2.log("-> FeeLedger deployed at:", address(feeLedgerProxy));
-            console2.log("   implementation:", address(feeLedgerImpl));
+            FeeLedger newFeeLedger = new FeeLedger{salt: bytes32(SALT)}(deployments.adminTimelock);
+            deployments.feeLedger = address(newFeeLedger);
+            console2.log("-> FeeLedger deployed at:", address(newFeeLedger));
         } else {
             console2.log("-> Using existing feeLedger:", deployments.feeLedger);
         }

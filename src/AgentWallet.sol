@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerFeeLedger as FeeLedger} from "./FeeLedger.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
+import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {IYieldSeekerAdapter} from "./adapters/IAdapter.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
@@ -14,13 +15,6 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
-
-interface IAgentWalletFactory {
-    function agentWalletImplementation() external view returns (address);
-    function adapterRegistry() external view returns (AdapterRegistry);
-    function feeLedger() external view returns (FeeLedger);
-    function listAgentOperators() external view returns (address[] memory);
-}
 
 /**
  * @title AgentWalletStorageV1
@@ -70,10 +64,8 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     IAgentWalletFactory public immutable FACTORY;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
-    event ExecutedViaAdapter(address indexed adapter, bytes data, bytes result);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
-    event FeesCollected(address indexed collector, uint256 amount);
 
     error AdapterNotRegistered(address adapter);
     error AdapterExecutionFailed(bytes reason);
@@ -273,7 +265,6 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
         if (!success) {
             revert AdapterExecutionFailed(result);
         }
-        emit ExecutedViaAdapter(adapter, data, result);
     }
 
     /**
@@ -304,7 +295,6 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
     // TODO(krishan711): do we need to upate itratively thorugh all the versions or is it fine to skip to latest?
-    // TODO(krishan711): does this really need to be onlyOwner, cos actually things should be safe regardless of this.
     function upgradeToLatest() external onlyOwner {
         upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
         _syncFromFactory();
@@ -334,7 +324,6 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
             address collector = ledger.feeCollector();
             asset.safeTransfer(collector, toCollect);
             ledger.recordFeePaid(toCollect);
-            emit FeesCollected(collector, toCollect);
         }
     }
 

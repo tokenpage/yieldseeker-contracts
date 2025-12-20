@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IAgentWallet} from "../IAgentWallet.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -22,66 +23,66 @@ contract YieldSeekerERC4626Adapter is YieldSeekerAdapter {
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
     error ZeroAmount();
-    error UnknownOperation();
-
-    // ============ Standard Adapter Entry Point ============
 
     /**
-     * @notice Standard entry point for all adapter logic
-     * @param target The vault address
-     * @param data The operation data (encoded deposit or withdraw call)
+     * @notice Override execute to handle vault operations
+     * @dev Already running in wallet context via delegatecall from AgentWallet
      */
     function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
-            uint256 shares = _deposit(target, amount);
+            uint256 shares = _depositInternal(target, amount);
             return abi.encode(shares);
         }
         if (selector == this.withdraw.selector) {
             uint256 shares = abi.decode(data[4:], (uint256));
-            uint256 assets = _withdraw(target, shares);
+            uint256 assets = _withdrawInternal(target, shares);
             return abi.encode(assets);
         }
         revert UnknownOperation();
     }
 
-    // ============ Vault Operations (Internal) ============
+    // ============ Vault Operations ============
 
     /**
-     * @notice Deposit assets into an ERC4626 vault
-     * @param amount Amount of assets to deposit
-     * @return shares Amount of vault shares received
+     * @notice Deposit assets into an ERC4626 vault (public interface, should not be called directly)
      */
     function deposit(uint256 amount) external pure returns (uint256 shares) {
         revert("Use execute");
     }
 
-    function _deposit(address vault, uint256 amount) internal returns (uint256 shares) {
+    /**
+     * @notice Internal deposit implementation
+     * @dev Runs in wallet context via delegatecall
+     */
+    function _depositInternal(address vault, uint256 amount) internal returns (uint256 shares) {
         if (amount == 0) revert ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit(amount, address(this));
-        _feeLedger().recordVaultShareDeposit(vault, amount, shares);
+        _feeLedger().recordAgentVaultShareDeposit(vault, amount, shares);
         emit Deposited(address(this), vault, amount, shares);
     }
 
     /**
-     * @notice Withdraw assets from an ERC4626 vault
-     * @param shares Amount of shares to redeem
-     * @return assets Amount of underlying assets received
+     * @notice Withdraw assets from an ERC4626 vault (public interface, should not be called directly)
      */
     function withdraw(uint256 shares) external pure returns (uint256 assets) {
         revert("Use execute");
     }
 
-    function _withdraw(address vault, uint256 shares) internal returns (uint256 assets) {
+    /**
+     * @notice Internal withdraw implementation
+     * @dev Runs in wallet context via delegatecall
+     */
+    function _withdrawInternal(address vault, uint256 shares) internal returns (uint256 assets) {
         if (shares == 0) revert ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         assets = IERC4626(vault).redeem(shares, address(this), address(this));
-        _feeLedger().recordVaultShareWithdraw(vault, shares, assets);
+        _feeLedger().recordAgentVaultShareWithdraw(vault, shares, assets);
         emit Withdrawn(address(this), vault, shares, assets);
     }
 }
