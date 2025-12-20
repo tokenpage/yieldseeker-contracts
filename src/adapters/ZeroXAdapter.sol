@@ -28,7 +28,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
      * @notice Override execute to handle swap operations
      * @dev Already running in wallet context via delegatecall from AgentWallet
      */
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+    function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.swap.selector) {
             (address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) = abi.decode(data[4:], (address, address, uint256, uint256, bytes, uint256));

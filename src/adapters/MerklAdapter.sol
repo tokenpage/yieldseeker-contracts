@@ -24,7 +24,7 @@ contract YieldSeekerMerklAdapter is YieldSeekerAdapter {
      * @notice Override execute to properly handle dynamic array parameters
      * @dev Already running in wallet context via delegatecall from AgentWallet
      */
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+    function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.claim.selector) {
             (address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));

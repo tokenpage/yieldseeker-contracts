@@ -22,7 +22,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
      * @notice Override execute to handle vault operations
      * @dev Already running in wallet context via delegatecall from AgentWallet
      */
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
+    function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
