@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
+import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -67,28 +68,26 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
 
-    error AdapterNotRegistered(address adapter);
     error AdapterExecutionFailed(bytes reason);
-    error NotAllowed();
-    error InvalidAddress();
-    error InsufficientBalance();
     error TransferFailed();
     error NotApprovedImplementation();
     error InvalidRegistry();
     error InvalidFeeTracker();
 
     modifier onlyOwner() {
-        require(msg.sender == owner(), "only owner");
+        if (msg.sender != owner()) revert YieldSeekerErrors.Unauthorized(msg.sender);
         _;
     }
 
     modifier onlySyncers() {
-        require(msg.sender == owner() || isAgentOperator(msg.sender), "only syncers");
+        if (msg.sender != owner() && !isAgentOperator(msg.sender)) revert YieldSeekerErrors.Unauthorized(msg.sender);
         _;
     }
 
     modifier onlyExecutors() {
-        require(msg.sender == address(ENTRY_POINT) || msg.sender == owner() || isAgentOperator(msg.sender), "only executors");
+        if (msg.sender != address(ENTRY_POINT) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
+            revert YieldSeekerErrors.Unauthorized(msg.sender);
+        }
         _;
     }
 
@@ -103,9 +102,9 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
 
     // TODO(krishan711): this might need to be called something else if we actually do an upgrade
     function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) public virtual initializer {
-        require(_owner != address(0), "Invalid owner");
-        require(_baseAsset != address(0), "Invalid base asset");
-        require(_baseAsset.code.length > 0, "Invalid base asset");
+        if (_owner == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (_baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (_baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(_baseAsset);
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = _owner;
         $.ownerAgentIndex = _ownerAgentIndex;
@@ -235,14 +234,14 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @notice Standard execute disallowed to enforce authorized adapter usage
      */
     function execute(address, uint256, bytes calldata) external virtual {
-        revert NotAllowed();
+        revert YieldSeekerErrors.NotAllowed();
     }
 
     /**
      * @notice Standard executeBatch disallowed to enforce authorized adapter usage
      */
     function executeBatch(address[] calldata, bytes[] calldata) external virtual {
-        revert NotAllowed();
+        revert YieldSeekerErrors.NotAllowed();
     }
 
     // ============ Execution (Via Adapter) ============
@@ -254,7 +253,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) {
-            revert AdapterNotRegistered(adapter);
+            revert YieldSeekerErrors.AdapterNotRegistered(adapter);
         }
         bytes memory callData = abi.encodeWithSelector(IYieldSeekerAdapter.execute.selector, target, data);
         bool success;
@@ -279,7 +278,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      */
     function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
-        if (length != targets.length || length != datas.length) revert InvalidAddress();
+        if (length != targets.length || length != datas.length) revert YieldSeekerErrors.InvalidState();
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             results[i] = _executeAdapterCall(adapters[i], targets[i], datas[i]);
@@ -334,7 +333,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
         uint256 balance = asset.balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-        if (withdrawable < amount) revert InsufficientBalance();
+        if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
         _withdrawBaseAsset(recipient, amount);
     }
 
@@ -357,7 +356,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      */
     function withdrawEthToUser(address recipient, uint256 amount) external onlyOwner {
         uint256 balance = address(this).balance;
-        if (balance < amount) revert InsufficientBalance();
+        if (balance < amount) revert YieldSeekerErrors.InsufficientBalance();
         _withdrawEth(recipient, amount);
     }
 
@@ -376,7 +375,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @param amount Amount to withdraw
      */
     function _withdrawBaseAsset(address recipient, uint256 amount) internal {
-        if (recipient == address(0)) revert InvalidAddress();
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
         IERC20 asset = baseAsset();
         asset.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
@@ -388,7 +387,7 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
      * @param amount Amount of ETH to withdraw
      */
     function _withdrawEth(address recipient, uint256 amount) internal {
-        if (recipient == address(0)) revert InvalidAddress();
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
         (bool success,) = recipient.call{value: amount}("");
         if (!success) revert TransferFailed();
         emit WithdrewEthToUser(owner(), recipient, amount);

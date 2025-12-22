@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerErrors} from "../src/Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -42,19 +43,19 @@ contract FactorySecurityTest is Test {
 
     function test_RevertSetAdapterRegistry_EOA() public {
         vm.prank(admin);
-        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
         factory.setAdapterRegistry(AdapterRegistry(eoa));
     }
 
     function test_RevertSetFeeTracker_EOA() public {
         vm.prank(admin);
-        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
         factory.setFeeTracker(FeeTracker(eoa));
     }
 
     function test_RevertCreateAgentWallet_EOAAsset() public {
         vm.prank(operator);
-        vm.expectRevert(YieldSeekerAgentWalletFactory.InvalidAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
         factory.createAgentWallet(owner, 1, eoa);
     }
 
@@ -64,7 +65,7 @@ contract FactorySecurityTest is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         AgentWallet walletProxy = AgentWallet(payable(address(proxy)));
 
-        vm.expectRevert("Invalid base asset");
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
         walletProxy.initialize(owner, 1, eoa);
     }
 

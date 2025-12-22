@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
+import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -38,7 +39,6 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
-    error InvalidAddress();
     error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
     error NoAgentWalletImplementationSet();
     error NoAdapterRegistrySet();
@@ -48,8 +48,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
     constructor(address admin, address agentOperator) {
-        require(admin != address(0), "Invalid admin");
-        require(agentOperator != address(0), "Invalid agent creator");
+        if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (agentOperator == address(0)) revert YieldSeekerErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(AGENT_OPERATOR_ROLE, agentOperator);
     }
@@ -78,8 +78,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @param newAgentWalletImplementation Address of the new AgentWallet logic
      */
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(newAgentWalletImplementation) == address(0)) revert InvalidAddress();
-        if (address(newAgentWalletImplementation).code.length == 0) revert InvalidAddress();
+        if (address(newAgentWalletImplementation) == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (address(newAgentWalletImplementation).code.length == 0) revert YieldSeekerErrors.NotAContract(address(newAgentWalletImplementation));
         if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert InvalidImplementationFactory();
         agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
@@ -90,8 +90,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @param newAdapterRegistry The new registry contract
      */
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(newAdapterRegistry) == address(0)) revert InvalidAddress();
-        if (address(newAdapterRegistry).code.length == 0) revert InvalidAddress();
+        if (address(newAdapterRegistry) == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (address(newAdapterRegistry).code.length == 0) revert YieldSeekerErrors.NotAContract(address(newAdapterRegistry));
         AdapterRegistry oldAdapterRegistry = adapterRegistry;
         adapterRegistry = newAdapterRegistry;
         emit RegistryUpdated(address(oldAdapterRegistry), address(newAdapterRegistry));
@@ -102,8 +102,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @param newFeeTracker The new tracker contract
      */
     function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(newFeeTracker) == address(0)) revert InvalidAddress();
-        if (address(newFeeTracker).code.length == 0) revert InvalidAddress();
+        if (address(newFeeTracker) == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (address(newFeeTracker).code.length == 0) revert YieldSeekerErrors.NotAContract(address(newFeeTracker));
         FeeTracker oldFeeTracker = feeTracker;
         feeTracker = newFeeTracker;
         emit TrackerUpdated(address(oldFeeTracker), address(newFeeTracker));
@@ -117,9 +117,9 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @return ret The deployed AgentWallet
      */
     function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
-        if (owner == address(0)) revert InvalidAddress();
-        if (baseAsset == address(0)) revert InvalidAddress();
-        if (baseAsset.code.length == 0) revert InvalidAddress();
+        if (owner == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(baseAsset);
         if (address(agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
         if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);

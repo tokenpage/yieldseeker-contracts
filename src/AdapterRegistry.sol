@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "./Errors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
@@ -18,16 +19,11 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
     event TargetRegistered(address indexed target, address indexed adapter);
     event TargetRemoved(address indexed target, address indexed previousAdapter);
 
-    error ZeroAddress();
-    error AdapterNotRegistered(address adapter);
-    error TargetNotRegistered(address target);
-    error NotAContract(address adapter);
-
     /// @param admin Address of the admin (gets admin roles for dangerous operations)
     /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
     constructor(address admin, address emergencyAdmin) {
-        if (admin == address(0)) revert ZeroAddress();
-        if (emergencyAdmin == address(0)) revert ZeroAddress();
+        if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (emergencyAdmin == address(0)) revert YieldSeekerErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
@@ -41,15 +37,15 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
     }
 
     function registerAdapter(address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (adapter == address(0)) revert ZeroAddress();
-        if (adapter.code.length == 0) revert NotAContract(adapter);
+        if (adapter == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (adapter.code.length == 0) revert YieldSeekerErrors.NotAContract(adapter);
         isRegisteredAdapter[adapter] = true;
         emit AdapterRegistered(adapter);
     }
 
     function setTargetAdapter(address target, address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (target == address(0)) revert ZeroAddress();
-        if (!isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
+        if (target == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (!isRegisteredAdapter[adapter]) revert YieldSeekerErrors.AdapterNotRegistered(adapter);
         (bool exists, address previousAdapter) = _targetToAdapter.tryGet(target);
         if (exists) {
             if (previousAdapter != adapter) {
@@ -65,13 +61,13 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
 
     function removeTarget(address target) external onlyRole(EMERGENCY_ROLE) {
         (bool exists, address adapter) = _targetToAdapter.tryGet(target);
-        if (!exists) revert TargetNotRegistered(target);
+        if (!exists) revert YieldSeekerErrors.TargetNotRegistered(target);
         _targetToAdapter.remove(target);
         emit TargetRemoved(target, adapter);
     }
 
     function unregisterAdapter(address adapter) external onlyRole(EMERGENCY_ROLE) {
-        if (!isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
+        if (!isRegisteredAdapter[adapter]) revert YieldSeekerErrors.AdapterNotRegistered(adapter);
         isRegisteredAdapter[adapter] = false;
         emit AdapterUnregistered(adapter);
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../Errors.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -40,7 +41,7 @@ contract YieldSeekerMerklAdapter is YieldSeekerAdapter {
      * @notice Claim rewards from Merkl (public interface, should not be called directly)
      */
     function claim(address[] calldata users, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external pure {
-        revert("Use execute");
+        revert YieldSeekerErrors.DirectCallForbidden();
     }
 
     /**

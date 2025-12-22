@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../src/Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -30,7 +31,7 @@ contract FeeTrackerTest is Test {
     }
 
     function test_Initialize_RevertsOnZeroAdmin() public {
-        vm.expectRevert(FeeTracker.ZeroAddress.selector);
+        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
         new FeeTracker(address(0));
     }
 
@@ -51,7 +52,7 @@ contract FeeTrackerTest is Test {
 
     function test_SetFeeConfig_RevertsOnZeroCollector() public {
         vm.prank(admin);
-        vm.expectRevert(FeeTracker.ZeroAddress.selector);
+        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
         tracker.setFeeConfig(1000, address(0));
     }
 

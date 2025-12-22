@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../Errors.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 /**
@@ -13,8 +14,6 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
-    error ZeroAmount();
-
     /**
      * @notice Deposit assets into a vault (public interface, should not be called directly)
      * @param amount The amount of assets to deposit
@@ -22,7 +21,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositInternal()
      */
     function deposit(uint256 amount) external pure returns (uint256 shares) {
-        revert("Use execute");
+        revert YieldSeekerErrors.DirectCallForbidden();
     }
 
     /**
@@ -32,7 +31,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositPercentageInternal()
      */
     function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares) {
-        revert("Use execute");
+        revert YieldSeekerErrors.DirectCallForbidden();
     }
 
     /**
@@ -52,7 +51,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev Implemented in base class - calculates amount and calls _depositInternal
      */
     function _depositPercentageInternal(address vault, uint256 percentageBps) internal returns (uint256 shares) {
-        require(percentageBps > 0 && percentageBps <= 10000, "Invalid percentage");
+        if (percentageBps == 0 || percentageBps > 10000) revert YieldSeekerErrors.InvalidPercentage(percentageBps);
         uint256 balance = _baseAsset().balanceOf(address(this));
         uint256 amount = (balance * percentageBps) / 10000;
         return _depositInternal(vault, amount);
@@ -65,7 +64,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _withdrawInternal()
      */
     function withdraw(uint256 shares) external pure returns (uint256 assets) {
-        revert("Use execute");
+        revert YieldSeekerErrors.DirectCallForbidden();
     }
 
     /**

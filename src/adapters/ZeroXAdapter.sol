@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../Errors.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -13,7 +14,6 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
 
     event Swapped(address indexed wallet, address indexed target, address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount);
 
-    error ZeroAmount();
     error InvalidAllowanceTarget();
     error SwapFailed(bytes reason);
     error InsufficientOutput(uint256 received, uint256 minExpected);
@@ -44,7 +44,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
      * @notice Swap tokens via 0x (public interface, should not be called directly)
      */
     function swap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256 buyAmount) {
-        revert("Use execute");
+        revert YieldSeekerErrors.DirectCallForbidden();
     }
 
     /**
@@ -52,7 +52,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
      * @dev Runs in wallet context via delegatecall
      */
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal returns (uint256 buyAmount) {
-        if (sellAmount == 0 || minBuyAmount == 0) revert ZeroAmount();
+        if (sellAmount == 0 || minBuyAmount == 0) revert YieldSeekerErrors.ZeroAmount();
         _requireBaseAsset(buyToken);
         // Security: For native ETH swaps, ignore the 'value' parameter from calldata and always send exactly sellAmount.
         // This prevents a malicious operator from oversending ETH (e.g., value=10 ETH but sellAmount=1 ETH),

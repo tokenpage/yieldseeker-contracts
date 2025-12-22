@@ -5,6 +5,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerErrors} from "../src/Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -213,14 +214,14 @@ contract IntegrationTest is Test {
         TokenApproveAdapter maliciousAdapter = new TokenApproveAdapter();
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AgentWallet.AdapterNotRegistered.selector, address(maliciousAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, address(maliciousAdapter)));
         wallet.executeViaAdapter(address(maliciousAdapter), address(usdc), abi.encodeWithSelector(TokenApproveAdapter.approve.selector, address(user), 1000 * 10 ** 18));
     }
 
     function test_Security_CannotExecuteDirectly() public {
         // Attempt to call execute() directly to bypass registry
         vm.prank(user);
-        vm.expectRevert(AgentWallet.NotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.NotAllowed.selector);
         wallet.execute(address(usdc), 0, abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10 ** 18));
     }
 
@@ -231,7 +232,7 @@ contract IntegrationTest is Test {
         funcs[0] = abi.encodeWithSelector(ERC20.approve.selector, user, 1000 * 10 ** 18);
 
         vm.prank(user);
-        vm.expectRevert(AgentWallet.NotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.NotAllowed.selector);
         wallet.executeBatch(dests, funcs);
     }
 
@@ -335,7 +336,7 @@ contract IntegrationTest is Test {
         // 4. Test Access Control (Non-owner cannot withdraw)
         address hacker = address(0x999);
         vm.prank(hacker);
-        vm.expectRevert("only owner");
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, hacker));
         wallet.withdrawAllBaseAssetToUser(hacker);
     }
 
@@ -386,11 +387,11 @@ contract IntegrationTest is Test {
 
         address hacker = address(0x999);
         vm.prank(hacker);
-        vm.expectRevert("only owner");
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, hacker));
         wallet.withdrawEthToUser(hacker, 1 ether);
 
         vm.prank(hacker);
-        vm.expectRevert("only owner");
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, hacker));
         wallet.withdrawAllEthToUser(hacker);
     }
 

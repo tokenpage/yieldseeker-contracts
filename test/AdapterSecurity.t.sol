@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../src/Errors.sol";
 import {YieldSeekerERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
 import {YieldSeekerMerklAdapter} from "../src/adapters/MerklAdapter.sol";
-import {YieldSeekerAdapter} from "../src/adapters/Adapter.sol";
+import {YieldSeekerZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract AdapterSecurityTest is Test {
@@ -23,7 +23,7 @@ contract AdapterSecurityTest is Test {
      */
     function test_RevertOnDirectCall_ERC4626Adapter() public {
         bytes memory data = abi.encodeWithSelector(erc4626Adapter.deposit.selector, 100e6);
-        vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.DirectCallForbidden.selector);
         erc4626Adapter.execute(address(0x456), data);
     }
 
@@ -40,7 +40,7 @@ contract AdapterSecurityTest is Test {
             hex"", // swapCallData
             0 // value
         );
-        vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.DirectCallForbidden.selector);
         zeroXAdapter.execute(address(0x456), data);
     }
 
@@ -57,15 +57,9 @@ contract AdapterSecurityTest is Test {
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
 
-        bytes memory data = abi.encodeWithSelector(
-            merklAdapter.claim.selector,
-            users,
-            tokens,
-            amounts,
-            proofs
-        );
+        bytes memory data = abi.encodeWithSelector(merklAdapter.claim.selector, users, tokens, amounts, proofs);
 
-        vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.DirectCallForbidden.selector);
         merklAdapter.execute(address(0x456), data);
     }
 
@@ -76,7 +70,7 @@ contract AdapterSecurityTest is Test {
         bytes memory data = abi.encodeWithSelector(erc4626Adapter.deposit.selector, 100e6);
 
         vm.prank(address(0x999));
-        vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
+        vm.expectRevert(YieldSeekerErrors.DirectCallForbidden.selector);
         erc4626Adapter.execute(address(0x456), data);
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {IYieldSeekerAdapter} from "./IAdapter.sol";
@@ -13,9 +14,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *      Direct calls to adapter contracts are prevented via the onlyDelegateCall modifier.
  */
 abstract contract YieldSeekerAdapter is IYieldSeekerAdapter {
-    error InvalidAsset();
     error UnknownOperation();
-    error DirectCallNotAllowed();
 
     /// @notice The adapter's own address, set at deployment
     /// @dev Used to detect direct calls vs delegatecalls
@@ -31,7 +30,7 @@ abstract contract YieldSeekerAdapter is IYieldSeekerAdapter {
      *      When called directly, address(this) equals SELF (the adapter's address).
      */
     modifier onlyDelegateCall() {
-        if (address(this) == SELF) revert DirectCallNotAllowed();
+        if (address(this) == SELF) revert YieldSeekerErrors.DirectCallForbidden();
         _;
     }
 
@@ -57,7 +56,7 @@ abstract contract YieldSeekerAdapter is IYieldSeekerAdapter {
     }
 
     function _requireBaseAsset(address asset) internal view {
-        if (asset != _baseAssetAddress()) revert InvalidAsset();
+        if (asset != _baseAssetAddress()) revert YieldSeekerErrors.InvalidAddress();
     }
 
     function _feeTracker() internal view returns (FeeTracker) {

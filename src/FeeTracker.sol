@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "./Errors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
@@ -25,18 +26,17 @@ contract YieldSeekerFeeTracker is AccessControl {
     event FeePaid(address indexed wallet, uint256 amount);
     event FeeConfigUpdated(uint256 feeRateBps, address feeCollector);
 
-    error ZeroAddress();
     error InvalidFeeRate();
 
     constructor(address admin) {
-        if (admin == address(0)) revert ZeroAddress();
+        if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // NOTE(krishan711): Max fee rate is 50%
         if (_feeRateBps > 5e3) revert InvalidFeeRate();
-        if (_feeCollector == address(0)) revert ZeroAddress();
+        if (_feeCollector == address(0)) revert YieldSeekerErrors.ZeroAddress();
         feeRateBps = _feeRateBps;
         feeCollector = _feeCollector;
         emit FeeConfigUpdated(_feeRateBps, _feeCollector);

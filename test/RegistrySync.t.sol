@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerErrors} from "../src/Errors.sol";
+
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
@@ -91,7 +93,7 @@ contract RegistrySyncTest is Test {
     function test_RevertOnRegisterEOA() public {
         address eoa = address(0x1234);
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerAdapterRegistry.NotAContract.selector, eoa));
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
         registry.registerAdapter(eoa);
     }
 
