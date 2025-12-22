@@ -56,7 +56,7 @@ contract AdapterSecurityTest is Test {
         amounts[0] = 100e6;
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
-        
+
         bytes memory data = abi.encodeWithSelector(
             merklAdapter.claim.selector,
             users,
@@ -64,7 +64,7 @@ contract AdapterSecurityTest is Test {
             amounts,
             proofs
         );
-        
+
         vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
         merklAdapter.execute(address(0x456), data);
     }
@@ -74,7 +74,7 @@ contract AdapterSecurityTest is Test {
      */
     function test_RevertOnDirectCall_DifferentCaller() public {
         bytes memory data = abi.encodeWithSelector(erc4626Adapter.deposit.selector, 100e6);
-        
+
         vm.prank(address(0x999));
         vm.expectRevert(YieldSeekerAdapter.DirectCallNotAllowed.selector);
         erc4626Adapter.execute(address(0x456), data);
