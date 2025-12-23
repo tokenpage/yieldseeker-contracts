@@ -59,16 +59,50 @@ Our system uses a layered validation approach:
 
 ### Emergency Controls and Stale Cache Mitigation
 
-The system uses a **caching mechanism** for performance and ERC-4337 compliance (avoiding external calls during validation). Wallets cache the `agentOperator` list and `adapterRegistry` address.
+The system uses a **caching mechanism** for performance and ERC-4337 compliance (avoiding external calls during validation). Wallets cache the `agentOperator` list and `adapterRegistry` address locally for gas efficiency.
 
-**The Risk**: If an operator is revoked at the Factory, existing wallets will not know until they are synced.
+#### Known Limitation: Operator Revocation Propagation Delay
 
-**The Mitigation**: The `AdapterRegistry` serves as a global **Kill Switch**.
-- All adapter actions call `registry.getTargetAdapter(target)`.
-- This function is `Pausable`.
-- **If an operator is compromised**, the admin can immediately `pause()` the `AdapterRegistry`.
-- This **instantly stops all agent actions** across all wallets globally, regardless of whether their operator cache is stale.
-- Once the registry is paused, admins can safely sync or upgrade wallets before unpausing.
+**The Trade-off**: When an operator is revoked at the Factory, existing wallets continue trusting that operator until `syncFromFactory()` is manually called on each wallet. This creates a time window where a revoked operator can still execute operations.
+
+**Why This Exists**:
+- ERC-4337 validation has strict gas limits (~50k gas)
+- External calls during validation would make UserOps too expensive
+- Checking local storage (`isAgentOperator`) costs ~2,100 gas vs ~10,000+ for external calls
+
+**Exposure Window**:
+1. Admin initiates operator revocation via timelock (24h delay minimum)
+2. Revocation executes on Factory
+3. Revoked operator can act until each wallet owner calls `syncFromFactory()`
+
+**Accepted Risk**: This is a medium-severity limitation that requires both a malicious operator AND owner negligence (not syncing). The system accepts this trade-off for gas efficiency.
+
+**Mitigations in Place**:
+
+1. **Global Kill Switch**: The `AdapterRegistry` serves as an emergency brake
+   - All adapter actions call `registry.getTargetAdapter(target)`
+   - Registry is `Pausable` by admin
+   - **If operator compromised**: Admin pauses registry → all agent actions stop globally, regardless of stale cache
+   - Wallets can be synced/upgraded while paused, then resume operations
+
+2. **Timelock Warning Period**:
+   - 24+ hour timelock on revocations gives advance notice
+   - Monitoring systems can detect and alert owners
+   - Owners can proactively sync before revocation takes effect
+
+3. **Limited Operator Permissions**:
+   - Operators cannot withdraw funds to arbitrary addresses (only owner can)
+   - Operators cannot upgrade wallets (only owner can)
+   - Operators can only interact with registered adapters and targets
+
+**Operational Guidance**:
+- **For Wallet Owners**: Call `syncFromFactory()` when notified of operator changes
+- **For Platform**:
+  - Monitor Factory events and alert wallet owners
+  - Provide prominent "Sync" button in dashboard UI
+  - Consider automated backend service to call `syncFromFactory()` on all wallets after operator changes
+  - Monitor revoked operators for suspicious activity during sync window
+- **For Incident Response**: Have runbook ready to pause registry and mass-sync all wallets if operator compromised
 
 ### Standards Compliance
 
@@ -95,6 +129,27 @@ The contracts use Solidity `0.8.28`, which defaults to the `shanghai` EVM versio
 - **Immutability**: All registered adapters MUST be immutable. They should not have upgradeability patterns (like `UUPS` or `TransparentProxy`) unless the proxy admin is the same as the `AdapterRegistry` admin.
 - **No Self-Destruct**: Adapters MUST NOT contain the `selfdestruct` opcode.
 - **Validation**: Adapters MUST follow the "Peek and Verify" pattern, taking the `target` address as their first argument to allow the `AgentWallet` to validate the call against the `AdapterRegistry`.
+- **Stateless Design**: Adapters are designed to be **stateless code libraries** that execute via `delegatecall`. They should NEVER hold funds (ETH or tokens). All assets remain in the AgentWallet during adapter execution.
+
+### Adapter Fund Handling
+
+**Important**: Adapter contracts themselves should never receive direct transfers of ETH or tokens.
+
+**How Adapters Work**:
+- Adapters execute via `DELEGATECALL` from AgentWallet
+- During delegatecall: `address(this)` = wallet address, NOT adapter address
+- All funds remain in the wallet's balance throughout execution
+- The `payable` modifier on adapter functions is necessary for native ETH operations (e.g., swaps involving ETH) but the ETH stays in the wallet context
+
+**Direct Transfer Risk**:
+If someone mistakenly sends ETH or tokens directly to an adapter contract address (e.g., `address(merklAdapter).transfer(1 ether)`), those funds will be locked permanently. This is user error equivalent to sending funds to any immutable contract address.
+
+**Protection**:
+- Adapters have `onlyDelegateCall` modifier - direct function calls are blocked and will revert
+- Only delegatecalls from AgentWallet can execute adapter code
+- AgentWallet has proper `withdrawEthToUser()` and `withdrawBaseAssetToUser()` functions for fund recovery
+
+**Operational Guidance**: Never send funds directly to adapter contract addresses. All operations should go through `AgentWallet.executeViaAdapter()`.
 
 ### Technical Stack
 - **Solidity Version**: `0.8.28`
@@ -212,6 +267,8 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 The wallet validates UserOperation signatures from either:
 1. The wallet's owner (user's EOA)
 2. Any address in the cached `agentOperators` list (synced from Factory)
+
+**Important**: The operator list is cached locally for gas efficiency. After operator changes at the Factory level, wallets must call `syncFromFactory()` to refresh their cache. See [Emergency Controls](#emergency-controls-and-stale-cache-mitigation) for details on this limitation and mitigations.
 
 ---
 
@@ -729,13 +786,21 @@ The `agentOperators` list in the Factory (cached in each wallet) defines which a
 
 ### Rotating Server Keys
 
+**Important**: After updating operators in the Factory, existing wallets will continue trusting the old operators until they sync. See [Emergency Controls](#emergency-controls-and-stale-cache-mitigation) for details.
+
 ```solidity
 // Admin updates server address in factory
 factory.setAgentOperators(newOperators);
 
-// Wallets can sync to trust new server
+// Wallets MUST sync to trust new server (and stop trusting revoked ones)
 wallet.syncFromFactory();
 ```
+
+**Emergency Revocation Process**:
+1. Admin initiates operator revocation via timelock
+2. Alert all wallet owners to sync their wallets
+3. If urgent: Pause AdapterRegistry to immediately stop all operations
+4. Once wallets synced: Unpause registry to resume operations
 
 ---
 

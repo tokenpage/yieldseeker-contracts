@@ -115,11 +115,9 @@ contract YieldSeekerFeeTracker is AccessControl {
             agentFeesCharged[msg.sender] += fee;
             emit YieldRecorded(msg.sender, profit, fee);
         }
-        // Adjust remaining cost basis by actual assets received, not proportional cost.
-        // This ensures realized losses reduce the cost basis of remaining shares,
-        // preventing fees from being charged on recovery of previous losses.
-        uint256 remainingCostBasis = totalCostBasis > assetsReceived ? totalCostBasis - assetsReceived : 0;
-        agentVaultCostBasis[msg.sender][vault] = remainingCostBasis;
+        // Use proportional cost basis accounting to prevent double-charging fees.
+        // This ensures the cost basis model is consistent with profit calculation.
+        agentVaultCostBasis[msg.sender][vault] = totalCostBasis - proportionalCost;
         agentVaultShares[msg.sender][vault] = totalShares - sharesSpent;
     }
 

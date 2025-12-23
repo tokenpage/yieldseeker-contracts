@@ -197,20 +197,24 @@ contract FeeTrackerTest is Test {
     // ============ Vault Position Tracking Tests ============
 
     /**
-     * @notice Test that realized losses adjust cost basis and prevent fees on loss recovery
-     * @dev This test verifies the fix for the audit finding:
-     *      "FeeLedger does not adjust remaining cost basis on realized losses"
+     * @notice Test proportional cost basis accounting with a loss scenario
+     * @dev With proportional cost basis, losses are NOT carried forward to remaining shares.
+     *      Each withdrawal's profit/loss is calculated independently based on its proportional cost.
      *
      * Scenario:
      * 1. Deposit 100 assets → receive 100 shares (costBasis=100)
-     * 2. Withdraw 50 shares → receive 40 assets (10 asset loss)
-     * 3. Withdraw 50 shares → receive 60 assets (recovery)
+     * 2. Withdraw 50 shares → receive 40 assets (10 asset loss on this withdrawal)
+     * 3. Withdraw 50 shares → receive 60 assets (10 asset profit on this withdrawal)
      * Total: Deposited 100, withdrew 100 (break-even)
      *
-     * Expected: No fees charged (net P&L is zero)
-     * Bug would have: Charged fees on "10 yield" in step 3
+     * With proportional cost basis:
+     * - Withdrawal 1: proportionalCost=50, assets=40, loss=10 (no fee)
+     * - Withdrawal 2: proportionalCost=50, assets=60, profit=10 (fee=1)
+     * - Net result: Break-even overall, but fees charged on second withdrawal's profit
+     *
+     * This is CORRECT behavior - we charge fees on realized profits per withdrawal.
      */
-    function test_RealizedLoss_AdjustsCostBasis_NoFeesOnRecovery() public {
+    function test_ProportionalCostBasis_LossScenario() public {
         vm.startPrank(wallet1);
 
         // Step 1: Deposit 100 assets for 100 shares
@@ -219,78 +223,186 @@ contract FeeTrackerTest is Test {
         assertEq(tracker.agentVaultShares(wallet1, vault1), 100e18);
         assertEq(tracker.agentFeesCharged(wallet1), 0);
 
-        // Step 2: Withdraw 50 shares, receive 40 assets (realized loss of 10)
+        // Step 2: Withdraw 50 shares, receive 40 assets
+        // proportionalCost = (100 * 50) / 100 = 50
+        // loss = 10 (no fee charged)
         tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
-        // Cost basis should be: 100 - 40 = 60 (adjusted for realized loss)
-        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6, "Cost basis should be 60 after loss");
+        // remainingCostBasis = 100 - 50 = 50 (proportional cost deducted)
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 50e6, "Cost basis reduced by proportional cost");
         assertEq(tracker.agentVaultShares(wallet1, vault1), 50e18);
         assertEq(tracker.agentFeesCharged(wallet1), 0, "No fees on loss");
 
-        // Step 3: Withdraw remaining 50 shares, receive 60 assets (recovery)
+        // Step 3: Withdraw remaining 50 shares, receive 60 assets
+        // proportionalCost = (50 * 50) / 50 = 50
+        // profit = 60 - 50 = 10
+        // fee = 10 * 10% = 1
         tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 60e6);
-        // Cost basis should be: 60 - 60 = 0
         assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 0);
         assertEq(tracker.agentVaultShares(wallet1, vault1), 0);
-        // Net: Deposited 100, withdrew 40+60=100 → break-even, no fees
-        assertEq(tracker.agentFeesCharged(wallet1), 0, "No fees on break-even scenario");
+        // Fee charged on second withdrawal's realized profit
+        assertEq(tracker.agentFeesCharged(wallet1), 1e6, "Fee on second withdrawal profit");
 
         vm.stopPrank();
     }
 
     /**
-     * @notice Test vault position with profit after loss recovery
-     * @dev Ensures fees are only charged on net profit after accounting for losses
+     * @notice Test proportional cost basis with profit after loss
+     * @dev Verifies fees are charged correctly on each withdrawal's realized profit
      */
-    function test_RealizedLoss_FeesOnlyOnNetProfit() public {
+    function test_ProportionalCostBasis_ProfitAfterLoss() public {
         vm.startPrank(wallet1);
 
         // Deposit 100 assets for 100 shares
         tracker.recordAgentVaultShareDeposit(vault1, 100e6, 100e18);
 
-        // Withdraw 50 shares at loss: receive 40 assets (10 loss)
+        // Withdraw 50 shares at loss: receive 40 assets
+        // proportionalCost = (100 * 50) / 100 = 50
+        // loss = 10 (no fee)
         tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
-        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 50e6); // 100 - 50 (proportional)
         assertEq(tracker.agentFeesCharged(wallet1), 0);
 
-        // Withdraw remaining 50 shares at profit: receive 70 assets (10 gain)
+        // Withdraw remaining 50 shares at profit: receive 70 assets
+        // proportionalCost = (50 * 50) / 50 = 50
+        // profit = 70 - 50 = 20
+        // fee = 20 * 10% = 2
         tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 70e6);
-        // Net: Deposited 100, withdrew 40+70=110 → 10 net profit
-        // Expected fees: 10% of 10 = 1
-        assertEq(tracker.agentFeesCharged(wallet1), 1e6, "Fees only on 10 net profit");
+        // Net: Deposited 100, Withdrew 40+70=110, Net profit 10
+        // But we charge on realized profit of 20 from second withdrawal
+        assertEq(tracker.agentFeesCharged(wallet1), 2e6, "Fee on second withdrawal's 20 profit");
 
         vm.stopPrank();
     }
 
     /**
-     * @notice Test multiple partial withdrawals with mixed losses and gains
+     * @notice Test multiple partial withdrawals with proportional cost basis
+     * @dev Verifies that proportional cost basis is consistent across multiple withdrawals
      */
-    function test_RealizedLoss_MultiplePartialWithdrawals() public {
+    function test_ProportionalCostBasis_MultiplePartialWithdrawals() public {
         vm.startPrank(wallet1);
 
         // Deposit 100 assets for 100 shares
         tracker.recordAgentVaultShareDeposit(vault1, 100e6, 100e18);
 
-        // First withdrawal: 50 shares → 40 assets (10 loss)
+        // First withdrawal: 50 shares → 40 assets
+        // proportionalCost = (100 * 50) / 100 = 50
+        // loss = 10 (no fee)
         tracker.recordAgentVaultShareWithdraw(vault1, 50e18, 40e6);
-        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 60e6); // 100 - 40
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 50e6); // 100 - 50
         assertEq(tracker.agentVaultShares(wallet1, vault1), 50e18);
         assertEq(tracker.agentFeesCharged(wallet1), 0);
 
-        // Second withdrawal: 25 shares → 35 assets (profit on this portion)
-        // Proportional cost = 60 * 25 / 50 = 30
-        // Profit = 35 - 30 = 5
-        // Fee = 5 * 10% = 0.5
+        // Second withdrawal: 25 shares → 35 assets
+        // proportionalCost = (50 * 25) / 50 = 25
+        // profit = 35 - 25 = 10
+        // fee = 10 * 10% = 1
         tracker.recordAgentVaultShareWithdraw(vault1, 25e18, 35e6);
-        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 25e6); // 60 - 35
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 25e6); // 50 - 25
         assertEq(tracker.agentVaultShares(wallet1, vault1), 25e18);
-        assertEq(tracker.agentFeesCharged(wallet1), 0.5e6); // 10% of 5
+        assertEq(tracker.agentFeesCharged(wallet1), 1e6); // 10% of 10
 
-        // Third withdrawal: 25 shares → 25 assets (break-even for this portion)
+        // Third withdrawal: 25 shares → 25 assets
+        // proportionalCost = (25 * 25) / 25 = 25
+        // break-even (no fee)
         tracker.recordAgentVaultShareWithdraw(vault1, 25e18, 25e6);
         // Net total: Deposited 100, withdrew 40+35+25=100 → break-even overall
-        // But we already charged fees on the second withdrawal's profit
-        assertEq(tracker.agentFeesCharged(wallet1), 0.5e6, "Total fees only from second withdrawal");
+        // Total fees: 1 (from second withdrawal only)
+        assertEq(tracker.agentFeesCharged(wallet1), 1e6, "Total fees only from second withdrawal");
 
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice Regression test for audit finding: Fee overcharging due to inconsistent cost-basis accounting
+     * @dev This is the EXACT scenario described by the auditor:
+     *      1. Deposit 1000 baseAsset → 1000 shares
+     *      2. Share price doubles (500 shares = 1000 baseAsset)
+     *      3. Withdraw 500 shares → 1000 baseAsset (profit=500)
+     *      4. Withdraw 500 shares → 1000 baseAsset (should also be profit=500)
+     *
+     * Expected: Total fees on 1000 profit (500+500)
+     * Bug would have: Total fees on 1500 (500 + 1000) due to cost basis being zeroed
+     */
+    function test_AuditorScenario_MultipleWithdrawals_ProportionalCostBasis() public {
+        vm.startPrank(wallet1);
+
+        // Step 1: Deposit 1000 baseAsset → 1000 shares
+        tracker.recordAgentVaultShareDeposit(vault1, 1000e6, 1000e18);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 1000e6);
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 1000e18);
+
+        // Step 2: Share price doubles - 500 shares now worth 1000 baseAsset
+        // First withdrawal: 500 shares → 1000 baseAsset
+        tracker.recordAgentVaultShareWithdraw(vault1, 500e18, 1000e6);
+
+        // Verify profit calculation:
+        // proportionalCost = (1000 * 500) / 1000 = 500
+        // profit = 1000 - 500 = 500
+        // fee = 500 * 10% = 50
+        assertEq(tracker.agentFeesCharged(wallet1), 50e6, "First withdrawal: 10% fee on 500 profit");
+
+        // Verify remaining cost basis uses proportional cost:
+        // remainingCostBasis = 1000 - 500 = 500 (NOT 1000 - 1000 = 0)
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 500e6, "Cost basis should be 500, not 0");
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 500e18);
+
+        // Step 3: Second withdrawal: 500 shares → 1000 baseAsset
+        tracker.recordAgentVaultShareWithdraw(vault1, 500e18, 1000e6);
+
+        // Verify profit calculation:
+        // proportionalCost = (500 * 500) / 500 = 500
+        // profit = 1000 - 500 = 500 (NOT 1000 - 0 = 1000)
+        // fee = 500 * 10% = 50
+        assertEq(tracker.agentFeesCharged(wallet1), 100e6, "Total fees: 10% on 1000 total profit");
+
+        // Final state
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 0);
+        assertEq(tracker.agentVaultShares(wallet1, vault1), 0);
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice Test that verifies fees are never charged on principal
+     * @dev Extreme case: multiple withdrawals with varying profits
+     *      Total deposited: 1000, Total profit: 200, Total withdrawn: 1200
+     *      Expected fees: 10% of 200 = 20
+     */
+    function test_FeesOnlyOnProfit_NeverOnPrincipal() public {
+        vm.startPrank(wallet1);
+
+        // Deposit 1000 → 1000 shares
+        tracker.recordAgentVaultShareDeposit(vault1, 1000e6, 1000e18);
+
+        // Withdraw 1: 250 shares → 300 (profit=50)
+        // proportionalCost = (1000 * 250) / 1000 = 250
+        // profit = 300 - 250 = 50, fee = 5
+        tracker.recordAgentVaultShareWithdraw(vault1, 250e18, 300e6);
+        assertEq(tracker.agentFeesCharged(wallet1), 5e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 750e6); // 1000 - 250
+
+        // Withdraw 2: 250 shares → 300 (profit=50)
+        // proportionalCost = (750 * 250) / 750 = 250
+        // profit = 300 - 250 = 50, fee = 5
+        tracker.recordAgentVaultShareWithdraw(vault1, 250e18, 300e6);
+        assertEq(tracker.agentFeesCharged(wallet1), 10e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 500e6); // 750 - 250
+
+        // Withdraw 3: 250 shares → 300 (profit=50)
+        // proportionalCost = (500 * 250) / 500 = 250
+        // profit = 300 - 250 = 50, fee = 5
+        tracker.recordAgentVaultShareWithdraw(vault1, 250e18, 300e6);
+        assertEq(tracker.agentFeesCharged(wallet1), 15e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 250e6); // 500 - 250
+
+        // Withdraw 4: 250 shares → 300 (profit=50)
+        // proportionalCost = (250 * 250) / 250 = 250
+        // profit = 300 - 250 = 50, fee = 5
+        tracker.recordAgentVaultShareWithdraw(vault1, 250e18, 300e6);
+        assertEq(tracker.agentFeesCharged(wallet1), 20e6);
+        assertEq(tracker.agentVaultCostBasis(wallet1, vault1), 0); // 250 - 250
+
+        // Total: Deposited 1000, Withdrew 1200, Profit 200, Fees 20 (10% of profit)
         vm.stopPrank();
     }
 }

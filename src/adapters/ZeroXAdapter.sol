@@ -66,12 +66,15 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
             IERC20(sellToken).forceApprove(ALLOWANCE_TARGET, sellAmount);
         }
         uint256 buyBalanceBefore = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
+        uint256 sellBalanceBefore = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
         (bool success, bytes memory reason) = target.call{value: ethToSend}(swapCallData);
         if (!success) revert SwapFailed(reason);
         uint256 buyBalanceAfter = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
+        uint256 sellBalanceAfter = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
+        uint256 actualSellAmount = sellBalanceBefore - sellBalanceAfter;
         buyAmount = buyBalanceAfter - buyBalanceBefore;
         if (buyAmount < minBuyAmount) revert InsufficientOutput(buyAmount, minBuyAmount);
-        _feeTracker().recordAgentTokenSwap(sellToken, sellAmount, buyAmount);
-        emit Swapped(address(this), target, sellToken, buyToken, sellAmount, buyAmount);
+        _feeTracker().recordAgentTokenSwap(sellToken, actualSellAmount, buyAmount);
+        emit Swapped(address(this), target, sellToken, buyToken, actualSellAmount, buyAmount);
     }
 }
