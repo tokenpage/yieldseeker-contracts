@@ -166,4 +166,44 @@ contract MerklAdapterTest is Test {
         // Fee charged immediately
         assertEq(tracker.agentFeesCharged(address(wallet)), 10e6); // 10% of 100e6
     }
+
+    /**
+     * @notice Regression test for duplicate token attack
+     * @dev Verifies that duplicate tokens in the claim array don't inflate fee charges
+     */
+    function test_ClaimWithDuplicateTokens_DoesNotDoubleCoun() public {
+        address[] memory users = new address[](1);
+        users[0] = address(wallet);
+
+        // Attack: Same token appears twice in the array
+        address[] memory tokens = new address[](3);
+        tokens[0] = address(aero);
+        tokens[1] = address(usdc);
+        tokens[2] = address(aero); // DUPLICATE!
+
+        uint256[] memory amounts = new uint256[](3);
+        amounts[0] = 100e18; // 100 AERO
+        amounts[1] = 50e6; // 50 USDC
+        amounts[2] = 0; // Duplicate entry (Merkl won't distribute again)
+
+        bytes32[][] memory proofs = new bytes32[][](3);
+        proofs[0] = new bytes32[](0);
+        proofs[1] = new bytes32[](0);
+        proofs[2] = new bytes32[](0);
+
+        bytes memory data = abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs);
+
+        vm.prank(owner);
+        wallet.executeViaAdapter(address(adapter), address(distributor), data);
+
+        // Check token balances - only 100 AERO distributed (Merkl doesn't double-distribute)
+        assertEq(aero.balanceOf(address(wallet)), 100e18, "Should have 100 AERO");
+        assertEq(usdc.balanceOf(address(wallet)), 50e6, "Should have 50 USDC");
+
+        // Critical check: Fee should be 10% of 100 AERO, NOT 10% of 200 AERO
+        assertEq(tracker.getAgentYieldTokenFeesOwed(address(wallet), address(aero)), 10e18, "Should only record 10 AERO fee, not 20");
+
+        // USDC fee should be normal
+        assertEq(tracker.agentFeesCharged(address(wallet)), 5e6, "Should charge 10% of 50 USDC");
+    }
 }

@@ -316,9 +316,19 @@ The central registry that manages authorized adapters and their targets.
 | `registerAdapter(adapter)` | Admin | Register a new adapter contract |
 | `setTargetAdapter(target, adapter)` | Admin | Map a target (vault/pool) to its adapter |
 | `removeTarget(target)` | Emergency | Remove target mapping instantly |
+| `unregisterAdapter(adapter)` | Emergency | Disable adapter (mappings preserved for re-registration) |
 | `pause()` / `unpause()` | Emergency / Admin | Emergency pause/unpause |
 | `getTargetAdapter(target)` | View | Returns adapter for target (reverts if paused) |
 | `getAllTargets()` | View | Returns list of all registered targets |
+
+**Important Behavior Notes:**
+
+*Adapter Unregistration:*
+- `unregisterAdapter()` marks an adapter as disabled, immediately preventing all wallets from using it
+- However, target→adapter mappings are NOT cleared from storage (by design for gas efficiency)
+- If the same adapter is later re-registered, ALL previous target mappings are automatically reactivated
+- This is intentional: unregister is for emergency shutdowns, not permanent removal
+- For permanent removal of specific targets, use `removeTarget()` after unregistering the adapter
 
 **Resolution Flow:**
 1. Wallet extracts `target` from calldata.

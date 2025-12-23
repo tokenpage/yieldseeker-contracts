@@ -51,9 +51,9 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev Implemented in base class - calculates amount and calls _depositInternal
      */
     function _depositPercentageInternal(address vault, uint256 percentageBps) internal returns (uint256 shares) {
-        if (percentageBps == 0 || percentageBps > 10000) revert YieldSeekerErrors.InvalidPercentage(percentageBps);
+        if (percentageBps == 0 || percentageBps > 1e4) revert YieldSeekerErrors.InvalidPercentage(percentageBps);
         uint256 balance = _baseAsset().balanceOf(address(this));
-        uint256 amount = (balance * percentageBps) / 10000;
+        uint256 amount = (balance * percentageBps) / 1e4;
         return _depositInternal(vault, amount);
     }
 

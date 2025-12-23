@@ -49,20 +49,39 @@ contract YieldSeekerMerklAdapter is YieldSeekerAdapter {
      * @dev Runs in wallet context via delegatecall
      */
     function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal {
-        uint256[] memory balancesBefore = new uint256[](tokens.length);
+        // Deduplicate tokens array to prevent fee inflation attacks
+        address[] memory uniqueTokens = new address[](tokens.length);
+        uint256 uniqueCount = 0;
         for (uint256 i = 0; i < tokens.length; i++) {
-            balancesBefore[i] = IERC20(tokens[i]).balanceOf(address(this));
+            bool isDuplicate = false;
+            for (uint256 j = 0; j < uniqueCount; j++) {
+                if (tokens[i] == uniqueTokens[j]) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if (!isDuplicate) {
+                uniqueTokens[uniqueCount] = tokens[i];
+                uniqueCount++;
+            }
         }
+        // Capture balances before claim for unique tokens only
+        uint256[] memory balancesBefore = new uint256[](uniqueCount);
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            balancesBefore[i] = IERC20(uniqueTokens[i]).balanceOf(address(this));
+        }
+        // Execute claim (Merkl handles original tokens array with potential duplicates)
         IMerklDistributor(distributor).claim(users, tokens, amounts, proofs);
+        // Record yield for unique tokens only
         address baseAsset = _baseAssetAddress();
-        for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 balanceAfter = IERC20(tokens[i]).balanceOf(address(this));
+        for (uint256 i = 0; i < uniqueCount; i++) {
+            uint256 balanceAfter = IERC20(uniqueTokens[i]).balanceOf(address(this));
             uint256 claimed = balanceAfter - balancesBefore[i];
             if (claimed > 0) {
-                if (tokens[i] == baseAsset) {
+                if (uniqueTokens[i] == baseAsset) {
                     _feeTracker().recordAgentYieldEarned(claimed);
                 } else {
-                    _feeTracker().recordAgentYieldTokenEarned(tokens[i], claimed);
+                    _feeTracker().recordAgentYieldTokenEarned(uniqueTokens[i], claimed);
                 }
             }
         }

@@ -51,9 +51,6 @@ library YieldSeekerErrors {
     /// @notice Thrown when an entity already exists
     error AlreadyExists();
 
-    /// @notice Thrown when an entity is not found
-    error NotFound();
-
     /// @notice Thrown when an operation is attempted in an invalid state
     error InvalidState();
 

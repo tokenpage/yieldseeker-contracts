@@ -36,6 +36,16 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         _unpause();
     }
 
+    /**
+     * @notice Register a new adapter
+     * @param adapter The adapter address to register
+     * @dev This allows the adapter to be used with previously configured targets.
+     *
+     * Important: If this adapter address was previously unregistered, re-registering it
+     * will REACTIVATE all previous target→adapter mappings that were configured before
+     * the unregistration. This is by design for gas efficiency, but means re-registration
+     * should be done carefully, considering what targets this adapter was previously mapped to.
+     */
     function registerAdapter(address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (adapter == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (adapter.code.length == 0) revert YieldSeekerErrors.NotAContract(adapter);
@@ -66,6 +76,22 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         emit TargetRemoved(target, adapter);
     }
 
+    /**
+     * @notice Unregister an adapter in case of emergency
+     * @param adapter The adapter address to unregister
+     * @dev This marks the adapter as unregistered, making getTargetAdapter() return address(0)
+     *      for all targets mapped to this adapter. However, the underlying target→adapter mappings
+     *      are NOT cleared from storage.
+     *
+     * Important behavior notes:
+     * - Wallets immediately stop being able to use this adapter (safe)
+     * - If the same adapter is re-registered later, ALL previous target mappings are reactivated
+     * - This design prioritizes gas efficiency and emergency response speed
+     * - To permanently remove specific targets, use removeTarget() after unregistering
+     *
+     * This is intentional behavior: unregister is for quick emergency shutdowns,
+     * not permanent removal. Re-registration requires explicit admin action anyway.
+     */
     function unregisterAdapter(address adapter) external onlyRole(EMERGENCY_ROLE) {
         if (!isRegisteredAdapter[adapter]) revert YieldSeekerErrors.AdapterNotRegistered(adapter);
         isRegisteredAdapter[adapter] = false;
