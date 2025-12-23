@@ -62,7 +62,7 @@ contract YieldSeekerMerklAdapter is YieldSeekerAdapter {
                 if (tokens[i] == baseAsset) {
                     _feeTracker().recordAgentYieldEarned(claimed);
                 } else {
-                    _feeTracker().recordAgentRewardClaim(tokens[i], claimed);
+                    _feeTracker().recordAgentYieldTokenEarned(tokens[i], claimed);
                 }
             }
         }

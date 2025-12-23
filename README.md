@@ -184,9 +184,12 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `address` | Wallet owner (can withdraw, upgrade) |
+| `ownerAgentIndex` | `uint256` | Index of this agent for the owner |
 | `baseAsset` | `IERC20` | The primary asset this agent manages (e.g. USDC) |
-| `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
 | `adapterRegistry` | `AdapterRegistry` | Cached reference to AdapterRegistry from Factory |
+| `feeTracker` | `FeeTracker` | Cached reference to FeeTracker from Factory |
+| `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
+| `isAgentOperator` | `mapping(address => bool)` | Fast lookup for operator status |
 
 **Key Functions:**
 
@@ -196,8 +199,11 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `executeViaAdapter(adapter, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
 | `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
 | `syncFromFactory()` | Syncers | Refresh cached operators and registry address |
-| `withdrawBaseAssetToUser(recipient, amount)` | Owner only | User withdraws base asset |
+| `collectFees()` | Executors | Transfer accumulated fees to fee collector |
+| `withdrawBaseAssetToUser(recipient, amount)` | Owner only | User withdraws base asset (minus fees owed) |
+| `withdrawAllBaseAssetToUser(recipient)` | Owner only | User withdraws all base asset (minus fees owed) |
 | `withdrawEthToUser(recipient, amount)` | Owner only | User withdraws ETH |
+| `withdrawAllEthToUser(recipient)` | Owner only | User withdraws all ETH |
 | `upgradeToLatest()` | Owner only | Upgrade to latest approved implementation from Factory |
 | `execute()` | **DISABLED** | Reverts with `NotAllowed` |
 | `executeBatch()` | **DISABLED** | Reverts with `NotAllowed` |
@@ -223,10 +229,11 @@ Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `createAccount(owner, index, asset)` | Operator | Deploys new wallet via CREATE2 |
+| `createAgentWallet(owner, index, asset)` | Operator | Deploys new wallet via CREATE2 |
 | `getAddress(owner, index)` | View | Predicts address before deployment |
 | `setAgentWalletImplementation(newImpl)` | Admin | Updates implementation for NEW wallets |
 | `setAdapterRegistry(newRegistry)` | Admin | Updates registry for NEW wallets |
+| `setFeeTracker(newTracker)` | Admin | Updates fee tracker for NEW wallets |
 
 **Features:**
 - **Deterministic Addresses**: Same owner + index = same address across chains (Asset-agnostic)
@@ -263,6 +270,29 @@ The central registry that manages authorized adapters and their targets.
 
 ---
 
+#### FeeTracker (`src/FeeTracker.sol`)
+
+Tracks fees and yields for agent wallets on a cost-basis accounting model.
+
+**Key Functions:**
+
+| Function | Access | Description |
+|----------|--------|-------------|
+| `setFeeConfig(rateBps, collector)` | Admin | Set fee rate (max 50%) and collector address |
+| `recordVaultShareDeposit(vault, assetAmount, sharesReceived)` | Wallet | Record cost basis when depositing to vault |
+| `recordVaultShareWithdraw(vault, sharesWithdrawn, assetAmount)` | Wallet | Calculate yield/loss and accrue fees |
+| `recordRewardTokenReceived(token, amount)` | Wallet | Track reward tokens received |
+| `recordFeePaid(amount)` | Wallet | Record fee payment from wallet |
+| `getFeesOwed(wallet)` | View | Query outstanding fees owed by wallet |
+
+**Features:**
+- Cost-basis tracking for vault positions
+- Loss protection: fees only on net profits
+- Reward token tracking separate from base asset
+- Transparent on-chain accounting
+
+---
+
 ### Adapters (`src/adapters/`)
 
 Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. They inherit from `YieldSeekerAdapter` to enforce `baseAsset` constraints.
@@ -271,16 +301,37 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 
 For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
+**Functions:**
+- `deposit(vault, assetAmount)` - Deposit base asset into vault
+- `depositPercentage(vault, percentageBps)` - Deposit percentage of wallet balance
+- `withdraw(vault, shareAmount)` - Withdraw shares from vault
+
 **Validation:**
 - Enforces that the vault's underlying asset matches the wallet's `baseAsset`.
+- Calls FeeTracker to record deposits/withdrawals for fee calculation
 
 #### ZeroXAdapter (`src/adapters/ZeroXAdapter.sol`)
 
 For 0x API v2 swaps.
 
+**Functions:**
+- `swap(sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value)` - Execute 0x swap
+
 **Validation:**
 - Enforces that either the `sellToken` or `buyToken` is the wallet's `baseAsset`.
 - Validates the 0x `allowanceTarget`.
+- Prevents ETH swaps that bypass base asset validation
+
+#### MerklAdapter (`src/adapters/MerklAdapter.sol`)
+
+For claiming protocol rewards via Merkl distributor.
+
+**Functions:**
+- `claim(users, tokens, amounts, proofs)` - Claim rewards from Merkl
+
+**Validation:**
+- No base asset validation (reward tokens can be any token)
+- Calls FeeTracker to record reward tokens received
 
 ---
 
@@ -303,9 +354,10 @@ For 0x API v2 swaps.
 
 | Action | User (Owner) | YieldSeeker Server | Platform Admin | Anyone |
 |--------|:------------:|:------------------:|:--------------:|:------:|
-| `withdrawTokenToUser()` | ✅ | ❌ | ❌ | ❌ |
-| `withdrawAllToUser()` | ✅ | ❌ | ❌ | ❌ |
+| `withdrawBaseAssetToUser()` | ✅ | ❌ | ❌ | ❌ |
+| `withdrawAllBaseAssetToUser()` | ✅ | ❌ | ❌ | ❌ |
 | `withdrawEthToUser()` | ✅ | ❌ | ❌ | ❌ |
+| `withdrawAllEthToUser()` | ✅ | ❌ | ❌ | ❌ |
 | `upgradeToAndCall()` | ✅ | ❌ | ❌ | ❌ |
 | `executeViaAdapter()` | via EntryPoint | via EntryPoint | ❌ | ❌ |
 | `validateUserOp()` | ✅ (signs) | ✅ (signs) | ❌ | ❌ |
@@ -318,8 +370,10 @@ For 0x API v2 swaps.
 
 | Action | Role Required | Description |
 |--------|---------------|-------------|
-| `createAccount()` | Anyone | Deploy new wallet for a user |
-| `setAgentWalletImplementation()` | Owner | Update implementation for NEW wallets |
+| `createAgentWallet()` | AGENT_OPERATOR_ROLE | Deploy new wallet for a user |
+| `setAgentWalletImplementation()` | DEFAULT_ADMIN_ROLE | Update implementation for NEW wallets |
+| `setAdapterRegistry()` | DEFAULT_ADMIN_ROLE | Update registry for NEW wallets |
+| `setFeeTracker()` | DEFAULT_ADMIN_ROLE | Update fee tracker for NEW wallets |
 
 ---
 
@@ -363,10 +417,10 @@ For 0x API v2 swaps.
 - Manage yield strategies across all wallets with single key
 
 ❌ **CANNOT:**
-- Withdraw funds to arbitrary addresses
+- Withdraw funds (only owner can call `withdrawBaseAssetToUser()`)
 - Approve tokens to non-registered contracts
 - Transfer tokens directly
-- Upgrade wallet implementations
+- Upgrade wallet implementations (only owner can call `upgradeToLatest()`)
 - Call adapters or targets not registered in AdapterRegistry
 - Execute standard `execute()` or `executeBatch()` (disabled)
 
@@ -405,7 +459,7 @@ For 0x API v2 swaps.
 While the system is designed to be as trustless as possible, it operates under a specific trust model:
 
 #### 1. Trust in the YieldSeeker Server
-The server is an authorized `agentOperator`. While it **cannot steal funds** (it cannot call `withdrawTokenToUser` or approve tokens to arbitrary addresses), it has the power to:
+The server is an authorized `agentOperator`. While it **cannot steal funds** (it cannot call `withdrawBaseAssetToUser` or approve tokens to arbitrary addresses), it has the power to:
 - **Griefing**: The server could execute sub-optimal swaps or enter/exit vault positions frequently to waste gas.
 - **Stale Cache**: If a server key is revoked in the Factory, the wallet must be `syncFromFactory()` to stop trusting it. The `AdapterRegistry` pause serves as the primary mitigation for this.
 
@@ -449,7 +503,7 @@ sequenceDiagram
     participant Wallet as AgentWallet
     participant Registry
 
-    User->>Factory: createAccount(user, salt)
+    User->>Factory: createAgentWallet(user, index, asset)
     Factory->>Factory: Compute address: CREATE2(user, salt)
     Factory->>Proxy: new ERC1967Proxy{salt}(impl, "")
     Note over Factory, Proxy: Address depends ONLY on owner + index
@@ -470,8 +524,8 @@ sequenceDiagram
 
 **Code Example:**
 ```solidity
-// Anyone can create wallet for user
-address walletAddr = factory.createAccount(
+// Anyone with AGENT_OPERATOR_ROLE can create wallet for user
+address walletAddr = factory.createAgentWallet(
     userAddress,     // Owner
     0,               // Index
     usdcAddress      // Base Asset
@@ -550,7 +604,7 @@ wallet.executeViaAdapter(
 - Vault shares were held in the wallet (earning yield)
 - Server withdrew back to USDC
 - User's wallet now contains original USDC + any yield earned
-- At any point, user could call `withdrawTokenToUser()` to withdraw their funds
+- At any point, user could call `withdrawBaseAssetToUser()` to withdraw their funds
 
 **Security Notes:**
 - Server can only interact with whitelisted vaults

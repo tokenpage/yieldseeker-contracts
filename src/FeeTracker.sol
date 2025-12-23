@@ -20,7 +20,7 @@ contract YieldSeekerFeeTracker is AccessControl {
     // Position tracking
     mapping(address wallet => mapping(address vault => uint256)) public agentVaultCostBasis;
     mapping(address wallet => mapping(address vault => uint256)) public agentVaultShares;
-    mapping(address wallet => mapping(address token => uint256)) public agentRewardTokenBalances;
+    mapping(address wallet => mapping(address token => uint256)) public agentYieldTokenFeesOwed;
 
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
     event FeePaid(address indexed wallet, uint256 amount);
@@ -134,32 +134,36 @@ contract YieldSeekerFeeTracker is AccessControl {
     }
 
     /**
-     * @notice Record a reward token claim and track the reward token balance
-     * @param token The reward token address
-     * @param amount The amount of reward tokens claimed
+     * @notice Record yield earned in a non-base asset token and calculate fees owed
+     * @param token The token in which yield was earned
+     * @param amount The amount of yield earned in the token
+     * @dev Treats yield earned in any token the same way. Calculates fee immediately
+     *      and stores the fee portion to be collected when swapped to base asset.
      */
-    function recordAgentRewardClaim(address token, uint256 amount) external {
-        agentRewardTokenBalances[msg.sender][token] += amount;
+    function recordAgentYieldTokenEarned(address token, uint256 amount) external {
+        uint256 feeInToken = (amount * feeRateBps) / 1e4;
+        agentYieldTokenFeesOwed[msg.sender][token] += feeInToken;
     }
 
     /**
-     * @notice Record a token swap to base asset (rewards are "swapped first")
+     * @notice Record a token swap to base asset and collect fees on yield tokens
      * @param swappedToken The token being swapped
      * @param swappedAmount The amount of tokens swapped
      * @param baseAssetReceived The amount of base asset received
-     * @dev Uses "rewards first" accounting: if there's a tracked reward balance for the token,
-     *      the swap is attributed to rewards (and counted as yield) up to the tracked amount.
-     *      Any excess swap amount is treated as non-reward tokens (e.g., user deposits).
+     * @dev Converts yield earned in non-base asset (tracked as fees owed in that token)
+     *      to base asset fees when the token is swapped.
      */
     function recordAgentTokenSwap(address swappedToken, uint256 swappedAmount, uint256 baseAssetReceived) external {
-        uint256 rewardBalance = agentRewardTokenBalances[msg.sender][swappedToken];
-        if (rewardBalance > 0) {
-            uint256 rewardPortionSwapped = swappedAmount > rewardBalance ? rewardBalance : swappedAmount;
-            agentRewardTokenBalances[msg.sender][swappedToken] = rewardBalance - rewardPortionSwapped;
-            uint256 yieldPortion = (baseAssetReceived * rewardPortionSwapped) / swappedAmount;
-            uint256 fee = (yieldPortion * feeRateBps) / 1e4;
-            agentFeesCharged[msg.sender] += fee;
-            emit YieldRecorded(msg.sender, yieldPortion, fee);
+        uint256 feeTokenOwed = agentYieldTokenFeesOwed[msg.sender][swappedToken];
+        if (feeTokenOwed > 0) {
+            // Determine how much of the fee-owed tokens are being swapped
+            uint256 feeTokenSwapped = swappedAmount > feeTokenOwed ? feeTokenOwed : swappedAmount;
+            // Deduct from the tracked fee owed in this token
+            agentYieldTokenFeesOwed[msg.sender][swappedToken] = feeTokenOwed - feeTokenSwapped;
+            // Calculate the fee in base asset terms (proportional to amount swapped)
+            uint256 feeInBaseAsset = (baseAssetReceived * feeTokenSwapped) / swappedAmount;
+            agentFeesCharged[msg.sender] += feeInBaseAsset;
+            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
         }
     }
 
@@ -176,12 +180,12 @@ contract YieldSeekerFeeTracker is AccessControl {
     }
 
     /**
-     * @notice Get reward token balance tracked for a wallet
+     * @notice Get yield token fees owed for a wallet
      * @param wallet The wallet address
-     * @param token The reward token address
-     * @return balance The tracked balance
+     * @param token The token in which yield was earned
+     * @return feesOwed The amount of fees owed denominated in the token
      */
-    function getAgentRewardTokenBalance(address wallet, address token) external view returns (uint256 balance) {
-        balance = agentRewardTokenBalances[wallet][token];
+    function getAgentYieldTokenFeesOwed(address wallet, address token) external view returns (uint256 feesOwed) {
+        feesOwed = agentYieldTokenFeesOwed[wallet][token];
     }
 }

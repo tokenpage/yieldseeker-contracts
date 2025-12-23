@@ -99,10 +99,10 @@ contract MerklAdapterTest is Test {
         // Check token balance
         assertEq(aero.balanceOf(address(wallet)), 100e18);
 
-        // Check reward tracking
-        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
+        // Check yield tracking - stores 10% as fee owed in AERO
+        assertEq(tracker.getAgentYieldTokenFeesOwed(address(wallet), address(aero)), 10e18);
 
-        // No fees yet (only on swap to base asset)
+        // No fees charged yet (only when swapped to base asset)
         assertEq(tracker.agentFeesCharged(address(wallet)), 0);
     }
 
@@ -131,9 +131,9 @@ contract MerklAdapterTest is Test {
         assertEq(aero.balanceOf(address(wallet)), 100e18);
         assertEq(usdc.balanceOf(address(wallet)), 50e6);
 
-        // Check reward tracking - AERO tracked, USDC counted as yield immediately
-        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(aero)), 100e18);
-        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0); // Not tracked, it's base asset
+        // Check yield tracking - AERO stored as 10% fee owed, USDC counted as yield immediately
+        assertEq(tracker.getAgentYieldTokenFeesOwed(address(wallet), address(aero)), 10e18);
+        assertEq(tracker.getAgentYieldTokenFeesOwed(address(wallet), address(usdc)), 0); // Not tracked, it's base asset
 
         // USDC is base asset, so fee charged immediately
         assertEq(tracker.agentFeesCharged(address(wallet)), 5e6); // 10% of 50e6
@@ -161,7 +161,7 @@ contract MerklAdapterTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 100e6);
 
         // USDC is base asset - should be recorded as yield immediately, not tracked
-        assertEq(tracker.getAgentRewardTokenBalance(address(wallet), address(usdc)), 0);
+        assertEq(tracker.getAgentYieldTokenFeesOwed(address(wallet), address(usdc)), 0);
 
         // Fee charged immediately
         assertEq(tracker.agentFeesCharged(address(wallet)), 10e6); // 10% of 100e6
