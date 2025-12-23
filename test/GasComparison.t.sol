@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWallet as AgentWallet} from "../src/AgentWallet.sol";
+import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";

@@ -46,7 +46,7 @@ library AgentWalletStorageV1 {
 }
 
 /**
- * @title YieldSeekerAgentWallet
+ * @title YieldSeekerAgentWalletV1
  * @notice ERC-4337 v0.6 smart wallet for yield-seeking agents.
  * @dev Implements:
  *      - ERC-4337 v0.6 Account (BaseAccount)
@@ -55,7 +55,7 @@ library AgentWalletStorageV1 {
  *      - ERC-7201 namespaced storage
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  */
-contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
+contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
@@ -296,6 +296,11 @@ contract YieldSeekerAgentWallet is IAgentWallet, BaseAccount, Initializable, UUP
         _syncFromFactory();
     }
 
+    /**
+     * @notice Authorize UUPS upgrades
+     * @dev Restricts upgrades to factory-approved implementations only.
+     *      See README for full upgrade authorization model documentation.
+     */
     function _authorizeUpgrade(address newImplementation) internal view override {
         address approvedImplementation = FACTORY.agentWalletImplementation();
         if (newImplementation != approvedImplementation) {

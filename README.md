@@ -259,9 +259,26 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `withdrawAllBaseAssetToUser(recipient)` | Owner only | User withdraws all base asset (minus fees owed) |
 | `withdrawEthToUser(recipient, amount)` | Owner only | User withdraws ETH |
 | `withdrawAllEthToUser(recipient)` | Owner only | User withdraws all ETH |
-| `upgradeToLatest()` | Owner only | Upgrade to latest approved implementation from Factory |
+| `upgradeToLatest()` | Anyone | Upgrade to latest factory-approved implementation |
+| `upgradeTo()` / `upgradeToAndCall()` | Anyone | UUPS upgrade functions (factory-approved impl only) |
 | `execute()` | **DISABLED** | Reverts with `NotAllowed` |
 | `executeBatch()` | **DISABLED** | Reverts with `NotAllowed` |
+
+**Upgrade Authorization Model:**
+
+Wallet upgrades follow a unique model that balances operational efficiency with user protection:
+
+- **Who Can Upgrade**: ANY party (owner, operator, or third party) can trigger wallet upgrades
+- **What They Can Upgrade To**: ONLY factory-approved implementations (not arbitrary contracts)
+- **Timelock Protection**: Factory uses AdminTimelock with 24+ hour delay on implementation updates
+- **User Protection Window**: Users have 24+ hours notice before new implementations become available
+- **Exit Right**: During the timelock period, owners can withdraw all funds if they reject the upgrade
+
+This design ensures:
+- Operators can maintain wallets at the latest version (bug fixes, new features)
+- Users retain sovereignty through exit rights and withdrawal functions
+- Security through factory approval and timelock notice period
+- No single point of failure (anyone can help upgrade stuck wallets)
 
 **Operator Authorization:**
 The wallet validates UserOperation signatures from either:
@@ -462,13 +479,14 @@ For claiming protocol rewards via Merkl distributor.
 #### User (Wallet Owner)
 ✅ **CAN:**
 - Withdraw any token or ETH to any address
-- Upgrade their wallet to approved implementation
+- Trigger wallet upgrades to factory-approved implementations (anyone can)
 - Transfer ownership to another address
 - Receive funds from anyone
 - Sign UserOperations to execute adapter actions
 
 ❌ **CANNOT:**
 - Execute arbitrary calls (execute/executeBatch disabled)
+- Upgrade to non-factory-approved implementations
 - Modify AdapterRegistry configurations
 - Affect other users' wallets
 
@@ -487,9 +505,10 @@ For claiming protocol rewards via Merkl distributor.
 - Withdraw funds (only owner can call `withdrawBaseAssetToUser()`)
 - Approve tokens to non-registered contracts
 - Transfer tokens directly
-- Upgrade wallet implementations (only owner can call `upgradeToLatest()`)
 - Call adapters or targets not registered in AdapterRegistry
 - Execute standard `execute()` or `executeBatch()` (disabled)
+
+**Note on Upgrades:** While operators (and anyone else) CAN trigger wallet upgrades, they are restricted to factory-approved implementations only. The factory uses a timelock (24h+ delay), giving users advance notice to withdraw funds if they reject a new implementation.
 
 ---
 

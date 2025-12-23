@@ -40,16 +40,10 @@ library YieldSeekerErrors {
     /// @notice Thrown when an operation is not allowed
     error NotAllowed();
 
-    /// @notice Thrown when a function can only be called via delegatecall
-    error DirectCallNotAllowed();
-
     /// @notice Thrown when a direct function call is forbidden (use execute instead)
     error DirectCallForbidden();
 
     // ============ State Errors ============
-
-    /// @notice Thrown when an entity already exists
-    error AlreadyExists();
 
     /// @notice Thrown when an operation is attempted in an invalid state
     error InvalidState();

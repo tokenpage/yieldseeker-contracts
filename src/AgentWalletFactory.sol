@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
-import {YieldSeekerAgentWallet as AgentWallet} from "./AgentWallet.sol";
+import {YieldSeekerAgentWalletV1 as AgentWallet} from "./AgentWalletV1.sol";
 import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
