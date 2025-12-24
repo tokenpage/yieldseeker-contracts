@@ -875,6 +875,9 @@ forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_
 
 # Register ZeroX
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x0000000000001fF3684f28c67538d4D072C22734 zerox
+
+# Register Merkl
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl
 ```
 
 (temp) test with:

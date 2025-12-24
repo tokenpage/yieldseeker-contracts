@@ -7,6 +7,7 @@ import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol"
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
+import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
 import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -65,6 +66,7 @@ contract DeployScript is Script {
         address agentWalletImplementation;
         address feeTracker;
         address erc4626Adapter;
+        address merklAdapter;
         address zeroXAdapter;
     }
 
@@ -105,6 +107,7 @@ contract DeployScript is Script {
                 agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
                 feeTracker: safeReadAddress(deployJson, ".feeTracker"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
+                merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
                 zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter")
             });
         }
@@ -163,13 +166,22 @@ contract DeployScript is Script {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
         }
 
-        // Deploy or reuse ERC4626 AdaptgetZeroXAllowanceTarget(block.chainid
+        // Deploy or reuse ERC4626 Adapter
         if (deployments.erc4626Adapter == address(0)) {
             ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
             deployments.erc4626Adapter = address(erc4626Adapter);
             console2.log("-> ERC4626Adapter deployed at:", address(erc4626Adapter));
         } else {
             console2.log("-> Using existing erc4626Adapter:", deployments.erc4626Adapter);
+        }
+
+        // Deploy or reuse Merkl Adapter
+        if (deployments.merklAdapter == address(0)) {
+            MerklAdapter merklAdapter = new MerklAdapter{salt: bytes32(SALT)}();
+            deployments.merklAdapter = address(merklAdapter);
+            console2.log("-> MerklAdapter deployed at:", address(merklAdapter));
+        } else {
+            console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
         }
 
         // Deploy or reuse ZeroX Adapter
@@ -192,6 +204,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
+        vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
         string memory finalJson = vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
@@ -233,6 +246,11 @@ contract DeployScript is Script {
         if (!adapterRegistry.isRegisteredAdapter(deployments.erc4626Adapter)) {
             targets[operationCount] = deployments.adapterRegistry;
             datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.erc4626Adapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.merklAdapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.merklAdapter));
             operationCount++;
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.zeroXAdapter)) {
