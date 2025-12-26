@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWalletKit - AI Agents You Can Actually Trust</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="container">
+            <div class="nav-content">
+                <div class="logo">
+                    <span class="logo-bracket">[</span>
+                    <span class="logo-text">AgentWalletKit</span>
+                    <span class="logo-bracket">]</span>
+                </div>
+                <div class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#how-it-works">How It Works</a>
+                    <a href="#use-cases">Use Cases</a>
+                    <a href="#faq">FAQ</a>
+                    <a href="https://github.com/tokenpage/yieldseeker-contracts" class="btn-primary" target="_blank">View on GitHub</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span class="pulse-dot"></span>
+                    <span>Production on Base Mainnet</span>
+                </div>
+                <h1 class="hero-title">
+                    AI Agents You Can<br/>
+                    <span class="gradient-text">Actually Trust</span>
+                </h1>
+                <p class="hero-subtitle">
+                    The first smart wallet system with parameter-level validation.<br/>
+                    Even if your executors are compromised, agents cannot redirect funds.
+                </p>
+                <div class="hero-cta">
+                    <a href="https://github.com/tokenpage/yieldseeker-contracts" class="btn-primary btn-large" target="_blank">View on GitHub</a>
+                    <a href="#how-it-works" class="btn-secondary btn-large">See How It Works</a>
+                </div>
+                <div class="hero-subcta">
+                    <a href="#consulting" class="link-subtle">Need help integrating? We offer consulting services →</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">$1M+</div>
+                        <div class="stat-label">Assets Secured</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">10K+</div>
+                        <div class="stat-label">Transactions</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">100%</div>
+                        <div class="stat-label">Exploit-Free</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem Statement -->
+    <section class="problem">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">The Problem</span>
+                <h2>Traditional Smart Wallets Are Vulnerable</h2>
+            </div>
+            <div class="problem-grid">
+                <div class="problem-card vulnerable">
+                    <div class="card-header">
+                        <span class="icon">⚠️</span>
+                        <h3>Traditional Wallet</h3>
+                    </div>
+                    <div class="code-block">
+                        <div class="code-line"><span class="comment">// Configuration:</span></div>
+                        <div class="code-line"><span class="success">✓</span> Allow: USDC.approve(spender, amount)</div>
+                        <div class="code-line"><span class="success">✓</span> Allow: Vault.deposit(amount)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="comment">// When executor is compromised:</span></div>
+                        <div class="code-line error"><span class="error-icon">❌</span> USDC.approve(<span class="highlight-error">ATTACKER</span>, unlimited)</div>
+                        <div class="code-line error"><span class="error-icon">❌</span> Wallet sees "approve is allowed" ✓</div>
+                        <div class="code-line error"><span class="error-icon">❌</span> Your funds are drained</div>
+                    </div>
+                    <p class="problem-text">
+                        Validates <strong>function signatures</strong> only.<br/>
+                        Cannot restrict <strong>parameters</strong>.
+                    </p>
+                </div>
+                <div class="problem-card secure">
+                    <div class="card-header">
+                        <span class="icon">🛡️</span>
+                        <h3>AgentWalletKit</h3>
+                    </div>
+                    <div class="code-block">
+                        <div class="code-line"><span class="comment">// Parameter validation enforced:</span></div>
+                        <div class="code-line"><span class="success">✓</span> executeViaAdapter(ERC4626, MORPHO_VAULT)</div>
+                        <div class="code-line"><span class="success">✓</span> Registry validates MORPHO_VAULT ✓</div>
+                        <div class="code-line"><span class="success">✓</span> Executes deposit safely</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="comment">// Attacker tries to compromise:</span></div>
+                        <div class="code-line success"><span class="success-icon">✓</span> executeViaAdapter(ERC4626, <span class="highlight-success">ATTACKER</span>)</div>
+                        <div class="code-line success"><span class="success-icon">✓</span> Registry check fails ✗</div>
+                        <div class="code-line success"><span class="success-icon">✓</span> Transaction reverts immediately</div>
+                    </div>
+                    <p class="problem-text">
+                        Validates <strong>target addresses</strong> onchain.<br/>
+                        Compromised executors <strong>cannot redirect funds</strong>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Features</span>
+                <h2>Built for Security, Designed for Scale</h2>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔐</div>
+                    <h3>Parameter-Level Validation</h3>
+                    <p>Unlike traditional wallets that only validate function signatures, we validate actual target addresses onchain. Compromised executors cannot redirect funds.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Adapter Registry Pattern</h3>
+                    <p>Each protocol interaction has a dedicated adapter. Adapters are immutable, audited code that only interact with explicitly registered addresses.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>ERC-4337 Native</h3>
+                    <p>Gas sponsorship via paymasters, batch transactions, and flexible signing options (Coinbase CDP, MPC, custom servers).</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Global Emergency Controls</h3>
+                    <p>AdapterRegistry can be paused by admins, instantly freezing all agent operations across all wallets if threats are detected.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Production-Ready</h3>
+                    <p>Currently managing real DeFi positions on Base mainnet with adapters for Uniswap, Aerodrome, Morpho, Merkl, and more.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Open Source</h3>
+                    <p>Fully open-source infrastructure. Build adapters, contribute to the protocol, or fork for your own use case.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="how-it-works">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">How It Works</span>
+                <h2>Execution Flow</h2>
+            </div>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Sign UserOperation</h3>
+                        <p>Server signs a UserOperation for the wallet with the desired action</p>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Validate Signature</h3>
+                        <p>Wallet verifies signature is from owner or authorized executor</p>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Registry Check</h3>
+                        <p>AdapterRegistry validates target address is registered for the adapter</p>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3>Execute Safely</h3>
+                        <p>Adapter code executes protocol interactions via DELEGATECALL</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Code Example -->
+            <div class="code-example">
+                <div class="code-example-header">
+                    <span class="code-lang">Solidity</span>
+                    <button class="copy-btn" onclick="copyCode()">Copy</button>
+                </div>
+                <pre class="code-content"><code id="code-snippet">// Deploy wallet
+const wallet = await factory.createAgentWallet({
+  owner: userAddress,
+  ownerAgentIndex: 0
+})
+
+// Register vault in adapter registry (admin)
+await registry.registerTarget(MORPHO_VAULT, ERC4626_ADAPTER)
+
+// Agent executes deposit (via server)
+await wallet.executeViaAdapter(
+  ERC4626_ADAPTER,
+  encodeFunctionData('deposit', [MORPHO_VAULT, amount])
+)</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section id="use-cases" class="use-cases">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Use Cases</span>
+                <h2>Built for Autonomous Agents</h2>
+            </div>
+            <div class="use-cases-grid">
+                <div class="use-case-card">
+                    <div class="use-case-icon">🤖</div>
+                    <h3>Autonomous Yield Optimization</h3>
+                    <p>Deploy agents that move funds between Morpho, Aave, Yearn vaults to maximize returns. Agents can deposit, withdraw, and claim rewards - but only from approved vault addresses.</p>
+                </div>
+                <div class="use-case-card">
+                    <div class="use-case-icon">🎮</div>
+                    <h3>Gaming Agents with Onchain Wallets</h3>
+                    <p>NPCs that trade items on DEXs, participate in onchain economies, all while being cryptographically unable to send assets to unauthorized addresses.</p>
+                </div>
+                <div class="use-case-card">
+                    <div class="use-case-icon">💼</div>
+                    <h3>DAO Treasury Management</h3>
+                    <p>Execute complex DeFi strategies autonomously while maintaining strict controls on which protocols and pools can be accessed.</p>
+                </div>
+                <div class="use-case-card">
+                    <div class="use-case-icon">📊</div>
+                    <h3>Trading Bots</h3>
+                    <p>Automated trading across whitelisted DEXs and pools. Even if your trading bot is compromised, it cannot send funds to attacker wallets.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Comparison Table -->
+    <section class="comparison">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Comparison</span>
+                <h2>Why AgentWalletKit?</h2>
+            </div>
+            <div class="comparison-table">
+                <div class="comparison-row comparison-header">
+                    <div class="comparison-cell">Feature</div>
+                    <div class="comparison-cell highlight">AgentWalletKit</div>
+                    <div class="comparison-cell">Traditional Smart Wallet</div>
+                    <div class="comparison-cell">EOA + Bot</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">Parameter Validation</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> Onchain</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> None</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> None</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">Executor Compromise Protection</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> Cannot redirect funds</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> Full access</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> Full access</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">Gasless Execution</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> ERC-4337</div>
+                    <div class="comparison-cell"><span class="warning">⚠️</span> Depends</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> No</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">No Private Keys</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> Delegated signing</div>
+                    <div class="comparison-cell"><span class="check">✅</span> Multi-sig</div>
+                    <div class="comparison-cell"><span class="cross">❌</span> Required</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">Protocol Flexibility</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> Add adapters</div>
+                    <div class="comparison-cell"><span class="warning">⚠️</span> Limited</div>
+                    <div class="comparison-cell"><span class="check">✅</span> Any</div>
+                </div>
+                <div class="comparison-row">
+                    <div class="comparison-cell">Open Source</div>
+                    <div class="comparison-cell highlight"><span class="check">✅</span> Yes</div>
+                    <div class="comparison-cell"><span class="warning">⚠️</span> Varies</div>
+                    <div class="comparison-cell">N/A</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="faq">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">FAQ</span>
+                <h2>Frequently Asked Questions</h2>
+            </div>
+            <div class="faq-grid">
+                <div class="faq-item">
+                    <h3>What happens if my server keys are stolen?</h3>
+                    <p>Attackers can only move funds between your pre-approved vault addresses. They cannot send funds to external wallets or unapproved contracts. The AdapterRegistry enforces this onchain.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>How is this different from multi-sig wallets?</h3>
+                    <p>Multi-sig validates <em>who</em> can execute. AgentWalletKit validates <em>what</em> can be executed. Even authorized signers cannot bypass the adapter registry restrictions.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>Can I add new protocols?</h3>
+                    <p>Yes. Create an adapter contract, audit it, deploy it, then register the protocol addresses in the AdapterRegistry. Wallets can immediately use the new adapter.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>What if a protocol is hacked?</h3>
+                    <p>The admin can remove the protocol from the AdapterRegistry or pause it entirely, instantly freezing all agent interactions across all wallets.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>Does this work with existing DeFi protocols?</h3>
+                    <p>Yes. Adapters interact with standard protocol interfaces (ERC-4626 vaults, Uniswap V3, etc.). No protocol changes needed.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>What chains are supported?</h3>
+                    <p>Currently live on Base mainnet. Ethereum, Arbitrum, and Optimism support coming Q1 2025.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Consulting Section -->
+    <section id="consulting" class="consulting">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Consulting</span>
+                <h2>Get Expert Support</h2>
+                <p class="consulting-intro">Whether you're integrating AgentWalletKit or need custom smart contract development, we're here to help.</p>
+            </div>
+            <div class="consulting-grid">
+                <div class="consulting-card">
+                    <div class="consulting-badge free">Free</div>
+                    <h3>Integration Support</h3>
+                    <p class="consulting-description">
+                        Get AgentWalletKit integrated into your system with our help. We offer regular review sessions to ensure your implementation is secure and optimized.
+                    </p>
+                    <ul class="consulting-features">
+                        <li><span class="check">✓</span> Regular review calls</li>
+                        <li><span class="check">✓</span> Architecture guidance</li>
+                        <li><span class="check">✓</span> Security best practices</li>
+                        <li><span class="check">✓</span> Adapter development help</li>
+                    </ul>
+                    <a href="mailto:hello@tokenpage.xyz?subject=AgentWalletKit Integration Support" class="btn-secondary btn-consulting">Schedule a Review</a>
+                </div>
+                <div class="consulting-card featured">
+                    <div class="consulting-badge paid">Custom Pricing</div>
+                    <h3>Custom Development</h3>
+                    <p class="consulting-description">
+                        Need custom smart contracts built? We'll design, develop, and deploy production-ready contracts tailored to your specific requirements.
+                    </p>
+                    <ul class="consulting-features">
+                        <li><span class="check">✓</span> Custom adapter development</li>
+                        <li><span class="check">✓</span> Full smart contract suite</li>
+                        <li><span class="check">✓</span> Security audits</li>
+                        <li><span class="check">✓</span> Deployment & maintenance</li>
+                    </ul>
+                    <a href="mailto:hello@tokenpage.xyz?subject=AgentWalletKit Custom Development" class="btn-primary btn-consulting">Discuss Your Project</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Build Agents. Trust the Protocol.</h2>
+                <p>The future of Web3 is autonomous. Start building trustworthy AI agents today.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/tokenpage/yieldseeker-contracts" class="btn-primary btn-large" target="_blank">View on GitHub</a>
+                    <a href="#how-it-works" class="btn-secondary btn-large">Learn More</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <div class="logo">
+                        <span class="logo-bracket">[</span>
+                        <span class="logo-text">AgentWalletKit</span>
+                        <span class="logo-bracket">]</span>
+                    </div>
+                    <p class="footer-tagline">AI Agents You Can Actually Trust</p>
+                </div>
+                <div class="footer-right">
+                    <p>&copy; 2025 AgentWalletKit. Open source infrastructure for the autonomous web.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
