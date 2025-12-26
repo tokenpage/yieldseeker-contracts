@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AgentWalletKit - AI Agents You Can Actually Trust</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,9 +15,8 @@
         <div class="container">
             <div class="nav-content">
                 <div class="logo">
-                    <span class="logo-bracket">[</span>
+                    <span class="logo-shield">🛡️</span>
                     <span class="logo-text">AgentWalletKit</span>
-                    <span class="logo-bracket">]</span>
                 </div>
                 <div class="nav-links">
                     <a href="#features">Features</a>
@@ -36,12 +38,12 @@
                     <span>Production on Base Mainnet</span>
                 </div>
                 <h1 class="hero-title">
-                    AI Agents You Can<br/>
-                    <span class="gradient-text">Actually Trust</span>
+                    Build Autonomous Agents<br/>
+                    <span class="gradient-text">Your Users Can Trust</span>
                 </h1>
                 <p class="hero-subtitle">
-                    The first smart wallet system with parameter-level validation.<br/>
-                    Even if your executors are compromised, agents cannot redirect funds.
+                    Production-grade smart wallet infrastructure with parameter-level validation.<br/>
+                    Ship confidently knowing compromised servers can't drain agent wallets.
                 </p>
                 <div class="hero-cta">
                     <a href="https://github.com/tokenpage/yieldseeker-contracts" class="btn-primary btn-large" target="_blank">View on GitHub</a>
@@ -52,17 +54,43 @@
                 </div>
                 <div class="hero-stats">
                     <div class="stat">
-                        <div class="stat-value">$1M+</div>
-                        <div class="stat-label">Assets Secured</div>
+                        <div class="stat-value">3,000+</div>
+                        <div class="stat-label">Agents Secured</div>
                     </div>
                     <div class="stat">
-                        <div class="stat-value">10K+</div>
-                        <div class="stat-label">Transactions</div>
+                        <div class="stat-value">$50M+</div>
+                        <div class="stat-label">Transaction Volume</div>
                     </div>
                     <div class="stat">
                         <div class="stat-value">100%</div>
                         <div class="stat-label">Exploit-Free</div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- YieldSeeker Production Section -->
+    <section class="yieldseeker-section">
+        <div class="container">
+            <div class="yieldseeker-content">
+                <div class="yieldseeker-badge">
+                    <span class="pulse-dot"></span>
+                    <span>Battle-Tested in Production</span>
+                </div>
+                <h2>Powering <a href="https://yieldseeker.xyz" target="_blank" class="yieldseeker-link">YieldSeeker</a></h2>
+                <p class="yieldseeker-description">
+                    AgentWalletKit was born from the need to secure thousands of autonomous AI agents managing real capital in DeFi.
+                    Developed and continuously funded by the YieldSeeker team, this framework currently protects over <strong>3,000 agents</strong>
+                    executing <strong>$50M+ in transaction volume</strong> across Base mainnet—and growing exponentially.
+                </p>
+                <p class="yieldseeker-description">
+                    Every agent autonomously moves USDC between onchain vaults, claims yield rewards, and reinvests—completely unsupervised.
+                    The infrastructure must be bulletproof. That's why we built AgentWalletKit: a security model where even total server compromise
+                    cannot result in fund theft.
+                </p>
+                <div class="yieldseeker-cta">
+                    <a href="https://yieldseeker.xyz" target="_blank" class="btn-secondary">Visit YieldSeeker →</a>
                 </div>
             </div>
         </div>
@@ -74,6 +102,7 @@
             <div class="section-header">
                 <span class="section-tag">The Problem</span>
                 <h2>Traditional Smart Wallets Are Vulnerable</h2>
+                <p class="section-description">Even with TEEs and MPC, if your API keys or environment are compromised, attackers get full wallet access. AgentWalletKit eliminates this entire attack vector.</p>
             </div>
             <div class="problem-grid">
                 <div class="problem-card vulnerable">
@@ -116,6 +145,88 @@
                         Validates <strong>target addresses</strong> onchain.<br/>
                         Compromised executors <strong>cannot redirect funds</strong>.
                     </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Security Deep Dive -->
+    <section class="security-deep-dive">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Security Model</span>
+                <h2>Sleep Safely at Night</h2>
+                <p class="section-description">Your infrastructure will be attacked. Build assuming compromise from day one.</p>
+            </div>
+            <div class="security-grid">
+                <div class="security-card">
+                    <div class="security-icon">🔓</div>
+                    <h3>Traditional Approaches Fail</h3>
+                    <div class="security-points">
+                        <div class="security-point vulnerable">
+                            <span class="security-marker">❌</span>
+                            <div>
+                                <strong>TEE/SGX:</strong> Only as secure as the API keys and environment variables you pass in
+                            </div>
+                        </div>
+                        <div class="security-point vulnerable">
+                            <span class="security-marker">❌</span>
+                            <div>
+                                <strong>MPC Wallets:</strong> If your MPC node keys leak, attackers sign anything
+                            </div>
+                        </div>
+                        <div class="security-point vulnerable">
+                            <span class="security-marker">❌</span>
+                            <div>
+                                <strong>Multi-sig:</strong> Validates WHO signs, not WHAT they're signing
+                            </div>
+                        </div>
+                        <div class="security-point vulnerable">
+                            <span class="security-marker">❌</span>
+                            <div>
+                                <strong>Rate Limits:</strong> Attackers just drain slowly over time
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="security-card highlight">
+                    <div class="security-icon">🛡️</div>
+                    <h3>AgentWalletKit's Guarantee</h3>
+                    <div class="security-points">
+                        <div class="security-point secure">
+                            <span class="security-marker">✅</span>
+                            <div>
+                                <strong>Onchain Parameter Validation:</strong> Every target address checked against immutable registry
+                            </div>
+                        </div>
+                        <div class="security-point secure">
+                            <span class="security-marker">✅</span>
+                            <div>
+                                <strong>No Redirect Possible:</strong> Even with full server access, attackers cannot change vault addresses
+                            </div>
+                        </div>
+                        <div class="security-point secure">
+                            <span class="security-marker">✅</span>
+                            <div>
+                                <strong>Adapter Isolation:</strong> Each protocol gets dedicated, audited code that only works with registered addresses
+                            </div>
+                        </div>
+                        <div class="security-point secure">
+                            <span class="security-marker">✅</span>
+                            <div>
+                                <strong>Global Kill Switch:</strong> Pause all operations across all agents instantly if threats detected
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="security-guarantee">
+                <div class="guarantee-icon">🔒</div>
+                <div class="guarantee-content">
+                    <h3>The Guarantee</h3>
+                    <p>If your servers are fully compromised—API keys stolen, databases dumped, signing infrastructure hijacked—attackers
+                    can only move funds between your pre-approved vault addresses. They cannot send funds to external wallets.
+                    This is enforced onchain, not in your server logic.</p>
                 </div>
             </div>
         </div>
@@ -411,14 +522,13 @@ await wallet.executeViaAdapter(
             <div class="footer-content">
                 <div class="footer-left">
                     <div class="logo">
-                        <span class="logo-bracket">[</span>
+                        <span class="logo-shield">🛡️</span>
                         <span class="logo-text">AgentWalletKit</span>
-                        <span class="logo-bracket">]</span>
                     </div>
-                    <p class="footer-tagline">AI Agents You Can Actually Trust</p>
+                    <p class="footer-tagline">Production-grade infrastructure for autonomous agents</p>
                 </div>
                 <div class="footer-right">
-                    <p>&copy; 2025 AgentWalletKit. Open source infrastructure for the autonomous web.</p>
+                    <p>&copy; 2025 AgentWalletKit. Developed and funded by <a href="https://yieldseeker.xyz" target="_blank" class="footer-link">YieldSeeker</a>.</p>
                 </div>
             </div>
         </div>

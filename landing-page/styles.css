@@ -11,6 +11,8 @@
     --success: var(--primary);
     --error: #ff4444;
     --warning: #ffaa44;
+    --font-heading: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 * {
@@ -20,11 +22,15 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    font-family: var(--font-body);
     background: var(--bg-dark);
     color: var(--text-primary);
     line-height: 1.6;
     overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
 }
 
 .container {
@@ -54,16 +60,19 @@ body {
 .logo {
     font-size: 20px;
     font-weight: 700;
-    font-family: 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.logo-bracket {
-    color: var(--primary);
+.logo-shield {
+    font-size: 24px;
+    line-height: 1;
 }
 
 .logo-text {
     color: var(--text-primary);
-    margin: 0 4px;
+    font-family: var(--font-heading);
 }
 
 .nav-links {
@@ -235,6 +244,84 @@ body {
     letter-spacing: -1px;
 }
 
+.section-description {
+    max-width: 700px;
+    margin: 16px auto 0;
+    font-size: 18px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+}
+
+/* YieldSeeker Section */
+.yieldseeker-section {
+    padding: 80px 0;
+    background: linear-gradient(135deg, rgba(137, 252, 130, 0.03), rgba(129, 254, 204, 0.03));
+    border-top: 1px solid rgba(137, 252, 130, 0.1);
+    border-bottom: 1px solid rgba(137, 252, 130, 0.1);
+}
+
+.yieldseeker-content {
+    max-width: 900px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.yieldseeker-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(137, 252, 130, 0.1);
+    border: 1px solid rgba(137, 252, 130, 0.2);
+    border-radius: 20px;
+    font-size: 14px;
+    color: var(--primary);
+    margin-bottom: 24px;
+}
+
+.yieldseeker-content h2 {
+    font-size: 42px;
+    margin-bottom: 32px;
+    font-weight: 700;
+}
+
+.yieldseeker-link {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom: 2px solid var(--primary);
+    transition: all 0.3s;
+}
+
+.yieldseeker-link:hover {
+    color: var(--secondary);
+    border-bottom-color: var(--secondary);
+}
+
+.yieldseeker-description {
+    font-size: 18px;
+    line-height: 1.8;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.yieldseeker-description strong {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.yieldseeker-cta {
+    margin-top: 40px;
+}
+
+.section-description {
+    max-width: 700px;
+    margin: 16px auto 0;
+    font-size: 18px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+}
+
 /* Problem Section */
 .problem {
     padding: 100px 0;
@@ -333,6 +420,102 @@ body {
 
 .problem-text strong {
     color: var(--text-primary);
+}
+
+/* Security Deep Dive */
+.security-deep-dive {
+    padding: 100px 0;
+}
+
+.security-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    margin-bottom: 48px;
+}
+
+.security-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+}
+
+.security-card.highlight {
+    border-color: rgba(137, 252, 130, 0.4);
+    background: rgba(137, 252, 130, 0.03);
+}
+
+.security-icon {
+    font-size: 48px;
+    margin-bottom: 24px;
+}
+
+.security-card h3 {
+    font-size: 24px;
+    margin-bottom: 24px;
+}
+
+.security-points {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.security-point {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.security-marker {
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1.6;
+}
+
+.security-point strong {
+    color: var(--text-primary);
+}
+
+.security-point div {
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.security-point.vulnerable .security-marker {
+    opacity: 0.7;
+}
+
+.security-point.secure .security-marker {
+    opacity: 1;
+}
+
+.security-guarantee {
+    background: var(--bg-card);
+    border: 2px solid var(--primary);
+    border-radius: 16px;
+    padding: 40px;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+.guarantee-icon {
+    font-size: 48px;
+    flex-shrink: 0;
+}
+
+.guarantee-content h3 {
+    font-size: 24px;
+    margin-bottom: 16px;
+    color: var(--primary);
+}
+
+.guarantee-content p {
+    font-size: 16px;
+    line-height: 1.8;
+    color: var(--text-secondary);
 }
 
 /* Features Section */
@@ -766,6 +949,17 @@ body {
     font-size: 14px;
 }
 
+.footer-link {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-bottom-color 0.3s;
+}
+
+.footer-link:hover {
+    border-bottom-color: var(--primary);
+}
+
 /* Responsive */
 @media (max-width: 968px) {
     .hero-title {
@@ -805,6 +999,19 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .security-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .security-guarantee {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .yieldseeker-description {
+        text-align: center;
+    }
+
     .footer-content {
         flex-direction: column;
         text-align: center;
@@ -842,11 +1049,19 @@ body {
         font-size: 32px;
     }
 
+    .yieldseeker-content h2 {
+        font-size: 28px;
+    }
+
     .cta-content h2 {
         font-size: 32px;
     }
 
     .cta-buttons {
         flex-direction: column;
+    }
+
+    .consulting-grid {
+        grid-template-columns: 1fr;
     }
 }
