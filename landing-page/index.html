@@ -35,7 +35,7 @@
             <div class="hero-content">
                 <div class="hero-badge">
                     <span class="pulse-dot"></span>
-                    <span>Production on Base Mainnet</span>
+                    <span>Production on Base mainnet</span>
                 </div>
                 <h1 class="hero-title">
                     Build Autonomous Agents<br/>
@@ -76,7 +76,7 @@
             <div class="yieldseeker-content">
                 <div class="yieldseeker-badge">
                     <span class="pulse-dot"></span>
-                    <span>Battle-Tested in Production</span>
+                    <span>Battle-tested in production</span>
                 </div>
                 <h2>Powering <a href="https://yieldseeker.xyz" target="_blank" class="yieldseeker-link">YieldSeeker</a></h2>
                 <p class="yieldseeker-description">
@@ -101,14 +101,14 @@
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">The Problem</span>
-                <h2>Traditional Smart Wallets Are Vulnerable</h2>
+                <h2>Traditional smart wallets are vulnerable</h2>
                 <p class="section-description">Even with TEEs and MPC, if your API keys or environment are compromised, attackers get full wallet access. AgentWalletKit eliminates this entire attack vector.</p>
             </div>
             <div class="problem-grid">
                 <div class="problem-card vulnerable">
                     <div class="card-header">
                         <span class="icon">⚠️</span>
-                        <h3>Traditional Wallet</h3>
+                        <h3>Traditional wallet</h3>
                     </div>
                     <div class="code-block">
                         <div class="code-line"><span class="comment">// Configuration:</span></div>
@@ -155,13 +155,13 @@
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">Security Model</span>
-                <h2>Sleep Safely at Night</h2>
+                <h2>Sleep safely at night</h2>
                 <p class="section-description">Your infrastructure will be attacked. Build assuming compromise from day one.</p>
             </div>
             <div class="security-grid">
                 <div class="security-card">
                     <div class="security-icon">🔓</div>
-                    <h3>Traditional Approaches Fail</h3>
+                    <h3>Traditional approaches fail</h3>
                     <div class="security-points">
                         <div class="security-point vulnerable">
                             <span class="security-marker">❌</span>
@@ -223,7 +223,7 @@
             <div class="security-guarantee">
                 <div class="guarantee-icon">🔒</div>
                 <div class="guarantee-content">
-                    <h3>The Guarantee</h3>
+                    <h3>The guarantee</h3>
                     <p>If your servers are fully compromised—API keys stolen, databases dumped, signing infrastructure hijacked—attackers
                     can only move funds between your pre-approved vault addresses. They cannot send funds to external wallets.
                     This is enforced onchain, not in your server logic.</p>
@@ -237,37 +237,42 @@
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">Features</span>
-                <h2>Built for Security, Designed for Scale</h2>
+                <h2>Built for security, designed for scale</h2>
             </div>
             <div class="features-grid">
                 <div class="feature-card">
                     <div class="feature-icon">🔐</div>
-                    <h3>Parameter-Level Validation</h3>
+                    <h3>Parameter-level validation</h3>
                     <p>Unlike traditional wallets that only validate function signatures, we validate actual target addresses onchain. Compromised executors cannot redirect funds.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🎯</div>
-                    <h3>Adapter Registry Pattern</h3>
+                    <h3>Adapter registry pattern</h3>
                     <p>Each protocol interaction has a dedicated adapter. Adapters are immutable, audited code that only interact with explicitly registered addresses.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
-                    <h3>ERC-4337 Native</h3>
+                    <h3>ERC-4337 native</h3>
                     <p>Gas sponsorship via paymasters, batch transactions, and flexible signing options (Coinbase CDP, MPC, custom servers).</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🛡️</div>
-                    <h3>Global Emergency Controls</h3>
+                    <h3>Global emergency controls</h3>
                     <p>AdapterRegistry can be paused by admins, instantly freezing all agent operations across all wallets if threats are detected.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔄</div>
-                    <h3>Production-Ready</h3>
+                    <h3>Production-ready</h3>
                     <p>Currently managing real DeFi positions on Base mainnet with adapters for Uniswap, Aerodrome, Morpho, Merkl, and more.</p>
                 </div>
                 <div class="feature-card">
+                    <div class="feature-icon">🔬</div>
+                    <h3>Audited by top firms</h3>
+                    <p>Currently undergoing comprehensive security audits by leading blockchain security firms. Full audit reports will be published in February 2026.</p>
+                </div>
+                <div class="feature-card">
                     <div class="feature-icon">🌐</div>
-                    <h3>Open Source</h3>
+                    <h3>Open source</h3>
                     <p>Fully open-source infrastructure. Build adapters, contribute to the protocol, or fork for your own use case.</p>
                 </div>
             </div>
@@ -279,13 +284,13 @@
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">How It Works</span>
-                <h2>Execution Flow</h2>
+                <h2>Execution flow</h2>
             </div>
             <div class="flow-steps">
                 <div class="flow-step">
                     <div class="step-number">1</div>
                     <div class="step-content">
-                        <h3>Sign UserOperation</h3>
+                        <h3>Sign user operation</h3>
                         <p>Server signs a UserOperation for the wallet with the desired action</p>
                     </div>
                 </div>
@@ -293,7 +298,7 @@
                 <div class="flow-step">
                     <div class="step-number">2</div>
                     <div class="step-content">
-                        <h3>Validate Signature</h3>
+                        <h3>Validate signature</h3>
                         <p>Wallet verifies signature is from owner or authorized executor</p>
                     </div>
                 </div>
@@ -301,7 +306,7 @@
                 <div class="flow-step">
                     <div class="step-number">3</div>
                     <div class="step-content">
-                        <h3>Registry Check</h3>
+                        <h3>Registry check</h3>
                         <p>AdapterRegistry validates target address is registered for the adapter</p>
                     </div>
                 </div>
@@ -309,7 +314,7 @@
                 <div class="flow-step">
                     <div class="step-number">4</div>
                     <div class="step-content">
-                        <h3>Execute Safely</h3>
+                        <h3>Execute safely</h3>
                         <p>Adapter code executes protocol interactions via DELEGATECALL</p>
                     </div>
                 </div>
@@ -344,27 +349,27 @@ await wallet.executeViaAdapter(
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">Use Cases</span>
-                <h2>Built for Autonomous Agents</h2>
+                <h2>Built for autonomous agents</h2>
             </div>
             <div class="use-cases-grid">
                 <div class="use-case-card">
                     <div class="use-case-icon">🤖</div>
-                    <h3>Autonomous Yield Optimization</h3>
+                    <h3>Autonomous yield optimization</h3>
                     <p>Deploy agents that move funds between Morpho, Aave, Yearn vaults to maximize returns. Agents can deposit, withdraw, and claim rewards - but only from approved vault addresses.</p>
                 </div>
                 <div class="use-case-card">
                     <div class="use-case-icon">🎮</div>
-                    <h3>Gaming Agents with Onchain Wallets</h3>
+                    <h3>Gaming agents with onchain wallets</h3>
                     <p>NPCs that trade items on DEXs, participate in onchain economies, all while being cryptographically unable to send assets to unauthorized addresses.</p>
                 </div>
                 <div class="use-case-card">
                     <div class="use-case-icon">💼</div>
-                    <h3>DAO Treasury Management</h3>
+                    <h3>DAO treasury management</h3>
                     <p>Execute complex DeFi strategies autonomously while maintaining strict controls on which protocols and pools can be accessed.</p>
                 </div>
                 <div class="use-case-card">
                     <div class="use-case-icon">📊</div>
-                    <h3>Trading Bots</h3>
+                    <h3>Trading bots</h3>
                     <p>Automated trading across whitelisted DEXs and pools. Even if your trading bot is compromised, it cannot send funds to attacker wallets.</p>
                 </div>
             </div>
@@ -430,7 +435,7 @@ await wallet.executeViaAdapter(
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">FAQ</span>
-                <h2>Frequently Asked Questions</h2>
+                <h2>Frequently asked questions</h2>
             </div>
             <div class="faq-grid">
                 <div class="faq-item">
@@ -455,7 +460,7 @@ await wallet.executeViaAdapter(
                 </div>
                 <div class="faq-item">
                     <h3>What chains are supported?</h3>
-                    <p>Currently live on Base mainnet. Ethereum, Arbitrum, and Optimism support coming Q1 2025.</p>
+                    <p>All EVM chains are supported. The contracts are currently deployed and battle-tested on Base mainnet, securing over 3,000 agents with $50M+ in transaction volume.</p>
                 </div>
             </div>
         </div>
@@ -466,13 +471,35 @@ await wallet.executeViaAdapter(
         <div class="container">
             <div class="section-header">
                 <span class="section-tag">Consulting</span>
-                <h2>Get Expert Support</h2>
+                <h2>Get expert support</h2>
                 <p class="consulting-intro">Whether you're integrating AgentWalletKit or need custom smart contract development, we're here to help.</p>
             </div>
+
+            <!-- Team Section -->
+            <div class="team-section">
+                <p class="team-intro">Built by the team behind <a href="https://yieldseeker.xyz" target="_blank" class="yieldseeker-link">YieldSeeker</a>. We've been depoloying to mainnet since 2021.</p>
+                <div class="team-members">
+                    <a href="https://x.com/afoxinweb3" target="_blank" class="team-member">
+                        <img src="https://framerusercontent.com/images/tkFqTJvLQyVNKn18AlZAC5MMSIA.png?width=384&height=384" alt="A Fox" class="team-photo">
+                        <div class="team-info">
+                            <div class="team-name">Arthur Fox · CEO</div>
+                            <div class="team-role">Crypto-native since 2016</div>
+                        </div>
+                    </a>
+                    <a href="https://x.com/krishan711" target="_blank" class="team-member">
+                        <img src="https://framerusercontent.com/images/rSx6kfJs7CxFveTYyIf2Ywvr00.png?width=384&height=384" alt="Krishan Patel" class="team-photo">
+                        <div class="team-info">
+                            <div class="team-name">Krishan Patel · CTO</div>
+                            <div class="team-role">Full-Stack Engineer with web2 Exit</div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
             <div class="consulting-grid">
                 <div class="consulting-card">
                     <div class="consulting-badge free">Free</div>
-                    <h3>Integration Support</h3>
+                    <h3>Integration support</h3>
                     <p class="consulting-description">
                         Get AgentWalletKit integrated into your system with our help. We offer regular review sessions to ensure your implementation is secure and optimized.
                     </p>
@@ -486,7 +513,7 @@ await wallet.executeViaAdapter(
                 </div>
                 <div class="consulting-card featured">
                     <div class="consulting-badge paid">Custom Pricing</div>
-                    <h3>Custom Development</h3>
+                    <h3>Custom development</h3>
                     <p class="consulting-description">
                         Need custom smart contracts built? We'll design, develop, and deploy production-ready contracts tailored to your specific requirements.
                     </p>
@@ -506,7 +533,7 @@ await wallet.executeViaAdapter(
     <section class="cta">
         <div class="container">
             <div class="cta-content">
-                <h2>Build Agents. Trust the Protocol.</h2>
+                <h2>Build agents. Trust the protocol.</h2>
                 <p>The future of Web3 is autonomous. Start building trustworthy AI agents today.</p>
                 <div class="cta-buttons">
                     <a href="https://github.com/tokenpage/yieldseeker-contracts" class="btn-primary btn-large" target="_blank">View on GitHub</a>

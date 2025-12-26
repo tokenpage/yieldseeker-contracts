@@ -884,17 +884,75 @@ h1, h2, h3, h4, h5, h6 {
     padding: 12px 0;
     color: var(--text-secondary);
     display: flex;
-    aconsulting-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .lign-items: center;
+    align-items: center;
     gap: 12px;
 }
 
 .btn-consulting {
     width: 100%;
     text-align: center;
+}
+
+/* Team Section */
+.team-section {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    text-align: center;
+}
+
+.team-intro {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+    line-height: 1.6;
+}
+
+.team-members {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.team-member {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px;
+    background: var(--bg-darker);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.team-member:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.team-photo {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+}
+
+.team-info {
+    text-align: left;
+}
+
+.team-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.team-role {
+    font-size: 13px;
+    color: var(--text-secondary);
 }
 
 /* CTA Section */
@@ -1063,5 +1121,15 @@ h1, h2, h3, h4, h5, h6 {
 
     .consulting-grid {
         grid-template-columns: 1fr;
+    }
+
+    .team-members {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .team-member {
+        width: 100%;
+        max-width: 400px;
     }
 }
