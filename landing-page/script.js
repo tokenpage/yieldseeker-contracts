@@ -71,6 +71,7 @@ const heroTitle = document.querySelector('.gradient-text');
 if (heroTitle) {
     const text = heroTitle.textContent;
     heroTitle.textContent = '';
+    heroTitle.classList.remove("notdisplayed");
     let i = 0;
 
     function typeWriter() {
