@@ -57,4 +57,14 @@ library YieldSeekerErrors {
     /// @notice Thrown when a target is not registered
     /// @param target The unregistered target address
     error TargetNotRegistered(address target);
+
+    // ============ User Blocklist Errors ============
+
+    /// @notice Thrown when an adapter is blocked by the wallet owner
+    /// @param adapter The blocked adapter address
+    error AdapterBlocked(address adapter);
+
+    /// @notice Thrown when a target is blocked by the wallet owner
+    /// @param target The blocked target address
+    error TargetBlocked(address target);
 }

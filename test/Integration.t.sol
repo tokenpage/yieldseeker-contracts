@@ -3,8 +3,8 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerErrors} from "../src/Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IYieldSeekerAdapter} from "../src/adapters/IAdapter.sol";
@@ -295,6 +295,52 @@ contract IntegrationTest is Test {
         vm.prank(user);
         vm.expectRevert(AgentWallet.NotApprovedImplementation.selector);
         wallet.upgradeToAndCall(address(maliciousImpl), "");
+    }
+
+    function test_Security_OnlyOwnerCanUpgrade() public {
+        // Deploy new implementation
+        AgentWallet newImpl = new AgentWallet(address(factory));
+
+        // Register it in factory (via timelock)
+        bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)), 24 hours);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(301)));
+
+        // Try to upgrade as operator (should fail)
+        vm.prank(owner); // owner is the operator
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, owner));
+        wallet.upgradeToLatest();
+
+        // Try to upgrade as random third party (should fail)
+        address attacker = address(0x999);
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, attacker));
+        wallet.upgradeToLatest();
+
+        // Verify owner can upgrade
+        vm.prank(user);
+        wallet.upgradeToLatest();
+    }
+
+    function test_Security_OnlyOwnerCanUpgradeViaUpgradeToAndCall() public {
+        // Deploy new implementation
+        AgentWallet newImpl = new AgentWallet(address(factory));
+
+        // Register it in factory (via timelock)
+        bytes memory setImplData = abi.encodeWithSelector(factory.setAgentWalletImplementation.selector, newImpl);
+        timelock.schedule(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)), 24 hours);
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
+        timelock.execute(address(factory), 0, setImplData, bytes32(0), bytes32(uint256(302)));
+
+        // Try to upgrade as operator using upgradeToAndCall (should fail)
+        vm.prank(owner); // owner is the operator
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, owner));
+        wallet.upgradeToAndCall(address(newImpl), "");
+
+        // Verify owner can upgrade
+        vm.prank(user);
+        wallet.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_UpgradeToLatest() public {

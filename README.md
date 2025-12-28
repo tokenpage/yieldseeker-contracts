@@ -245,6 +245,8 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `feeTracker` | `FeeTracker` | Cached reference to FeeTracker from Factory |
 | `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
 | `isAgentOperator` | `mapping(address => bool)` | Fast lookup for operator status |
+| `blockedAdapters` | `mapping(address => bool)` | User-level adapter blocklist |
+| `blockedTargets` | `mapping(address => bool)` | User-level target blocklist |
 
 **Key Functions:**
 
@@ -253,32 +255,38 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `initialize(owner, index, asset)` | Factory only | Sets up wallet and syncs config from Factory |
 | `executeViaAdapter(adapter, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
 | `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
+| `blockAdapter(adapter)` | Owner only | Block an adapter from being used by this wallet |
+| `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
+| `blockTarget(target)` | Owner only | Block a target from being accessed by this wallet |
+| `unblockTarget(target)` | Owner only | Unblock a previously blocked target |
+| `isAdapterBlocked(adapter)` | View | Check if an adapter is blocked |
+| `isTargetBlocked(target)` | View | Check if a target is blocked |
 | `syncFromFactory()` | Syncers | Refresh cached operators and registry address |
 | `collectFees()` | Executors | Transfer accumulated fees to fee collector |
 | `withdrawBaseAssetToUser(recipient, amount)` | Owner only | User withdraws base asset (minus fees owed) |
 | `withdrawAllBaseAssetToUser(recipient)` | Owner only | User withdraws all base asset (minus fees owed) |
 | `withdrawEthToUser(recipient, amount)` | Owner only | User withdraws ETH |
 | `withdrawAllEthToUser(recipient)` | Owner only | User withdraws all ETH |
-| `upgradeToLatest()` | Anyone | Upgrade to latest factory-approved implementation |
-| `upgradeTo()` / `upgradeToAndCall()` | Anyone | UUPS upgrade functions (factory-approved impl only) |
+| `upgradeToLatest()` | Owner only | Upgrade to latest factory-approved implementation |
+| `upgradeTo()` / `upgradeToAndCall()` | Owner only | UUPS upgrade functions (factory-approved impl only) |
 | `execute()` | **DISABLED** | Reverts with `NotAllowed` |
 | `executeBatch()` | **DISABLED** | Reverts with `NotAllowed` |
 
 **Upgrade Authorization Model:**
 
-Wallet upgrades follow a unique model that balances operational efficiency with user protection:
+Wallet upgrades follow a user-sovereignty model that ensures owners maintain complete control:
 
-- **Who Can Upgrade**: ANY party (owner, operator, or third party) can trigger wallet upgrades
+- **Who Can Upgrade**: ONLY the wallet owner can trigger upgrades
 - **What They Can Upgrade To**: ONLY factory-approved implementations (not arbitrary contracts)
 - **Timelock Protection**: Factory uses AdminTimelock with 24+ hour delay on implementation updates
 - **User Protection Window**: Users have 24+ hours notice before new implementations become available
 - **Exit Right**: During the timelock period, owners can withdraw all funds if they reject the upgrade
 
 This design ensures:
-- Operators can maintain wallets at the latest version (bug fixes, new features)
-- Users retain sovereignty through exit rights and withdrawal functions
+- Users maintain complete sovereignty over their wallets
+- No third party can force upgrades (aligns with "verify, don't trust")
 - Security through factory approval and timelock notice period
-- No single point of failure (anyone can help upgrade stuck wallets)
+- Users can choose to upgrade, wait, or exit entirely
 
 **Operator Authorization:**
 The wallet validates UserOperation signatures from either:
@@ -561,10 +569,50 @@ The security of `delegatecall` relies entirely on the code at the adapter addres
 - **Requirement**: Adapters must not contain `selfdestruct` (mitigated by EIP-6780 on Base).
 
 #### 4. User Sovereignty
-The user (Owner) always has the highest priority:
-- **Withdrawal**: The owner can always bypass adapters and withdraw all funds.
-- **Upgrades**: Only the owner can upgrade their wallet implementation.
-- **Revocation**: The owner can call `syncFromFactory()` to update their local security state if the global factory configuration changes.
+
+The user (Owner) maintains ultimate control over their wallet through multiple mechanisms:
+
+**Withdrawal Rights:**
+- The owner can always bypass adapters and withdraw all funds
+- Withdrawal functions check fees owed and ensure users can always access their net balance
+
+**Upgrade Control:**
+- Only factory-approved implementations can be used (timelock protected)
+- Owner has 24+ hour notice before new implementations become available
+- During notice period, owner can withdraw all funds if rejecting an upgrade
+
+**Adapter/Target Blocklists:**
+- Owner can block specific adapters from being used by their wallet: `blockAdapter(address)`
+- Owner can block specific targets (vaults/protocols) from being accessed: `blockTarget(address)`
+- Blocklists are checked BEFORE global registry validation
+- Provides granular control even when adapters/targets are globally approved
+- Example use cases:
+  - Block a risky vault while keeping other vaults accessible
+  - Temporarily disable a specific adapter if suspicious behavior detected
+  - Proactively block protocols before global admin responds
+
+**Blocklist Functions:**
+```solidity
+// Block an adapter
+wallet.blockAdapter(riskAdapter);
+
+// Block a specific vault
+wallet.blockTarget(suspiciousVault);
+
+// Unblock when safe
+wallet.unblockAdapter(riskAdapter);
+wallet.unblockTarget(suspiciousVault);
+
+// Query blocklist status
+bool blocked = wallet.isAdapterBlocked(adapter);
+bool blocked = wallet.isTargetBlocked(target);
+```
+
+**Sovereignty Philosophy:**
+This embodies the crypto ethos of "verify, don't trust." While the global registry provides baseline security, users don't have to trust admin decisions. They can independently verify and block any adapter or target they deem risky, maintaining full sovereignty over their agent's operations.
+
+**Configuration Sync:**
+- Owner can call `syncFromFactory()` to update their local security state if global configuration changes
 
 ---
 

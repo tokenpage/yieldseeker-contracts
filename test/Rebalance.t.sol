@@ -3,8 +3,8 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerVaultAdapter as VaultAdapter} from "../src/adapters/VaultAdapter.sol";

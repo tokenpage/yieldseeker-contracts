@@ -3,8 +3,8 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock} from "../src/AdminTimelock.sol";
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletFactory} from "../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";

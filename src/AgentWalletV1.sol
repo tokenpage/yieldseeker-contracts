@@ -35,6 +35,9 @@ library AgentWalletStorageV1 {
         address[] agentOperators;
         // NOTE(krishan711): keep a map for fast lookup
         mapping(address => bool) isAgentOperator;
+        // User-level blocklists for sovereignty
+        mapping(address => bool) blockedAdapters;
+        mapping(address => bool) blockedTargets;
     }
 
     function layout() internal pure returns (Layout storage l) {
@@ -67,6 +70,10 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
+    event AdapterBlocked(address indexed adapter);
+    event AdapterUnblocked(address indexed adapter);
+    event TargetBlocked(address indexed target);
+    event TargetUnblocked(address indexed target);
 
     error AdapterExecutionFailed(bytes reason);
     error TransferFailed();
@@ -171,6 +178,66 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
         return AgentWalletStorageV1.layout().isAgentOperator[operator];
     }
 
+    // ============ User Blocklist Management ============
+
+    /**
+     * @notice Block an adapter from being used by this wallet
+     * @param adapter The adapter address to block
+     * @dev Owner can block adapters even if they are globally approved.
+     *      This provides user sovereignty over their agent's operations.
+     */
+    function blockAdapter(address adapter) external onlyOwner {
+        AgentWalletStorageV1.layout().blockedAdapters[adapter] = true;
+        emit AdapterBlocked(adapter);
+    }
+
+    /**
+     * @notice Unblock a previously blocked adapter
+     * @param adapter The adapter address to unblock
+     */
+    function unblockAdapter(address adapter) external onlyOwner {
+        AgentWalletStorageV1.layout().blockedAdapters[adapter] = false;
+        emit AdapterUnblocked(adapter);
+    }
+
+    /**
+     * @notice Block a target from being interacted with by this wallet
+     * @param target The target address to block
+     * @dev Owner can block specific protocols/vaults even if globally approved.
+     *      Example: Block a risky vault while keeping other vaults accessible.
+     */
+    function blockTarget(address target) external onlyOwner {
+        AgentWalletStorageV1.layout().blockedTargets[target] = true;
+        emit TargetBlocked(target);
+    }
+
+    /**
+     * @notice Unblock a previously blocked target
+     * @param target The target address to unblock
+     */
+    function unblockTarget(address target) external onlyOwner {
+        AgentWalletStorageV1.layout().blockedTargets[target] = false;
+        emit TargetUnblocked(target);
+    }
+
+    /**
+     * @notice Check if an adapter is blocked by the owner
+     * @param adapter The adapter address to check
+     * @return True if the adapter is blocked
+     */
+    function isAdapterBlocked(address adapter) public view returns (bool) {
+        return AgentWalletStorageV1.layout().blockedAdapters[adapter];
+    }
+
+    /**
+     * @notice Check if a target is blocked by the owner
+     * @param target The target address to check
+     * @return True if the target is blocked
+     */
+    function isTargetBlocked(address target) public view returns (bool) {
+        return AgentWalletStorageV1.layout().blockedTargets[target];
+    }
+
     /**
      * @notice Refresh configuration from the factory
      */
@@ -249,12 +316,25 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     /**
      * @notice Internal helper to validate and execute adapter call
      * @dev Enforces the standard IYieldSeekerAdapter interface.
+     *      Checks user blocklists first, then global registry validation.
      */
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
+
+        // Check user-level blocklists first (owner sovereignty)
+        if ($.blockedAdapters[adapter]) {
+            revert YieldSeekerErrors.AdapterBlocked(adapter);
+        }
+        if ($.blockedTargets[target]) {
+            revert YieldSeekerErrors.TargetBlocked(target);
+        }
+
+        // Then check global registry validation
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) {
             revert YieldSeekerErrors.AdapterNotRegistered(adapter);
         }
+
         bytes memory callData = abi.encodeWithSelector(IYieldSeekerAdapter.execute.selector, target, data);
         bool success;
         (success, result) = adapter.delegatecall(callData);
@@ -298,10 +378,12 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
 
     /**
      * @notice Authorize UUPS upgrades
-     * @dev Restricts upgrades to factory-approved implementations only.
+     * @dev Restricts upgrades to:
+     *      1. Owner only (user sovereignty)
+     *      2. Factory-approved implementations only
      *      See README for full upgrade authorization model documentation.
      */
-    function _authorizeUpgrade(address newImplementation) internal view override {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         address approvedImplementation = FACTORY.agentWalletImplementation();
         if (newImplementation != approvedImplementation) {
             revert NotApprovedImplementation();
