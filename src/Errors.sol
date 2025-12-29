@@ -67,4 +67,65 @@ library YieldSeekerErrors {
     /// @notice Thrown when a target is blocked by the wallet owner
     /// @param target The blocked target address
     error TargetBlocked(address target);
+
+    // ============ Wallet Errors ============
+
+    /// @notice Thrown when an adapter execution fails
+    /// @param reason The revert reason from the adapter
+    error AdapterExecutionFailed(bytes reason);
+
+    /// @notice Thrown when an ETH transfer fails
+    error TransferFailed();
+
+    /// @notice Thrown when trying to upgrade to a non-approved implementation
+    error NotApprovedImplementation();
+
+    /// @notice Thrown when the registry configuration is invalid
+    error InvalidRegistry();
+
+    /// @notice Thrown when the fee tracker configuration is invalid
+    error InvalidFeeTracker();
+
+    // ============ Factory Errors ============
+
+    /// @notice Thrown when an agent already exists for owner/index combination
+    /// @param owner The owner address
+    /// @param ownerAgentIndex The agent index
+    error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
+
+    /// @notice Thrown when no wallet implementation has been set
+    error NoAgentWalletImplementationSet();
+
+    /// @notice Thrown when no adapter registry has been set
+    error NoAdapterRegistrySet();
+
+    /// @notice Thrown when the implementation has wrong factory
+    error InvalidImplementationFactory();
+
+    /// @notice Thrown when trying to add too many operators
+    error TooManyOperators();
+
+    // ============ Fee Errors ============
+
+    /// @notice Thrown when an invalid fee rate is provided
+    error InvalidFeeRate();
+
+    // ============ Swap Errors ============
+
+    /// @notice Thrown when the allowance target is invalid
+    error InvalidAllowanceTarget();
+
+    /// @notice Thrown when a swap operation fails
+    /// @param reason The revert reason from the swap
+    error SwapFailed(bytes reason);
+
+    /// @notice Thrown when swap output is below minimum
+    /// @param received The amount received
+    /// @param minExpected The minimum expected amount
+    error InsufficientOutput(uint256 received, uint256 minExpected);
+
+    /// @notice Thrown when insufficient ETH for swap
+    /// @param have The available ETH balance
+    /// @param need The required ETH amount
+    error InsufficientEth(uint256 have, uint256 need);
 }

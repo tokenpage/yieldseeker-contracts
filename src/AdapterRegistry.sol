@@ -28,10 +28,12 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
 
+    /// @notice Pause all registry lookups (emergency only)
     function pause() external onlyRole(EMERGENCY_ROLE) {
         _pause();
     }
 
+    /// @notice Unpause registry lookups (admin only)
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
@@ -53,6 +55,12 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         emit AdapterRegistered(adapter);
     }
 
+    /**
+     * @notice Set the adapter for a target contract
+     * @param target The target contract address (e.g., a vault)
+     * @param adapter The adapter to use for this target
+     * @dev If target already has a different adapter, emits TargetRemoved then TargetRegistered
+     */
     function setTargetAdapter(address target, address adapter) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (target == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (!isRegisteredAdapter[adapter]) revert YieldSeekerErrors.AdapterNotRegistered(adapter);
@@ -69,6 +77,11 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         }
     }
 
+    /**
+     * @notice Remove a target from the registry
+     * @param target The target address to remove
+     * @dev Can be called by EMERGENCY_ROLE for quick removal of compromised targets
+     */
     function removeTarget(address target) external onlyRole(EMERGENCY_ROLE) {
         (bool exists, address adapter) = _targetToAdapter.tryGet(target);
         if (!exists) revert YieldSeekerErrors.TargetNotRegistered(target);
@@ -98,6 +111,12 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
         emit AdapterUnregistered(adapter);
     }
 
+    /**
+     * @notice Get the adapter for a target contract
+     * @param target The target contract address
+     * @return The adapter address, or address(0) if not registered or adapter is unregistered
+     * @dev Returns address(0) when paused (via whenNotPaused modifier)
+     */
     function getTargetAdapter(address target) external view whenNotPaused returns (address) {
         (bool exists, address adapter) = _targetToAdapter.tryGet(target);
         return (exists && isRegisteredAdapter[adapter]) ? adapter : address(0);

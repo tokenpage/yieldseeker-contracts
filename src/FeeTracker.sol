@@ -11,6 +11,8 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
 contract YieldSeekerFeeTracker is AccessControl {
+    uint256 public constant MAX_FEE_RATE_BPS = 5000;
+
     uint256 public feeRateBps;
     address public feeCollector;
 
@@ -26,16 +28,13 @@ contract YieldSeekerFeeTracker is AccessControl {
     event FeePaid(address indexed wallet, uint256 amount);
     event FeeConfigUpdated(uint256 feeRateBps, address feeCollector);
 
-    error InvalidFeeRate();
-
     constructor(address admin) {
         if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        // NOTE(krishan711): Max fee rate is 50%
-        if (_feeRateBps > 5e3) revert InvalidFeeRate();
+        if (_feeRateBps > MAX_FEE_RATE_BPS) revert YieldSeekerErrors.InvalidFeeRate();
         if (_feeCollector == address(0)) revert YieldSeekerErrors.ZeroAddress();
         feeRateBps = _feeRateBps;
         feeCollector = _feeCollector;

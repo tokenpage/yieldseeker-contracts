@@ -87,7 +87,7 @@ contract FactorySecurityTest is Test {
 
         // Sync wallet should revert
         vm.prank(owner);
-        vm.expectRevert(AgentWallet.InvalidRegistry.selector);
+        vm.expectRevert(YieldSeekerErrors.InvalidRegistry.selector);
         wallet.syncFromFactory();
     }
 }

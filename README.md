@@ -220,6 +220,13 @@ sequenceDiagram
 - **Server Authorization**: Registry stores `yieldSeekerServer` address that can sign for any wallet
 - **ERC-4337 Compatible**: Full support for UserOperations and gas sponsorship
 
+### System Constants
+
+| Constant | Value | Contract | Description |
+|----------|-------|----------|-------------|
+| `MAX_OPERATORS` | 10 | AgentWalletFactory | Maximum number of agent operators |
+| `MAX_FEE_RATE_BPS` | 5000 | FeeTracker | Maximum fee rate (50%) |
+
 ---
 
 ## Contract Reference
@@ -248,12 +255,18 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `blockedAdapters` | `mapping(address => bool)` | User-level adapter blocklist |
 | `blockedTargets` | `mapping(address => bool)` | User-level target blocklist |
 
+**Events:**
+```solidity
+event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
+```
+
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
 | `initialize(owner, index, asset)` | Factory only | Sets up wallet and syncs config from Factory |
-| `executeViaAdapter(adapter, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
+| `executeViaAdapter(adapter, target, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
+| `executeViaAdapterBatch(adapters[], targets[], datas[])` | Executors | Execute multiple adapter calls in a batch |
 | `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
 | `blockAdapter(adapter)` | Owner only | Block an adapter from being used by this wallet |
 | `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
@@ -262,7 +275,7 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `isAdapterBlocked(adapter)` | View | Check if an adapter is blocked |
 | `isTargetBlocked(target)` | View | Check if a target is blocked |
 | `syncFromFactory()` | Syncers | Refresh cached operators and registry address |
-| `collectFees()` | Executors | Transfer accumulated fees to fee collector |
+| `collectFees()` | Executors | Transfer accumulated fees to fee collector (any executor can call) |
 | `withdrawBaseAssetToUser(recipient, amount)` | Owner only | User withdraws base asset (minus fees owed) |
 | `withdrawAllBaseAssetToUser(recipient)` | Owner only | User withdraws all base asset (minus fees owed) |
 | `withdrawEthToUser(recipient, amount)` | Owner only | User withdraws ETH |
@@ -371,23 +384,44 @@ Tracks fees and yields for agent wallets on a cost-basis accounting model.
 | Function | Access | Description |
 |----------|--------|-------------|
 | `setFeeConfig(rateBps, collector)` | Admin | Set fee rate (max 50%) and collector address |
-| `recordVaultShareDeposit(vault, assetAmount, sharesReceived)` | Wallet | Record cost basis when depositing to vault |
-| `recordVaultShareWithdraw(vault, sharesWithdrawn, assetAmount)` | Wallet | Calculate yield/loss and accrue fees |
-| `recordRewardTokenReceived(token, amount)` | Wallet | Track reward tokens received |
+| `recordAgentVaultShareDeposit(vault, assetsDeposited, sharesReceived)` | Wallet | Record cost basis when depositing to vault |
+| `recordAgentVaultShareWithdraw(vault, sharesSpent, assetsReceived)` | Wallet | Calculate yield/loss and accrue fees |
+| `recordAgentYieldEarned(amount)` | Wallet | Record yield earned in base asset |
+| `recordAgentYieldTokenEarned(token, amount)` | Wallet | Track yield tokens received (fees owed in token) |
+| `recordAgentTokenSwap(swappedToken, swappedAmount, baseAssetReceived)` | Wallet | Convert yield token fees to base asset fees |
 | `recordFeePaid(amount)` | Wallet | Record fee payment from wallet |
 | `getFeesOwed(wallet)` | View | Query outstanding fees owed by wallet |
+| `getAgentVaultPosition(wallet, vault)` | View | Get cost basis and shares for a vault position |
+| `getAgentYieldTokenFeesOwed(wallet, token)` | View | Get fees owed in a specific yield token |
 
 **Features:**
 - Cost-basis tracking for vault positions
 - Loss protection: fees only on net profits
 - Reward token tracking separate from base asset
 - Transparent on-chain accounting
+- Maximum fee rate: 50% (5000 basis points)
 
 ---
 
 ### Adapters (`src/adapters/`)
 
-Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. They inherit from `YieldSeekerAdapter` to enforce `baseAsset` constraints.
+Adapters are stateless contracts that execute protocol interactions via DELEGATECALL. They inherit from adapter base classes to enforce security constraints and provide common functionality.
+
+#### Base Classes
+
+**YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
+Abstract base class for all adapters providing:
+- `onlyDelegateCall` modifier to prevent direct calls
+- Helper functions: `_agentWallet()`, `_baseAsset()`, `_feeTracker()`
+- Base asset validation: `_requireBaseAsset(address)`
+
+**YieldSeekerVaultAdapter (`src/adapters/VaultAdapter.sol`)**
+Abstract base class for vault-type adapters extending `YieldSeekerAdapter` with:
+- Standard vault interface: `deposit()`, `depositPercentage()`, `withdraw()`
+- Consistent fee tracking integration
+- Event emission for vault operations
+
+#### Concrete Adapters
 
 #### ERC4626Adapter (`src/adapters/ERC4626Adapter.sol`)
 
@@ -399,7 +433,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 - `withdraw(vault, shareAmount)` - Withdraw shares from vault
 
 **Validation:**
-- Enforces that the vault's underlying asset matches the wallet's `baseAsset`.
+- Enforces that the vault's underlying asset matches the wallet's `baseAsset`
 - Calls FeeTracker to record deposits/withdrawals for fee calculation
 
 #### ZeroXAdapter (`src/adapters/ZeroXAdapter.sol`)
@@ -410,9 +444,9 @@ For 0x API v2 swaps.
 - `swap(sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value)` - Execute 0x swap
 
 **Validation:**
-- Enforces that either the `sellToken` or `buyToken` is the wallet's `baseAsset`.
-- Validates the 0x `allowanceTarget`.
-- Prevents ETH swaps that bypass base asset validation
+- Enforces that the `buyToken` must be the wallet's `baseAsset` (ensures swaps always result in base asset)
+- Validates the 0x `allowanceTarget`
+- Prevents ETH value parameter manipulation for security
 
 #### MerklAdapter (`src/adapters/MerklAdapter.sol`)
 
@@ -473,11 +507,11 @@ For claiming protocol rewards via Merkl distributor.
 
 | Action | Role Required | Timing | Description |
 |--------|---------------|--------|-------------|
-| `registerAdapter()` | `REGISTRY_ADMIN_ROLE` | Normal | Register a new adapter |
+| `registerAdapter()` | `DEFAULT_ADMIN_ROLE` | Normal | Register a new adapter |
 | `unregisterAdapter()` | `EMERGENCY_ROLE` | Instant | Remove adapter immediately |
-| `setTargetAdapter()` | `REGISTRY_ADMIN_ROLE` | Normal | Map target → adapter |
+| `setTargetAdapter()` | `DEFAULT_ADMIN_ROLE` | Normal | Map target → adapter |
 | `removeTarget()` | `EMERGENCY_ROLE` | Instant | Remove target mapping immediately |
-| `pause()` / `unpause()` | `EMERGENCY_ROLE` / `REGISTRY_ADMIN_ROLE` | Instant | Emergency pause/unpause |
+| `pause()` / `unpause()` | `EMERGENCY_ROLE` / `DEFAULT_ADMIN_ROLE` | Instant | Emergency pause/unpause |
 | `getTargetAdapter()` | Anyone (view) | N/A | Check target and return its adapter |
 
 ---
@@ -520,7 +554,7 @@ For claiming protocol rewards via Merkl distributor.
 
 ---
 
-#### Platform Admin (REGISTRY_ADMIN_ROLE)
+#### Platform Admin (DEFAULT_ADMIN_ROLE)
 ✅ **CAN:**
 - Register new adapters
 - Register new targets (vaults, pools)
@@ -878,6 +912,89 @@ wallet.syncFromFactory();
 2. Alert all wallet owners to sync their wallets
 3. If urgent: Pause AdapterRegistry to immediately stop all operations
 4. Once wallets synced: Unpause registry to resume operations
+
+---
+
+## Design Decisions
+
+### Centralized Error Library
+All errors are defined in `YieldSeekerErrors.sol` to:
+- Reduce code duplication across contracts
+- Ensure consistent error messages
+- Simplify error handling and testing
+- Enable easy error classification (validation, authorization, state, etc.)
+
+### EnumerableMap vs Simple Mapping Tradeoff
+The `AdapterRegistry` uses OpenZeppelin's `EnumerableMap` for target→adapter mappings to enable the `getAllTargets()` admin function. This adds ~2000 gas overhead per lookup compared to a simple mapping, but provides essential enumeration capability for admin dashboards.
+
+### UUPS over Transparent Proxy
+Wallets use UUPS (Universal Upgradeable Proxy Standard) because:
+- **User Sovereignty**: Only wallet owners can trigger upgrades (not admins)
+- **Gas Efficiency**: Upgrade logic in implementation reduces proxy overhead
+- **Factory Restriction**: Upgrades limited to factory-approved implementations only
+- **ERC-4337 Compatibility**: Simpler proxy pattern works better with account abstraction
+
+### ERC-7201 Namespaced Storage
+Implementation contracts use ERC-7201 namespaced storage to:
+- Prevent storage collisions during upgrades
+- Enable safe addition of new storage variables
+- Support multiple inheritance patterns
+- Follow OpenZeppelin v5 best practices
+
+### Caching vs Real-time Lookups
+Wallets cache `agentOperators` and `adapterRegistry` references locally because:
+- **ERC-4337 Gas Limits**: External calls during validation would exceed ~50k gas limit
+- **Cost Efficiency**: Saves ~8k gas per operation (local SLOAD vs external CALL)
+- **User Experience**: Enables sponsored transactions and lower fees
+- **Trade-off**: Requires manual `syncFromFactory()` calls after config changes
+
+### Adapter Base Classes
+The inheritance hierarchy provides:
+- `YieldSeekerAdapter`: Base class with `onlyDelegateCall` protection and helper functions
+- `YieldSeekerVaultAdapter`: Abstract vault adapter with standard deposit/withdraw interface
+- Concrete adapters: Protocol-specific implementations
+
+This enables:
+- Code reuse across similar protocols
+- Standardized interfaces for rebalancing logic
+- Consistent fee tracking patterns
+
+---
+
+## Gas Considerations
+
+### Transaction Overhead
+Each `executeViaAdapter()` call has approximately **5,300 gas overhead** compared to direct protocol interaction:
+
+| Component | Estimated Gas | Description |
+|-----------|--------------|-------------|
+| UUPS proxy delegatecall | ~2,000 | Inherent to upgradeable pattern |
+| Authorization checks | ~400 | `onlyExecutors` modifier validation |
+| Blocklist validation | ~400 | User sovereignty checks (2 SLOAD) |
+| Registry lookup | ~2,600 | Cross-contract call + EnumerableMap lookup |
+| ABI encoding/decoding | ~200 | Parameter marshalling |
+| **Total** | **~5,300** | **Per operation** |
+
+### Gas Optimization Strategies
+
+**Batch Operations:**
+- `executeViaAdapterBatch()` amortizes fixed costs across multiple operations
+- Example: 2x operations cost ~11,500 gas total vs 10,600 gas for 2 separate transactions
+- Savings increase with batch size
+
+**Caching:**
+- Local storage of operators and registry references saves ~8k gas per operation
+- Trade-off: Requires `syncFromFactory()` after configuration changes
+
+**EnumerableMap Trade-off:**
+- Adds ~2k gas per lookup vs simple mapping
+- Necessary for admin `getAllTargets()` function
+- Future optimization: Could add simple mapping for hot path if needed
+
+**User Operations:**
+- ERC-4337 enables gas sponsorship by platform
+- Signature validation optimized for both owner and operator signatures
+- Paymaster integration reduces user friction
 
 ---
 

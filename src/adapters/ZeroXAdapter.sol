@@ -14,13 +14,8 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
 
     event Swapped(address indexed wallet, address indexed target, address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount);
 
-    error InvalidAllowanceTarget();
-    error SwapFailed(bytes reason);
-    error InsufficientOutput(uint256 received, uint256 minExpected);
-    error InsufficientEth(uint256 have, uint256 need);
-
     constructor(address allowanceTarget_) {
-        if (allowanceTarget_ == address(0)) revert InvalidAllowanceTarget();
+        if (allowanceTarget_ == address(0)) revert YieldSeekerErrors.InvalidAllowanceTarget();
         ALLOWANCE_TARGET = allowanceTarget_;
     }
 
@@ -42,8 +37,16 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
 
     /**
      * @notice Swap tokens via 0x (public interface, should not be called directly)
+     * @param sellToken The token to sell (use NATIVE_TOKEN for ETH)
+     * @param buyToken The token to buy (must be base asset)
+     * @param sellAmount The amount of sellToken to swap
+     * @param minBuyAmount Minimum acceptable buyToken amount (slippage protection)
+     * @param swapCallData The 0x API swap calldata
+     * @param value ETH value (ignored for security, sellAmount used instead)
+     * @return buyAmount The amount of buyToken received
+     * @dev This is a placeholder - actual execution happens via execute() -> _swapInternal()
      */
-    function swap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256 buyAmount) {
+    function swap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256) {
         revert YieldSeekerErrors.DirectCallForbidden();
     }
 
@@ -60,7 +63,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
         uint256 ethToSend;
         if (sellToken == NATIVE_TOKEN) {
             ethToSend = sellAmount;
-            if (address(this).balance < sellAmount) revert InsufficientEth(address(this).balance, sellAmount);
+            if (address(this).balance < sellAmount) revert YieldSeekerErrors.InsufficientEth(address(this).balance, sellAmount);
         } else {
             ethToSend = 0;
             IERC20(sellToken).forceApprove(ALLOWANCE_TARGET, sellAmount);
@@ -68,12 +71,12 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
         uint256 buyBalanceBefore = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
         uint256 sellBalanceBefore = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
         (bool success, bytes memory reason) = target.call{value: ethToSend}(swapCallData);
-        if (!success) revert SwapFailed(reason);
+        if (!success) revert YieldSeekerErrors.SwapFailed(reason);
         uint256 buyBalanceAfter = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
         uint256 sellBalanceAfter = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
         uint256 actualSellAmount = sellBalanceBefore - sellBalanceAfter;
         buyAmount = buyBalanceAfter - buyBalanceBefore;
-        if (buyAmount < minBuyAmount) revert InsufficientOutput(buyAmount, minBuyAmount);
+        if (buyAmount < minBuyAmount) revert YieldSeekerErrors.InsufficientOutput(buyAmount, minBuyAmount);
         _feeTracker().recordAgentTokenSwap(sellToken, actualSellAmount, buyAmount);
         emit Swapped(address(this), target, sellToken, buyToken, actualSellAmount, buyAmount);
     }

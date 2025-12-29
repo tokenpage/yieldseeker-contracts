@@ -46,7 +46,7 @@ contract FeeTrackerTest is Test {
 
     function test_SetFeeConfig_RevertsOnExcessiveRate() public {
         vm.prank(admin);
-        vm.expectRevert(FeeTracker.InvalidFeeRate.selector);
+        vm.expectRevert(YieldSeekerErrors.InvalidFeeRate.selector);
         tracker.setFeeConfig(5001, feeCollector);
     }
 

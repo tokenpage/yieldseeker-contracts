@@ -27,6 +27,8 @@ contract YieldSeekerAgentWalletProxy is ERC1967Proxy {
  */
 contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
+    uint256 public constant MAX_OPERATORS = 10;
+
     AgentWallet public agentWalletImplementation;
     AdapterRegistry public adapterRegistry;
     FeeTracker public feeTracker;
@@ -39,12 +41,6 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
-    error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
-    error NoAgentWalletImplementationSet();
-    error NoAdapterRegistrySet();
-    error InvalidImplementationFactory();
-    error TooManyOperators();
-
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
     constructor(address admin, address agentOperator) {
@@ -54,6 +50,10 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
         _grantRole(AGENT_OPERATOR_ROLE, agentOperator);
     }
 
+    /**
+     * @notice List all addresses with the AGENT_OPERATOR_ROLE
+     * @return Array of operator addresses
+     */
     function listAgentOperators() external view returns (address[] memory) {
         uint256 count = getRoleMemberCount(AGENT_OPERATOR_ROLE);
         address[] memory operators = new address[](count);
@@ -67,8 +67,8 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
      * @dev Internal override to enforce the operator limit
      */
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
-        if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= 10) {
-            revert TooManyOperators();
+        if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= MAX_OPERATORS) {
+            revert YieldSeekerErrors.TooManyOperators();
         }
         return super._grantRole(role, account);
     }
@@ -80,7 +80,7 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAgentWalletImplementation) == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (address(newAgentWalletImplementation).code.length == 0) revert YieldSeekerErrors.NotAContract(address(newAgentWalletImplementation));
-        if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert InvalidImplementationFactory();
+        if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert YieldSeekerErrors.InvalidImplementationFactory();
         agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
     }
@@ -120,9 +120,9 @@ contract YieldSeekerAgentWalletFactory is AccessControlEnumerable {
         if (owner == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(baseAsset);
-        if (address(agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
-        if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
-        if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
+        if (address(agentWalletImplementation) == address(0)) revert YieldSeekerErrors.NoAgentWalletImplementationSet();
+        if (address(adapterRegistry) == address(0)) revert YieldSeekerErrors.NoAdapterRegistrySet();
+        if (userWallets[owner][ownerAgentIndex] != address(0)) revert YieldSeekerErrors.AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new YieldSeekerAgentWalletProxy{salt: salt}()));
         ret.initialize(owner, ownerAgentIndex, baseAsset);

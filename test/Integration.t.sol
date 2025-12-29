@@ -293,7 +293,7 @@ contract IntegrationTest is Test {
 
         // Try to upgrade to it (NOT registered in factory)
         vm.prank(user);
-        vm.expectRevert(AgentWallet.NotApprovedImplementation.selector);
+        vm.expectRevert(YieldSeekerErrors.NotApprovedImplementation.selector);
         wallet.upgradeToAndCall(address(maliciousImpl), "");
     }
 

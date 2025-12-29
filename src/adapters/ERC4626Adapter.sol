@@ -16,6 +16,12 @@ interface IERC4626 {
     function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
 }
 
+/**
+ * @title YieldSeekerERC4626Adapter
+ * @notice Adapter for interacting with ERC4626 tokenized vaults
+ * @dev Handles deposits and withdrawals for standard ERC4626 vaults.
+ *      Records position changes with FeeTracker for yield fee calculation.
+ */
 contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
     using SafeERC20 for IERC20;
 
@@ -52,8 +58,8 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         IERC20(asset).forceApprove(vault, amount);
-        shares = IERC4626(vault).deposit(amount, address(this));
-        _feeTracker().recordAgentVaultShareDeposit(vault, amount, shares);
+        shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
         emit Deposited(address(this), vault, amount, shares);
     }
 
@@ -65,8 +71,8 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
         if (shares == 0) revert YieldSeekerErrors.ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-        assets = IERC4626(vault).redeem(shares, address(this), address(this));
-        _feeTracker().recordAgentVaultShareWithdraw(vault, shares, assets);
+        assets = IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
+        _feeTracker().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
         emit Withdrawn(address(this), vault, shares, assets);
     }
 }

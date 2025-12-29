@@ -42,7 +42,7 @@ contract RegistrySyncTest is Test {
         factory.setFeeTracker(tracker);
 
         vm.prank(operator);
-        vm.expectRevert(YieldSeekerAgentWalletFactory.NoAdapterRegistrySet.selector);
+        vm.expectRevert(YieldSeekerErrors.NoAdapterRegistrySet.selector);
         factory.createAgentWallet(owner, 1, address(usdc));
     }
 
@@ -106,7 +106,7 @@ contract RegistrySyncTest is Test {
         }
         // Now we have 10 operators. The 11th should revert.
         bytes32 role = factory.AGENT_OPERATOR_ROLE();
-        vm.expectRevert(YieldSeekerAgentWalletFactory.TooManyOperators.selector);
+        vm.expectRevert(YieldSeekerErrors.TooManyOperators.selector);
         factory.grantRole(role, address(0x999));
         vm.stopPrank();
     }

@@ -74,12 +74,7 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     event AdapterUnblocked(address indexed adapter);
     event TargetBlocked(address indexed target);
     event TargetUnblocked(address indexed target);
-
-    error AdapterExecutionFailed(bytes reason);
-    error TransferFailed();
-    error NotApprovedImplementation();
-    error InvalidRegistry();
-    error InvalidFeeTracker();
+    event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
 
     modifier onlyOwner() {
         if (msg.sender != owner()) revert YieldSeekerErrors.Unauthorized(msg.sender);
@@ -265,18 +260,21 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
         }
 
         AdapterRegistry newRegistry = FACTORY.adapterRegistry();
-        if (address(newRegistry) == address(0)) revert InvalidRegistry();
-        if (address(newRegistry).code.length == 0) revert InvalidRegistry();
+        if (address(newRegistry) == address(0)) revert YieldSeekerErrors.InvalidRegistry();
+        if (address(newRegistry).code.length == 0) revert YieldSeekerErrors.InvalidRegistry();
         $.adapterRegistry = newRegistry;
 
         FeeTracker newTracker = FACTORY.feeTracker();
-        if (address(newTracker) == address(0)) revert InvalidFeeTracker();
-        if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
+        if (address(newTracker) == address(0)) revert YieldSeekerErrors.InvalidFeeTracker();
+        if (address(newTracker).code.length == 0) revert YieldSeekerErrors.InvalidFeeTracker();
         $.feeTracker = newTracker;
+
+        emit SyncedFromFactory(address(newRegistry), address(newTracker));
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
 
+    /// @inheritdoc BaseAccount
     function entryPoint() public view virtual override returns (IEntryPoint) {
         return ENTRY_POINT;
     }
@@ -339,7 +337,7 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
         bool success;
         (success, result) = adapter.delegatecall(callData);
         if (!success) {
-            revert AdapterExecutionFailed(result);
+            revert YieldSeekerErrors.AdapterExecutionFailed(result);
         }
     }
 
@@ -386,7 +384,7 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         address approvedImplementation = FACTORY.agentWalletImplementation();
         if (newImplementation != approvedImplementation) {
-            revert NotApprovedImplementation();
+            revert YieldSeekerErrors.NotApprovedImplementation();
         }
     }
 
@@ -476,7 +474,7 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     function _withdrawEth(address recipient, uint256 amount) internal {
         if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
         (bool success,) = recipient.call{value: amount}("");
-        if (!success) revert TransferFailed();
+        if (!success) revert YieldSeekerErrors.TransferFailed();
         emit WithdrewEthToUser(owner(), recipient, amount);
     }
 }
