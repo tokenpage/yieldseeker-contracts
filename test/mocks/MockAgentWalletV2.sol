@@ -18,8 +18,7 @@ contract MockAgentWalletV2 is YieldSeekerAgentWalletV1 {
     }
 
     // keccak256(abi.encode(uint256(keccak256("yieldseeker.storage.AgentWalletV2")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant AGENT_WALLET_V2_STORAGE_LOCATION =
-        0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd00;
+    bytes32 private constant AGENT_WALLET_V2_STORAGE_LOCATION = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd00;
 
     event V2FunctionCalled(address indexed caller, string message);
     event V2CounterIncremented(uint256 oldValue, uint256 newValue);

@@ -15,10 +15,10 @@ import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ER
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
 
 // Test utilities
+import {MockAgentWalletV2} from "../mocks/MockAgentWalletV2.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
-import {MockAgentWalletV2} from "../mocks/MockAgentWalletV2.sol";
 
 // Mock Merkl Distributor for testing reward claims
 contract MockMerklDistributor {
@@ -1398,8 +1398,7 @@ contract AgentWalletIntegrationTest is Test {
         assertEq(vault.balanceOf(walletAddr), sharesAfterDeposit, "Vault shares should be preserved");
 
         // Verify position tracking is preserved
-        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) =
-            feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(costBasisAfterUpgrade, costBasis, "Cost basis should be preserved");
         assertEq(trackedSharesAfterUpgrade, trackedShares, "Tracked shares should be preserved");
 
@@ -1439,12 +1438,7 @@ contract AgentWalletIntegrationTest is Test {
         console.log("User received (delta):", usdc.balanceOf(user) - userBalanceBefore);
 
         // Verify user got the right amount (principal + profit - fees)
-        assertApproxEqAbs(
-            usdc.balanceOf(user) - userBalanceBefore,
-            1090e6,
-            100,
-            "User should receive ~1090 USDC (1100 - 10 fees)"
-        );
+        assertApproxEqAbs(usdc.balanceOf(user) - userBalanceBefore, 1090e6, 100, "User should receive ~1090 USDC (1100 - 10 fees)");
 
         // Verify fees remain in wallet
         assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have ~10 USDC fees remaining");
