@@ -105,6 +105,18 @@ library YieldSeekerErrors {
     /// @notice Thrown when trying to add too many operators
     error TooManyOperators();
 
+    /// @notice Thrown when a wallet already exists for the same owner/index
+    error WalletAlreadyExists();
+
+    /// @notice Thrown when an invalid agent index is provided (zero or negative)
+    error InvalidAgentIndex();
+
+    /// @notice Thrown when an invalid asset is provided (not a contract)
+    error InvalidAsset();
+
+    /// @notice Thrown when the contract is paused
+    error ContractPaused();
+
     // ============ Fee Errors ============
 
     /// @notice Thrown when an invalid fee rate is provided
