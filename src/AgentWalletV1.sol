@@ -102,8 +102,11 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
 
     // ============ Initializers ============
 
-    // TODO(krishan711): this might need to be called something else if we actually do an upgrade
     function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) public virtual initializer {
+        _initializeV1(_owner, _ownerAgentIndex, _baseAsset);
+    }
+
+    function _initializeV1(address _owner, uint256 _ownerAgentIndex, address _baseAsset) internal {
         if (_owner == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (_baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
         if (_baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(_baseAsset);

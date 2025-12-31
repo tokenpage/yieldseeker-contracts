@@ -18,6 +18,7 @@ import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklA
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
+import {MockAgentWalletV2} from "../mocks/MockAgentWalletV2.sol";
 
 // Mock Merkl Distributor for testing reward claims
 contract MockMerklDistributor {
@@ -1284,5 +1285,306 @@ contract AgentWalletIntegrationTest is Test {
         vm.prank(user);
         vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(user, address(0), 100e6);
+    }
+
+    function test_UpgradeWallet_WithActivePosition_FeesTrackedCorrectly() public {
+        // Step 1: Create V1 wallet
+        address walletAddr = factory.getAddress(user, AGENT_INDEX);
+        vm.prank(operator);
+        AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc))));
+
+        console.log("\n=== Step 1: Created V1 wallet ===");
+        console.log("Wallet address:", walletAddr);
+
+        // Step 2: Fund wallet and deposit into vault
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+        usdc.mint(user, 1000e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 1000e6);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        uint256 sharesAfterDeposit = vault.balanceOf(walletAddr);
+        assertEq(sharesAfterDeposit, 1000e6, "Should have 1000 vault shares");
+
+        console.log("\n=== Step 2: Deposited 1000 USDC to vault ===");
+        console.log("Vault shares:", sharesAfterDeposit);
+
+        // Verify position is tracked
+        (uint256 costBasis, uint256 trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasis, 1000e6, "Cost basis should be 1000 USDC");
+        assertEq(trackedShares, 1000e6, "Tracked shares should be 1000");
+
+        // Step 3: Generate yield (10% profit = 100 USDC)
+        usdc.mint(address(vault), 100e6);
+
+        console.log("\n=== Step 3: Generated 100 USDC yield (10% profit) ===");
+
+        // Step 4: Deploy V2 implementation
+        MockAgentWalletV2 v2Implementation = new MockAgentWalletV2(address(factory));
+
+        // Update factory to use V2
+        vm.prank(admin);
+        factory.setAgentWalletImplementation(v2Implementation);
+
+        console.log("\n=== Step 4: Deployed V2 implementation ===");
+        console.log("V2 implementation:", address(v2Implementation));
+
+        // Step 5: Upgrade wallet to V2 (no initialization needed!)
+        vm.prank(user);
+        wallet.upgradeToAndCall(address(v2Implementation), "");
+
+        // Cast to V2 to access new functions
+        MockAgentWalletV2 walletV2 = MockAgentWalletV2(payable(walletAddr));
+
+        console.log("\n=== Step 5: Upgraded wallet to V2 (no initialization required) ===");
+
+        // Verify V2 state starts at zero values
+        (uint256 v2Counter, string memory v2Message, address v2CustomAddress) = walletV2.getV2State();
+
+        assertEq(v2Counter, 0, "V2 counter should start at 0");
+        assertEq(bytes(v2Message).length, 0, "V2 message should be empty");
+        assertEq(v2CustomAddress, address(0), "V2 custom address should be zero");
+
+        console.log("V2 state (zero-initialized):");
+        console.log("  - Counter:", v2Counter);
+        console.log("  - Message: (empty)");
+        console.log("  - Custom address:", v2CustomAddress);
+
+        // Verify upgrade worked - call V2-only function (works immediately!)
+        vm.expectEmit(true, true, false, true);
+        emit MockAgentWalletV2.V2FunctionCalled(user, "Hello from V2!");
+        vm.prank(user);
+        walletV2.v2OnlyFunction("Hello from V2!");
+
+        assertEq(walletV2.version(), 2, "Should report version 2");
+
+        // Test incrementing the counter (starts at 0, goes to 1)
+        vm.expectEmit(true, false, false, true);
+        emit MockAgentWalletV2.V2CounterIncremented(0, 1);
+        vm.prank(user);
+        walletV2.incrementV2Counter();
+
+        // Optionally configure V2 state
+        vm.expectEmit(true, false, false, true);
+        emit MockAgentWalletV2.V2MessageSet("", "Configured message");
+        vm.prank(user);
+        walletV2.setV2Message("Configured message");
+
+        address customAddr = address(0xC0FFEE);
+        vm.expectEmit(true, false, false, true);
+        emit MockAgentWalletV2.V2CustomAddressSet(address(0), customAddr);
+        vm.prank(user);
+        walletV2.setV2CustomAddress(customAddr);
+
+        (uint256 newCounter, string memory newMessage, address newAddr) = walletV2.getV2State();
+        assertEq(newCounter, 1, "Counter should be incremented to 1");
+        assertEq(newMessage, "Configured message", "Message should be set");
+        assertEq(newAddr, customAddr, "Custom address should be set");
+
+        console.log("V2 functions work! Version:", walletV2.version());
+        console.log("Counter incremented to:", newCounter);
+        console.log("Message set to:", newMessage);
+        console.log("Custom address set to:", newAddr);
+
+        // Step 6: Verify V1 storage is preserved
+        assertEq(address(walletV2.baseAsset()), address(usdc), "Base asset should be preserved");
+        assertEq(walletV2.owner(), user, "Owner should be preserved");
+        assertEq(walletV2.ownerAgentIndex(), AGENT_INDEX, "Agent index should be preserved");
+
+        // Verify vault shares are still there
+        assertEq(vault.balanceOf(walletAddr), sharesAfterDeposit, "Vault shares should be preserved");
+
+        // Verify position tracking is preserved
+        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) =
+            feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasisAfterUpgrade, costBasis, "Cost basis should be preserved");
+        assertEq(trackedSharesAfterUpgrade, trackedShares, "Tracked shares should be preserved");
+
+        console.log("\n=== Step 6: Verified storage preservation ===");
+        console.log("Cost basis preserved:", costBasisAfterUpgrade);
+        console.log("Tracked shares preserved:", trackedSharesAfterUpgrade);
+
+        // Step 7: Withdraw from vault using V2 wallet
+        uint256 sharesToWithdraw = vault.balanceOf(walletAddr);
+        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (sharesToWithdraw));
+
+        vm.prank(user);
+        walletV2.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
+
+        console.log("\n=== Step 7: Withdrew all shares from vault ===");
+
+        // Step 8: Verify fees are correctly calculated (10% of 100 USDC profit = 10 USDC)
+        uint256 feesOwed = feeTracker.getFeesOwed(walletAddr);
+        assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees (10% of 100 profit)");
+
+        uint256 finalUsdcBalance = usdc.balanceOf(walletAddr);
+        assertApproxEqAbs(finalUsdcBalance, 1100e6, 100, "Should have ~1100 USDC (1000 + 100 profit)");
+
+        console.log("\n=== Step 8: Verified fee calculation ===");
+        console.log("Fees owed:", feesOwed);
+        console.log("Final USDC balance:", finalUsdcBalance);
+        console.log("Expected: 1100 USDC (1000 principal + 100 profit)");
+
+        // Step 9: Withdraw USDC to user (respecting fees)
+        uint256 withdrawable = finalUsdcBalance - feesOwed;
+
+        vm.prank(user);
+        walletV2.withdrawAssetToUser(user, address(usdc), withdrawable);
+
+        console.log("\n=== Step 9: Withdrew USDC to user ===");
+        console.log("Withdrawable amount:", withdrawable);
+        console.log("User received (delta):", usdc.balanceOf(user) - userBalanceBefore);
+
+        // Verify user got the right amount (principal + profit - fees)
+        assertApproxEqAbs(
+            usdc.balanceOf(user) - userBalanceBefore,
+            1090e6,
+            100,
+            "User should receive ~1090 USDC (1100 - 10 fees)"
+        );
+
+        // Verify fees remain in wallet
+        assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have ~10 USDC fees remaining");
+
+        console.log("\n=== Test Complete ===");
+        console.log("* Wallet upgraded from V1 to V2");
+        console.log("* V2 state zero-initialized automatically (no manual step!)");
+        console.log("* V2 functions work immediately after upgrade");
+        console.log("* V2 state can be optionally configured via setters");
+        console.log("* V1 storage preserved across upgrade");
+        console.log("* Vault operations work after upgrade");
+        console.log("* Fees tracked correctly across upgrade");
+        console.log("* User withdrawals respect fees");
+    }
+
+    function test_CreateFreshV2Wallet_InitializesCorrectly() public {
+        // Step 1: Deploy V2 implementation
+        MockAgentWalletV2 v2Implementation = new MockAgentWalletV2(address(factory));
+
+        console.log("\n=== Step 1: Deployed V2 implementation ===");
+        console.log("V2 implementation:", address(v2Implementation));
+
+        // Step 2: Update factory to use V2 as default implementation
+        vm.prank(admin);
+        factory.setAgentWalletImplementation(v2Implementation);
+
+        console.log("\n=== Step 2: Set V2 as factory's default implementation ===");
+
+        // Step 3: Create a new wallet (should be V2 from the start)
+        uint256 newAgentIndex = 99;
+        address user2 = makeAddr("user2");
+        address walletAddr = factory.getAddress(user2, newAgentIndex);
+
+        vm.prank(operator);
+        address createdWallet = address(factory.createAgentWallet(user2, newAgentIndex, address(usdc)));
+
+        assertEq(createdWallet, walletAddr, "Created wallet should match computed address");
+
+        // Cast to V2
+        MockAgentWalletV2 walletV2 = MockAgentWalletV2(payable(walletAddr));
+
+        console.log("\n=== Step 3: Created fresh V2 wallet ===");
+        console.log("Wallet address:", walletAddr);
+        console.log("Version:", walletV2.version());
+
+        // Step 4: Verify V1 state is properly initialized
+        assertEq(walletV2.version(), 2, "Should be V2 wallet");
+        assertEq(walletV2.owner(), user2, "Owner should be set to user2");
+        assertEq(walletV2.ownerAgentIndex(), newAgentIndex, "Agent index should be set");
+        assertEq(address(walletV2.baseAsset()), address(usdc), "Base asset should be USDC");
+
+        console.log("\n=== Step 4: Verified V1 state initialization ===");
+        console.log("Owner:", walletV2.owner());
+        console.log("Agent index:", walletV2.ownerAgentIndex());
+        console.log("Base asset:", address(walletV2.baseAsset()));
+
+        // Step 5: V2 state is zero-initialized (works immediately!)
+        (uint256 v2Counter, string memory v2Message, address v2CustomAddress) = walletV2.getV2State();
+        assertEq(v2Counter, 0, "V2 counter should start at 0");
+        assertEq(bytes(v2Message).length, 0, "V2 message should be empty");
+        assertEq(v2CustomAddress, address(0), "V2 custom address should be zero");
+
+        // V2 functions work immediately - no manual initialization needed!
+        vm.prank(user2);
+        walletV2.v2OnlyFunction("Works immediately!");
+
+        console.log("\n=== Step 5: V2 state zero-initialized and ready ===");
+        console.log("V2 counter:", v2Counter);
+        console.log("V2 message: (empty)");
+        console.log("V2 custom address:", v2CustomAddress);
+
+        // Step 6: Optionally configure V2 state
+        vm.prank(user2);
+        walletV2.setV2Message("Fresh V2 Wallet");
+
+        address customAddr = address(0xBEEF);
+        vm.prank(user2);
+        walletV2.setV2CustomAddress(customAddr);
+
+        console.log("\n=== Step 6: Configured V2 state (optional) ===");
+
+        // Step 7: Verify V2 state is configured
+        (uint256 counter, string memory message, address customAddress) = walletV2.getV2State();
+
+        assertEq(counter, 0, "Counter should still be 0");
+        assertEq(message, "Fresh V2 Wallet", "Message should be set");
+        assertEq(customAddress, customAddr, "Custom address should be set");
+
+        console.log("V2 state:");
+        console.log("  - Counter:", counter);
+        console.log("  - Message:", message);
+        console.log("  - Custom address:", customAddress);
+
+        // Step 8: Test V2 functions
+        vm.expectEmit(true, true, false, true);
+        emit MockAgentWalletV2.V2FunctionCalled(user2, "V2 works!");
+        vm.prank(user2);
+        walletV2.v2OnlyFunction("V2 works!");
+
+        // Increment counter
+        vm.expectEmit(true, false, false, true);
+        emit MockAgentWalletV2.V2CounterIncremented(0, 1);
+        vm.prank(user2);
+        walletV2.incrementV2Counter();
+
+        (uint256 newCounter,,) = walletV2.getV2State();
+        assertEq(newCounter, 1, "Counter should be incremented to 1");
+
+        console.log("\n=== Step 8: Verified V2 functions work ===");
+        console.log("Counter after increment:", newCounter);
+
+        // Step 9: Verify V1 functionality still works (deposit to vault)
+        usdc.mint(user2, 500e6);
+        vm.prank(user2);
+        usdc.transfer(walletAddr, 500e6);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
+        vm.prank(user2);
+        walletV2.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        uint256 vaultShares = vault.balanceOf(walletAddr);
+        assertEq(vaultShares, 500e6, "Should have 500 vault shares");
+
+        // Verify fee tracking works
+        (uint256 costBasis, uint256 trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasis, 500e6, "Cost basis should be 500 USDC");
+        assertEq(trackedShares, 500e6, "Tracked shares should be 500");
+
+        console.log("\n=== Step 9: Verified V1 functionality ===");
+        console.log("Vault shares:", vaultShares);
+        console.log("Cost basis:", costBasis);
+        console.log("Tracked shares:", trackedShares);
+
+        console.log("\n=== Test Complete ===");
+        console.log("* Fresh V2 wallet created from factory");
+        console.log("* V1 state initialized automatically");
+        console.log("* V2 state zero-initialized (works immediately!)");
+        console.log("* V2 functions work without manual initialization");
+        console.log("* V2 state can be optionally configured via setters");
+        console.log("* Both V1 and V2 functionality works");
+        console.log("* Fee tracking works correctly");
     }
 }
