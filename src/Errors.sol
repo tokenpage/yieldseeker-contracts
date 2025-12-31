@@ -114,9 +114,6 @@ library YieldSeekerErrors {
     /// @notice Thrown when an invalid asset is provided (not a contract)
     error InvalidAsset();
 
-    /// @notice Thrown when the contract is paused
-    error ContractPaused();
-
     // ============ Fee Errors ============
 
     /// @notice Thrown when an invalid fee rate is provided

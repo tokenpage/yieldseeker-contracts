@@ -585,4 +585,3 @@ contract FeeTrackerTest is Test {
         assertEq(baseFees, 0, "No base fees should be charged");
     }
 }
-

@@ -409,17 +409,63 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     }
 
     /**
+     * @notice User withdraws any ERC20 asset from agent wallet
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     * @param amount Amount to withdraw
+     * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
+     */
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        IERC20 token = IERC20(asset);
+        uint256 balance = token.balanceOf(address(this));
+        // If withdrawing baseAsset, respect fees
+        if (asset == address(baseAsset())) {
+            uint256 feesOwed = feeTracker().getFeesOwed(address(this));
+            uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+            if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
+        } else {
+            // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
+            if (balance < amount) revert YieldSeekerErrors.InsufficientBalance();
+        }
+        _withdrawAsset(recipient, asset, amount);
+    }
+
+    /**
+     * @notice User withdraws all of a specific ERC20 asset from agent wallet
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
+     */
+    function withdrawAllAssetToUser(address recipient, address asset) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        IERC20 token = IERC20(asset);
+        uint256 balance = token.balanceOf(address(this));
+        uint256 amount = balance;
+        // If withdrawing baseAsset, deduct fees from withdrawable amount
+        if (asset == address(baseAsset())) {
+            uint256 feesOwed = feeTracker().getFeesOwed(address(this));
+            amount = balance > feesOwed ? balance - feesOwed : 0;
+        }
+        _withdrawAsset(recipient, asset, amount);
+    }
+
+    /**
      * @notice User withdraws base asset from agent wallet
      * @param recipient Address to send the base asset to
      * @param amount Amount to withdraw
      */
     function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
         if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
-        _withdrawBaseAsset(recipient, amount);
+        _withdrawAsset(recipient, address(asset), amount);
     }
 
     /**
@@ -427,11 +473,24 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
      * @param recipient Address to send the base asset to
      */
     function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-        _withdrawBaseAsset(recipient, withdrawable);
+        _withdrawAsset(recipient, address(asset), withdrawable);
+    }
+
+    /**
+     * @notice Internal function to withdraw asset
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     * @param amount Amount to withdraw
+     */
+    function _withdrawAsset(address recipient, address asset, uint256 amount) internal {
+        IERC20 token = IERC20(asset);
+        token.safeTransfer(recipient, amount);
+        emit WithdrewTokenToUser(owner(), recipient, asset, amount);
     }
 
     /**
@@ -452,18 +511,6 @@ contract YieldSeekerAgentWalletV1 is IAgentWallet, BaseAccount, Initializable, U
     function withdrawAllEthToUser(address recipient) external onlyOwner {
         uint256 balance = address(this).balance;
         _withdrawEth(recipient, balance);
-    }
-
-    /**
-     * @notice Internal function to withdraw base asset
-     * @param recipient Address to send the base asset to
-     * @param amount Amount to withdraw
-     */
-    function _withdrawBaseAsset(address recipient, uint256 amount) internal {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        IERC20 asset = baseAsset();
-        asset.safeTransfer(recipient, amount);
-        emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
     }
 
     /**

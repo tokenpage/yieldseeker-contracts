@@ -10,6 +10,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 contract MockAgentWalletFactory is AccessControl, Pausable {
     // Role constants
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    uint256 public constant MAX_OPERATORS = 10;
 
     // State variables
     address public agentWalletImplementation;
@@ -17,6 +18,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     address public feeTracker;
 
     uint256 private _walletCounter;
+    uint256 private _operatorCount;
     mapping(address => bool) private _walletExists;
     mapping(address => uint256) private _ownerWalletCount;
     mapping(address => address[]) private _ownerWallets;
@@ -157,6 +159,28 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Unpause contract
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    /// @dev Internal override to enforce the operator limit
+    /// @dev Only reverts if we're at the limit AND trying to add a new operator
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        if (role == OPERATOR_ROLE && _operatorCount >= MAX_OPERATORS && !hasRole(role, account)) {
+            revert YieldSeekerErrors.TooManyOperators();
+        }
+        bool granted = super._grantRole(role, account);
+        if (granted && role == OPERATOR_ROLE) {
+            _operatorCount++;
+        }
+        return granted;
+    }
+
+    /// @dev Internal override to track operator count
+    function _revokeRole(bytes32 role, address account) internal override returns (bool) {
+        bool revoked = super._revokeRole(role, account);
+        if (revoked && role == OPERATOR_ROLE) {
+            _operatorCount--;
+        }
+        return revoked;
     }
 
     /// @dev Check if address is contract

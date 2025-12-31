@@ -1153,5 +1153,136 @@ contract AgentWalletIntegrationTest is Test {
         console.log("Final vault shares:", vault.balanceOf(walletAddr));
         console.log("Withdrawal succeeded - user can access all their shares");
     }
-}
 
+    function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
+        // Test that withdrawing baseAsset via withdrawAssetToUser respects fees
+        address walletAddr = factory.getAddress(user, AGENT_INDEX);
+        vm.prank(operator);
+        AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc))));
+
+        // Give wallet 1000 USDC and deposit into vault
+        usdc.mint(user, 1000e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 1000e6);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        // Generate 100 USDC profit
+        usdc.mint(address(vault), 100e6);
+
+        // Withdraw all shares (should have 1100 USDC worth)
+        uint256 shares = vault.balanceOf(walletAddr);
+        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
+
+        // Should have 10 USDC fees (10% of 100 profit)
+        uint256 feesOwed = feeTracker.getFeesOwed(walletAddr);
+        assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
+
+        uint256 usdcBalance = usdc.balanceOf(walletAddr);
+        assertApproxEqAbs(usdcBalance, 1100e6, 100, "Should have ~1100 USDC");
+
+        // Try to withdraw all USDC via withdrawAssetToUser - should respect fees
+        address recipient = makeAddr("recipient");
+        vm.prank(user);
+        vm.expectRevert(YieldSeekerErrors.InsufficientBalance.selector);
+        wallet.withdrawAssetToUser(recipient, address(usdc), usdcBalance); // Should fail
+
+        // Should be able to withdraw withdrawable amount (balance - fees)
+        uint256 withdrawable = usdcBalance - feesOwed;
+        vm.prank(user);
+        wallet.withdrawAssetToUser(recipient, address(usdc), withdrawable);
+
+        assertEq(usdc.balanceOf(recipient), withdrawable, "Recipient should receive withdrawable amount");
+        assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
+    }
+
+    function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
+        // Test that withdrawAllAssetToUser with baseAsset respects fees
+        address walletAddr = factory.getAddress(user, AGENT_INDEX);
+        vm.prank(operator);
+        AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc))));
+
+        // Give wallet 1000 USDC and deposit into vault
+        usdc.mint(user, 1000e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 1000e6);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        // Generate 100 USDC profit
+        usdc.mint(address(vault), 100e6);
+
+        // Withdraw all shares
+        uint256 shares = vault.balanceOf(walletAddr);
+        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
+
+        // Should have 10 USDC fees (10% of 100 profit)
+        uint256 feesOwed = feeTracker.getFeesOwed(walletAddr);
+        assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
+
+        uint256 usdcBalance = usdc.balanceOf(walletAddr);
+        assertApproxEqAbs(usdcBalance, 1100e6, 100, "Should have ~1100 USDC");
+
+        // Withdraw all using withdrawAllAssetToUser - should automatically deduct fees
+        address recipient = makeAddr("recipient2");
+        vm.prank(user);
+        wallet.withdrawAllAssetToUser(recipient, address(usdc));
+
+        uint256 withdrawable = usdcBalance - feesOwed;
+        assertApproxEqAbs(usdc.balanceOf(recipient), withdrawable, 100, "Recipient should receive withdrawable amount");
+        assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
+    }
+
+    function test_WithdrawAssetToUser_NonBaseAsset_AllowsRecovery() public {
+        // Test that withdrawing non-baseAsset tokens allows full recovery (griefing scenario)
+        address walletAddr = factory.getAddress(user, AGENT_INDEX);
+
+        // Create a different token that will be the "wrong" baseAsset
+        MockERC20 wrongToken = new MockERC20("Wrong Token", "WRONG");
+
+        // Operator creates wallet with wrong baseAsset (griefing attack)
+        vm.prank(operator);
+        AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(wrongToken))));
+
+        // User accidentally sends USDC to this wallet (thinking it's their USDC wallet)
+        usdc.mint(user, 1000e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 1000e6);
+
+        // User realizes the wallet has wrong baseAsset and wants to recover USDC
+        // withdrawAssetToUser should allow recovery without charging fees
+        address recipient = makeAddr("recipient");
+        vm.prank(user);
+        wallet.withdrawAssetToUser(recipient, address(usdc), 1000e6);
+
+        assertEq(usdc.balanceOf(recipient), 1000e6, "Should recover all USDC");
+        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no USDC left");
+        assertEq(feeTracker.getFeesOwed(walletAddr), 0, "Should not charge any fees");
+    }
+
+    function test_WithdrawAssetToUser_RevertsOnZeroAddress() public {
+        address walletAddr = factory.getAddress(user, AGENT_INDEX);
+        vm.prank(operator);
+        AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc))));
+
+        usdc.mint(walletAddr, 100e6);
+
+        // Should revert on zero recipient
+        vm.prank(user);
+        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        wallet.withdrawAssetToUser(address(0), address(usdc), 100e6);
+
+        // Should revert on zero asset
+        vm.prank(user);
+        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        wallet.withdrawAssetToUser(user, address(0), 100e6);
+    }
+}

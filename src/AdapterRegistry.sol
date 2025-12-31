@@ -115,7 +115,7 @@ contract YieldSeekerAdapterRegistry is AccessControl, Pausable {
      * @notice Get the adapter for a target contract
      * @param target The target contract address
      * @return The adapter address, or address(0) if not registered or adapter is unregistered
-     * @dev Returns address(0) when paused (via whenNotPaused modifier)
+     * @dev Reverts when paused (via whenNotPaused modifier) to ensure clear failure when registry is disabled
      */
     function getTargetAdapter(address target) external view whenNotPaused returns (address) {
         (bool exists, address adapter) = _targetToAdapter.tryGet(target);

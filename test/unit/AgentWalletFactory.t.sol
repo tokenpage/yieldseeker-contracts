@@ -544,4 +544,29 @@ contract AgentWalletFactoryTest is Test {
         vm.prank(operator);
         factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
+
+    function test_GrantOperatorRole_RegrantAtLimit_Succeeds() public {
+        // Grant MAX_OPERATORS (10) operators
+        address[] memory operators = new address[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            operators[i] = makeAddr(string(abi.encodePacked("operator", i)));
+            vm.prank(admin);
+            factory.grantRole(OPERATOR_ROLE, operators[i]);
+            assertTrue(factory.hasRole(OPERATOR_ROLE, operators[i]));
+        }
+
+        // Re-granting to an existing operator should succeed (no-op)
+        // This should NOT revert even though we're at MAX_OPERATORS
+        vm.prank(admin);
+        factory.grantRole(OPERATOR_ROLE, operators[0]);
+
+        // Verify the operator still has the role
+        assertTrue(factory.hasRole(OPERATOR_ROLE, operators[0]));
+
+        // Trying to add a NEW operator should still revert
+        address newOperatorAtLimit = makeAddr("newOperatorAtLimit");
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.TooManyOperators.selector));
+        factory.grantRole(OPERATOR_ROLE, newOperatorAtLimit);
+    }
 }

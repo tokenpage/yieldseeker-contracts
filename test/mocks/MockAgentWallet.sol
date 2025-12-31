@@ -12,6 +12,7 @@ interface IAdapterRegistry {
 
 interface IFeeTracker {
     function getReferralDiscount(address user) external view returns (uint256);
+    function getFeesOwed(address agent) external view returns (uint256);
 }
 
 /// @title MockAgentWallet
@@ -132,7 +133,52 @@ contract MockAgentWallet {
         return _blockedTargets[target];
     }
 
-    /// @dev Withdraw tokens to user
+    /// @dev Withdraw specific asset to user
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+
+        IERC20 token = IERC20(asset);
+        uint256 balance = token.balanceOf(address(this));
+
+        // If withdrawing baseAsset, respect fees
+        if (asset == baseAsset) {
+            uint256 feesOwed = feeTracker.getFeesOwed(address(this));
+            uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+            if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
+        } else {
+            // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
+            if (balance < amount) revert YieldSeekerErrors.InsufficientBalance();
+        }
+
+        if (amount > 0) {
+            require(token.transfer(recipient, amount), "Transfer failed");
+        }
+        emit WithdrewTokenToUser(owner, recipient, asset, amount);
+    }
+
+    /// @dev Withdraw all of a specific asset to user
+    function withdrawAllAssetToUser(address recipient, address asset) external onlyOwner {
+        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+
+        IERC20 token = IERC20(asset);
+        uint256 balance = token.balanceOf(address(this));
+        uint256 amount = balance;
+
+        // If withdrawing baseAsset, deduct fees from withdrawable amount
+        if (asset == baseAsset) {
+            uint256 feesOwed = feeTracker.getFeesOwed(address(this));
+            amount = balance > feesOwed ? balance - feesOwed : 0;
+        }
+
+        if (amount > 0) {
+            require(token.transfer(recipient, amount), "Transfer failed");
+        }
+        emit WithdrewTokenToUser(owner, recipient, asset, amount);
+    }
+
+    /// @dev Withdraw tokens to user (legacy - uses baseAsset)
     function withdrawTokenToUser(address recipient, uint256 amount) external onlyOwner {
         IERC20 token = IERC20(baseAsset);
         if (token.balanceOf(address(this)) < amount) {

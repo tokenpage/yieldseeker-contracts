@@ -529,6 +529,147 @@ contract AgentWalletV1Test is Test {
         wallet.withdrawEthToUser(recipient, amount);
     }
 
+    // ============ New Asset Withdrawal Tests ============
+
+    function test_WithdrawAssetToUser_BaseAsset_ValidAmount() public {
+        uint256 amount = 1000e6;
+        mockAsset.mint(address(wallet), amount);
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrewTokenToUser(owner, recipient, address(mockAsset), amount);
+
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(recipient, address(mockAsset), amount);
+
+        assertEq(mockAsset.balanceOf(recipient), amount);
+    }
+
+    function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
+        uint256 amount = 1000e6;
+        mockAsset.mint(address(wallet), amount);
+
+        // Set fees owed
+        mockFeeTracker.setFeesOwed(address(wallet), 100e6);
+
+        // Should only be able to withdraw 900 USDC (1000 - 100 fees)
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        wallet.withdrawAssetToUser(recipient, address(mockAsset), amount);
+
+        // Should succeed with withdrawable amount
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(recipient, address(mockAsset), 900e6);
+        assertEq(mockAsset.balanceOf(recipient), 900e6);
+    }
+
+    function test_WithdrawAssetToUser_NonBaseAsset_NoFees() public {
+        MockERC20 otherToken = new MockERC20("Other Token", "OTHER");
+        uint256 amount = 1000e6;
+        otherToken.mint(address(wallet), amount);
+
+        // Set fees owed (should not apply to non-baseAsset)
+        mockFeeTracker.setFeesOwed(address(wallet), 100e6);
+
+        // Should be able to withdraw all of the other token (fees don't apply)
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(recipient, address(otherToken), amount);
+        assertEq(otherToken.balanceOf(recipient), amount);
+    }
+
+    function test_WithdrawAssetToUser_ZeroRecipient() public {
+        mockAsset.mint(address(wallet), 1000e6);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        wallet.withdrawAssetToUser(address(0), address(mockAsset), 1000e6);
+    }
+
+    function test_WithdrawAssetToUser_ZeroAsset() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        wallet.withdrawAssetToUser(recipient, address(0), 1000e6);
+    }
+
+    function test_WithdrawAssetToUser_OnlyOwner() public {
+        mockAsset.mint(address(wallet), 1000e6);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        wallet.withdrawAssetToUser(recipient, address(mockAsset), 1000e6);
+    }
+
+    function test_WithdrawAssetToUser_InsufficientBalance() public {
+        // Don't mint any tokens
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        wallet.withdrawAssetToUser(recipient, address(mockAsset), 1000e6);
+    }
+
+    function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
+        uint256 balance = 1000e6;
+        mockAsset.mint(address(wallet), balance);
+
+        // Set fees owed
+        uint256 feesOwed = 100e6;
+        mockFeeTracker.setFeesOwed(address(wallet), feesOwed);
+
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(recipient, address(mockAsset));
+
+        // Should withdraw balance - fees = 900 USDC
+        assertEq(mockAsset.balanceOf(recipient), balance - feesOwed);
+        assertEq(mockAsset.balanceOf(address(wallet)), feesOwed);
+    }
+
+    function test_WithdrawAllAssetToUser_NonBaseAsset_WithdrawsAll() public {
+        MockERC20 otherToken = new MockERC20("Other Token", "OTHER");
+        uint256 balance = 1000e6;
+        otherToken.mint(address(wallet), balance);
+
+        // Set fees owed (should not apply)
+        mockFeeTracker.setFeesOwed(address(wallet), 100e6);
+
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(recipient, address(otherToken));
+
+        // Should withdraw entire balance (fees don't apply to non-baseAsset)
+        assertEq(otherToken.balanceOf(recipient), balance);
+        assertEq(otherToken.balanceOf(address(wallet)), 0);
+    }
+
+    function test_WithdrawAllAssetToUser_ZeroRecipient() public {
+        mockAsset.mint(address(wallet), 1000e6);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        wallet.withdrawAllAssetToUser(address(0), address(mockAsset));
+    }
+
+    function test_WithdrawAllAssetToUser_ZeroAsset() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        wallet.withdrawAllAssetToUser(recipient, address(0));
+    }
+
+    function test_WithdrawAllAssetToUser_OnlyOwner() public {
+        mockAsset.mint(address(wallet), 1000e6);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        wallet.withdrawAllAssetToUser(recipient, address(mockAsset));
+    }
+
+    function test_WithdrawAllAssetToUser_EmptyBalance() public {
+        // No tokens minted
+
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(recipient, address(mockAsset));
+
+        // Should succeed but transfer 0
+        assertEq(mockAsset.balanceOf(recipient), 0);
+    }
+
     // ============ Sync System Tests ============
 
     function test_SyncFromFactory_Success() public {

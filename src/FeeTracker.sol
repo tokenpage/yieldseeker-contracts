@@ -117,18 +117,16 @@ contract YieldSeekerFeeTracker is AccessControl {
             agentFeesCharged[msg.sender] += feeInBaseAsset;
             emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
         }
-        
         // Handle normal vault position profit/loss tracking
         uint256 totalShares = agentVaultShares[msg.sender][vault];
         uint256 totalCostBasis = agentVaultCostBasis[msg.sender][vault];
-        
         // Handle case where shares were received outside adapter system (direct transfers, airdrops, etc)
         // This prevents underflow and allows users to always withdraw their shares
         if (sharesSpent > totalShares) {
             // Withdrawing more shares than tracked - treat excess as zero-cost-basis
             // Only calculate proportional cost for the tracked shares
             uint256 costOfTrackedShares = totalCostBasis; // All tracked shares being withdrawn
-            
+
             if (totalShares > 0 && assetsReceived > costOfTrackedShares) {
                 // Calculate profit only from the tracked portion
                 uint256 profit = assetsReceived - costOfTrackedShares;
@@ -136,13 +134,13 @@ contract YieldSeekerFeeTracker is AccessControl {
                 agentFeesCharged[msg.sender] += fee;
                 emit YieldRecorded(msg.sender, profit, fee);
             }
-            
+
             // Clear position completely
             agentVaultCostBasis[msg.sender][vault] = 0;
             agentVaultShares[msg.sender][vault] = 0;
             return;
         }
-        
+
         // Normal case: withdrawing tracked shares
         if (totalShares == 0) return;
         uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
@@ -192,7 +190,7 @@ contract YieldSeekerFeeTracker is AccessControl {
         // Guard against division by zero - can happen with broken/paused tokens
         // Allows swap to proceed without charging fees rather than reverting
         if (swappedAmount == 0) return;
-        
+
         uint256 feeTokenOwed = agentYieldTokenFeesOwed[msg.sender][swappedToken];
         if (feeTokenOwed > 0) {
             // Determine how much of the fee-owed tokens are being swapped
