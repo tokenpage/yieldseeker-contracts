@@ -971,7 +971,7 @@ contract AgentWalletIntegrationTest is Test {
     function test_VaultShareReward_FeesTrackedCorrectly() public {
         // Create second vault for reward scenario (VAULT B for rewards)
         MockERC4626 vaultB = new MockERC4626(address(usdc), "Vault B", "vB");
-        
+
         // Register vaultB with adapter
         vm.startPrank(admin);
         registry.setTargetAdapter(address(vaultB), address(vaultAdapter));
@@ -980,19 +980,19 @@ contract AgentWalletIntegrationTest is Test {
         // Step 1: User deposits 10 USDC into their wallet
         address walletAddr = createWalletForUser(user);
         AgentWalletV1 wallet = AgentWalletV1(payable(walletAddr));
-        
+
         usdc.mint(user, 10e6);
         vm.prank(user);
         usdc.transfer(walletAddr, 10e6);
-        
+
         assertEq(usdc.balanceOf(walletAddr), 10e6, "Wallet should have 10 USDC");
 
         // Step 2: Executor moves 10 USDC into VAULT A
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (10e6));
-        
+
         vm.prank(user); // owner can execute
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-        
+
         uint256 vaultAShares = vault.balanceOf(walletAddr);
         assertGt(vaultAShares, 0, "Should have VAULT A shares");
         assertEq(usdc.balanceOf(walletAddr), 0, "USDC should be in vault");
@@ -1007,13 +1007,13 @@ contract AgentWalletIntegrationTest is Test {
         usdc.mint(address(this), 100e6);
         usdc.approve(address(vaultB), 100e6);
         vaultB.deposit(100e6, address(this));
-        
+
         // Now claim vault shares as reward (simulating Merkl distributing vault tokens as rewards)
         uint256 rewardShareAmount = 1e6; // 1 USDC worth of shares (1:1 ratio)
-        
+
         // Transfer shares to merkl distributor so it can distribute them
         vaultB.transfer(address(merklDistributor), rewardShareAmount);
-        
+
         // Prepare Merkl claim for vault B shares
         address[] memory users = new address[](1);
         users[0] = walletAddr;
@@ -1023,12 +1023,12 @@ contract AgentWalletIntegrationTest is Test {
         amounts[0] = rewardShareAmount;
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
-        
+
         bytes memory claimData = abi.encodeCall(merklAdapter.claim, (users, tokens, amounts, proofs));
-        
+
         vm.prank(user);
         wallet.executeViaAdapter(address(merklAdapter), address(merklDistributor), claimData);
-        
+
         assertEq(vaultB.balanceOf(walletAddr), rewardShareAmount, "Wallet should have reward shares in VAULT B");
 
         console.log("\n=== After Step 3: Claimed VAULT B shares via Merkl ===");
@@ -1041,10 +1041,10 @@ contract AgentWalletIntegrationTest is Test {
 
         // Step 4: Executor withdraws from VAULT B and deposits converted USDC into VAULT A
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (rewardShareAmount));
-        
+
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vaultB), withdrawData);
-        
+
         // Should now have ~1 USDC from the withdrawal
         uint256 usdcFromReward = usdc.balanceOf(walletAddr);
         assertApproxEqAbs(usdcFromReward, 1e6, 100, "Should have ~1 USDC from VAULT B withdrawal");
@@ -1057,7 +1057,7 @@ contract AgentWalletIntegrationTest is Test {
 
         // Deposit that USDC into VAULT A
         bytes memory depositRewardData = abi.encodeCall(vaultAdapter.deposit, (usdcFromReward));
-        
+
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositRewardData);
 
@@ -1072,7 +1072,7 @@ contract AgentWalletIntegrationTest is Test {
         console.log("Fees charged:", feesCharged);
         console.log("Fees paid:", feesPaid);
         console.log("Fees owed:", feesOwed);
-        
+
         console.log("\n=== Expected vs Actual ===");
         console.log("Expected fee (10% of 1 USDC reward): 100000");
         console.log("Actual fee owed:", feesOwed);
@@ -1080,8 +1080,78 @@ contract AgentWalletIntegrationTest is Test {
         console.log("The FeeTracker sees VAULT B shares appear (not from deposit),");
         console.log("then disappear (withdraw). But it has 0 cost basis, so no profit.");
         console.log("It doesn't know those shares were a REWARD that should incur fees.");
-        
+
         // This assertion will FAIL, highlighting the issue
         assertEq(feesOwed, 100000, "Should owe 10% fee on vault share reward value");
     }
+
+    // ============ Position Tracking Edge Cases ============
+
+    function test_DirectVaultShareTransfer_CausesUnderflow() public {
+        // This test demonstrates the auditor's finding:
+        // When vault shares are received outside the adapter system,
+        // position tracking breaks and causes underflow on withdrawal
+
+        // Step 1: Create wallet and deposit 1000 USDC via adapter
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV1 wallet = AgentWalletV1(payable(walletAddr));
+
+        usdc.mint(user, 1000e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 1000e6);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        // Verify tracked position
+        (uint256 costBasis, uint256 trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasis, 1000e6, "Cost basis should be 1000 USDC");
+        assertEq(trackedShares, 1000e6, "Tracked shares should be 1000");
+
+        console.log("\n=== After Step 1: Deposited 1000 USDC via adapter ===");
+        console.log("Cost basis:", costBasis);
+        console.log("Tracked shares:", trackedShares);
+        console.log("Actual vault shares:", vault.balanceOf(walletAddr));
+
+        // Step 2: Someone directly transfers 500 vault shares to the wallet
+        // (NOT through the adapter, so FeeTracker doesn't know about it)
+        usdc.mint(address(this), 500e6);
+        usdc.approve(address(vault), 500e6);
+        vault.deposit(500e6, address(this)); // Get vault shares
+        vault.transfer(walletAddr, 500e6); // Direct transfer to wallet
+
+        console.log("\n=== After Step 2: Direct transfer of 500 vault shares ===");
+        console.log("Actual vault shares:", vault.balanceOf(walletAddr));
+        (costBasis, trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        console.log("Cost basis (still):", costBasis);
+        console.log("Tracked shares (still):", trackedShares);
+        console.log("DISCREPANCY: Wallet has 1500 shares but FeeTracker only knows about 1000");
+
+        // Step 3: Try to withdraw all shares (1500) via adapter
+        // This should cause underflow in FeeTracker:
+        // proportionalCost = (1000 * 1500) / 1000 = 1500
+        // agentVaultCostBasis = 1000 - 1500 = UNDERFLOW
+        uint256 totalShares = vault.balanceOf(walletAddr);
+        assertEq(totalShares, 1500e6, "Wallet should have 1500 shares");
+
+        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (totalShares));
+
+        console.log("\n=== Step 3: Attempting to withdraw all 1500 shares ===");
+        console.log("User should be able to withdraw all shares they legitimately own...");
+
+        // User should be able to withdraw all their shares
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
+
+        // Verify withdrawal succeeded
+        uint256 finalUsdcBalance = usdc.balanceOf(walletAddr);
+        assertApproxEqAbs(finalUsdcBalance, 1500e6, 100, "Should have ~1500 USDC from withdrawal");
+        assertEq(vault.balanceOf(walletAddr), 0, "Should have no vault shares left");
+
+        console.log("\nFinal USDC balance:", finalUsdcBalance);
+        console.log("Final vault shares:", vault.balanceOf(walletAddr));
+        console.log("Withdrawal succeeded - user can access all their shares");
+    }
 }
+
