@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {Test} from "forge-std/Test.sol";
 
 // Real contracts
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 
 // Test utilities
-import "../mocks/MockERC20.sol";
-import "../mocks/MockERC4626.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockERC4626} from "../mocks/MockERC4626.sol";
 
 /// @title Adapter Integration Tests
 /// @notice Tests for real adapter interactions with multiple vault scenarios
@@ -104,22 +104,14 @@ contract AdapterIntegrationTest is Test {
 
         // First deposit: 2000 USDC
         vm.prank(user);
-        bytes memory result1 = wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (2000e6))
-        );
+        bytes memory result1 = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (2000e6)));
         bytes memory innerResult1 = abi.decode(result1, (bytes));
         uint256 shares1 = abi.decode(innerResult1, (uint256));
         assertEq(shares1, 2000e6);
 
         // Second deposit: 3000 USDC
         vm.prank(user);
-        bytes memory result2 = wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (3000e6))
-        );
+        bytes memory result2 = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (3000e6)));
         bytes memory innerResult2 = abi.decode(result2, (bytes));
         uint256 shares2 = abi.decode(innerResult2, (uint256));
         assertEq(shares2, 3000e6);
@@ -129,11 +121,7 @@ contract AdapterIntegrationTest is Test {
 
         // Partial withdrawal: redeem 2000 shares
         vm.prank(user);
-        bytes memory result3 = wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.withdraw, (2000e6))
-        );
+        bytes memory result3 = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.withdraw, (2000e6)));
         bytes memory innerResult3 = abi.decode(result3, (bytes));
         uint256 assets = abi.decode(innerResult3, (uint256));
         assertEq(assets, 2000e6);
@@ -147,11 +135,7 @@ contract AdapterIntegrationTest is Test {
 
         // Initial deposit works
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (1000e6))
-        );
+        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         // Block adapter
         vm.prank(user);
@@ -160,22 +144,14 @@ contract AdapterIntegrationTest is Test {
         // All operations on this adapter now fail
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter1)));
-        wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (1000e6))
-        );
+        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         // Unblock and try again
         vm.prank(user);
         wallet.unblockAdapter(address(vaultAdapter1));
 
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (1000e6))
-        );
+        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         assertEq(vault1.balanceOf(address(wallet)), 2000e6);
     }
@@ -279,11 +255,7 @@ contract AdapterIntegrationTest is Test {
 
         usdc.mint(address(wallet1), 5000e6);
         vm.prank(user);
-        wallet1.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (5000e6))
-        );
+        wallet1.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (5000e6)));
 
         // User 2 creates wallet and deposits
         vm.prank(operator);
@@ -291,11 +263,7 @@ contract AdapterIntegrationTest is Test {
 
         usdc.mint(address(wallet2), 3000e6);
         vm.prank(user2);
-        wallet2.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (3000e6))
-        );
+        wallet2.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (3000e6)));
 
         // Verify positions are independent
         assertEq(vault1.balanceOf(address(wallet1)), 5000e6);
@@ -303,11 +271,7 @@ contract AdapterIntegrationTest is Test {
 
         // User 1 withdraws doesn't affect User 2
         vm.prank(user);
-        wallet1.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.withdraw, (2000e6))
-        );
+        wallet1.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.withdraw, (2000e6)));
 
         assertEq(vault1.balanceOf(address(wallet1)), 3000e6);
         assertEq(vault1.balanceOf(address(wallet2)), 3000e6); // Unaffected
@@ -325,11 +289,7 @@ contract AdapterIntegrationTest is Test {
 
         // Deposit works initially
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (1000e6))
-        );
+        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         // Remove vault1 target mapping
         vm.prank(admin);
@@ -338,11 +298,7 @@ contract AdapterIntegrationTest is Test {
         // Subsequent calls fail
         vm.prank(user);
         vm.expectRevert();
-        wallet.executeViaAdapter(
-            address(vaultAdapter1),
-            address(vault1),
-            abi.encodeCall(vaultAdapter1.deposit, (1000e6))
-        );
+        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
     }
 
     function test_AdapterRegistrationAfterWalletCreation() public {
@@ -363,11 +319,7 @@ contract AdapterIntegrationTest is Test {
 
         // New vault is now accessible to existing wallet
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(newAdapter),
-            address(newVault),
-            abi.encodeCall(newAdapter.deposit, (2000e6))
-        );
+        wallet.executeViaAdapter(address(newAdapter), address(newVault), abi.encodeCall(newAdapter.deposit, (2000e6)));
 
         assertEq(newVault.balanceOf(address(wallet)), 2000e6);
     }

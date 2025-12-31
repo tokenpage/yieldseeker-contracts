@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAdminTimelock} from "../../src/AdminTimelock.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract DummyTarget {
     uint256 public stored;
@@ -40,7 +40,7 @@ contract YieldSeekerAdminTimelockTest is Test {
         vm.warp(100);
     }
 
-    function test_Constructor_RoleAssignment() public {
+    function test_Constructor_RoleAssignment() public view {
         assertTrue(timelock.hasRole(timelock.PROPOSER_ROLE(), proposer));
         assertTrue(timelock.hasRole(timelock.EXECUTOR_ROLE(), executor));
         assertTrue(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), admin));

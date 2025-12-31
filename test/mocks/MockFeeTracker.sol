@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @title MockFeeTracker
 /// @notice Mock implementation of FeeTracker for isolated unit testing
@@ -16,7 +16,7 @@ contract MockFeeTracker is AccessControl {
     address private _feeCollector;
 
     mapping(address => uint256) private _feesOwed;
-    
+
     // Position tracking
     mapping(address wallet => mapping(address vault => uint256)) public agentVaultCostBasis;
     mapping(address wallet => mapping(address vault => uint256)) public agentVaultShares;
@@ -85,18 +85,18 @@ contract MockFeeTracker is AccessControl {
     function recordAgentVaultShareWithdraw(address wallet, address vault, uint256 sharesSpent, uint256 assetsReceived) external onlyRole(ADMIN_ROLE) {
         uint256 totalShares = agentVaultShares[wallet][vault];
         uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
-        
+
         if (totalShares == 0) return;
-        
+
         uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
-        
+
         if (assetsReceived > proportionalCost) {
             uint256 profit = assetsReceived - proportionalCost;
             uint256 fee = (profit * _feeRate) / BASIS_POINTS;
             _feesOwed[wallet] += fee;
             emit YieldRecorded(wallet, profit, fee);
         }
-        
+
         agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
         agentVaultShares[wallet][vault] = totalShares - sharesSpent;
     }
@@ -113,11 +113,11 @@ contract MockFeeTracker is AccessControl {
 
     function recordAgentTokenSwap(address wallet, address token, uint256 swappedAmount, uint256 baseAssetReceived) external onlyRole(ADMIN_ROLE) {
         uint256 feeTokenOwed = agentYieldTokenFeesOwed[wallet][token];
-        
+
         if (feeTokenOwed > 0) {
             uint256 feeTokenSwapped = swappedAmount > feeTokenOwed ? feeTokenOwed : swappedAmount;
             agentYieldTokenFeesOwed[wallet][token] = feeTokenOwed - feeTokenSwapped;
-            
+
             uint256 feeInBaseAsset = (baseAssetReceived * feeTokenSwapped) / swappedAmount;
             _feesOwed[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);

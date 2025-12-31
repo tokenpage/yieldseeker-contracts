@@ -8,15 +8,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @title MockERC4626
 /// @notice Mock ERC4626 vault for testing adapter integration with realistic yield generation
 contract MockERC4626 is ERC20, IERC4626 {
-    IERC20 private immutable _asset;
+    IERC20 private immutable _ASSET;
     uint256 private _accumulatedYield;
 
-    constructor(
-        address asset_,
-        string memory name_,
-        string memory symbol_
-    ) ERC20(name_, symbol_) {
-        _asset = IERC20(asset_);
+    constructor(address asset_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
+        _ASSET = IERC20(asset_);
         _accumulatedYield = 0;
     }
 
@@ -27,17 +23,17 @@ contract MockERC4626 is ERC20, IERC4626 {
 
     /// @notice Get total assets including accumulated yield
     function asset() external view override returns (address) {
-        return address(_asset);
+        return address(_ASSET);
     }
 
     /// @notice Get total assets in vault including yield
     function totalAssets() external view override returns (uint256) {
-        return _asset.balanceOf(address(this));
+        return _ASSET.balanceOf(address(this));
     }
 
     /// @notice Convert assets to shares, accounting for accumulated yield
     function convertToShares(uint256 assets) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return assets;
@@ -48,7 +44,7 @@ contract MockERC4626 is ERC20, IERC4626 {
 
     /// @notice Convert shares to assets, accounting for accumulated yield
     function convertToAssets(uint256 shares) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return shares;
@@ -62,7 +58,7 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function previewDeposit(uint256 assets) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return assets;
@@ -70,7 +66,7 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function deposit(uint256 assets, address receiver) external override returns (uint256 shares) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this)) + _accumulatedYield;
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this)) + _accumulatedYield;
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) {
@@ -79,7 +75,7 @@ contract MockERC4626 is ERC20, IERC4626 {
             shares = (assets * totalShares) / totalAssets_;
         }
 
-        _asset.transferFrom(msg.sender, address(this), assets);
+        require(_ASSET.transferFrom(msg.sender, address(this), assets), "Transfer failed");
         _mint(receiver, shares);
     }
 
@@ -88,7 +84,7 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function previewMint(uint256 shares) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this)) + _accumulatedYield;
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this)) + _accumulatedYield;
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return shares;
@@ -96,7 +92,7 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function mint(uint256 shares, address receiver) external override returns (uint256 assets) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this)) + _accumulatedYield;
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this)) + _accumulatedYield;
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) {
@@ -105,12 +101,12 @@ contract MockERC4626 is ERC20, IERC4626 {
             assets = (shares * totalAssets_) / totalShares;
         }
 
-        _asset.transferFrom(msg.sender, address(this), assets);
+        require(_ASSET.transferFrom(msg.sender, address(this), assets), "Transfer failed");
         _mint(receiver, shares);
     }
 
     function maxWithdraw(address owner) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
         uint256 shares = balanceOf(owner);
 
@@ -119,19 +115,15 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function previewWithdraw(uint256 assets) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return assets;
         return (assets * totalShares) / totalAssets_;
     }
 
-    function withdraw(
-        uint256 assets,
-        address receiver,
-        address owner
-    ) external override returns (uint256 shares) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+    function withdraw(uint256 assets, address receiver, address owner) external override returns (uint256 shares) {
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) {
@@ -145,7 +137,7 @@ contract MockERC4626 is ERC20, IERC4626 {
         }
 
         _burn(owner, shares);
-        _asset.transfer(receiver, assets);
+        require(_ASSET.transfer(receiver, assets), "Transfer failed");
     }
 
     function maxRedeem(address owner) external view override returns (uint256) {
@@ -153,19 +145,15 @@ contract MockERC4626 is ERC20, IERC4626 {
     }
 
     function previewRedeem(uint256 shares) external view override returns (uint256) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) return shares;
         return (shares * totalAssets_) / totalShares;
     }
 
-    function redeem(
-        uint256 shares,
-        address receiver,
-        address owner
-    ) external override returns (uint256 assets) {
-        uint256 totalAssets_ = _asset.balanceOf(address(this));
+    function redeem(uint256 shares, address receiver, address owner) external override returns (uint256 assets) {
+        uint256 totalAssets_ = _ASSET.balanceOf(address(this));
         uint256 totalShares = totalSupply();
 
         if (totalShares == 0) {
@@ -179,6 +167,6 @@ contract MockERC4626 is ERC20, IERC4626 {
         }
 
         _burn(owner, shares);
-        _asset.transfer(receiver, assets);
+        require(_ASSET.transfer(receiver, assets), "Transfer failed");
     }
 }

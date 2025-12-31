@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test} from "forge-std/Test.sol";
-import {YieldSeekerMerklAdapter} from "../../../src/adapters/MerklAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {YieldSeekerMerklAdapter} from "../../../src/adapters/MerklAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
+import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract MockMerklDistributor {
     bool public shouldRevert;
@@ -17,7 +17,7 @@ contract MockMerklDistributor {
     function claim(address[] calldata, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata) external {
         if (shouldRevert) revert("claim failed");
         for (uint256 i = 0; i < tokens.length; i++) {
-            MockERC20(tokens[i]).transfer(msg.sender, amounts[i]);
+            require(MockERC20(tokens[i]).transfer(msg.sender, amounts[i]), "Transfer failed");
         }
     }
 }
@@ -52,11 +52,7 @@ contract MerklAdapterTest is Test {
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
 
-        wallet.executeAdapter(
-            address(adapter),
-            address(distributor),
-            abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs)
-        );
+        wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 1_000e6);
         assertEq(feeTracker.agentFeesCharged(address(wallet)), 100e6);
@@ -78,11 +74,7 @@ contract MerklAdapterTest is Test {
         proofs[1] = new bytes32[](0);
         proofs[2] = new bytes32[](0);
 
-        wallet.executeAdapter(
-            address(adapter),
-            address(distributor),
-            abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs)
-        );
+        wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         uint256 totalClaimed = amounts[0] + amounts[1] + amounts[2];
         uint256 expectedFeeToken = (totalClaimed * 1000) / 10_000;
@@ -103,11 +95,7 @@ contract MerklAdapterTest is Test {
         proofs[0] = new bytes32[](0);
         proofs[1] = new bytes32[](0);
 
-        wallet.executeAdapter(
-            address(adapter),
-            address(distributor),
-            abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs)
-        );
+        wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
         assertEq(feeTracker.agentFeesCharged(address(wallet)), 50e6);
@@ -127,10 +115,6 @@ contract MerklAdapterTest is Test {
         proofs[0] = new bytes32[](0);
 
         vm.expectRevert();
-        wallet.executeAdapter(
-            address(adapter),
-            address(distributor),
-            abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs)
-        );
+        wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
     }
 }

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
-import "../mocks/MockFeeTracker.sol";
+import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
+import {Test} from "forge-std/Test.sol";
 
 /// @title FeeTracker Unit Tests
 /// @notice Isolated unit tests for fee calculation logic with complete isolation
@@ -352,7 +352,7 @@ contract FeeTrackerTest is Test {
 
     function test_VaultPositionMath_MaxPrecision() public {
         address vault = makeAddr("vault");
-        
+
         // Use very large numbers to test precision
         uint256 assetsDeposited = type(uint128).max;
         uint256 sharesReceived = type(uint128).max;

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {Test} from "forge-std/Test.sol";
 
 /// @title AdapterRegistry Unit Tests
 /// @notice Isolated unit tests for adapter registration and query logic
@@ -348,7 +347,7 @@ contract AdapterRegistryTest is Test {
 
     // ============ GetAllTargets Tests ============
 
-    function test_GetAllTargets_Empty() public {
+    function test_GetAllTargets_Empty() public view {
         address[] memory targets = registry.getAllTargets();
         assertEq(targets.length, 0);
     }
@@ -401,7 +400,7 @@ contract AdapterRegistryTest is Test {
         bool found2 = false;
         bool found3 = false;
 
-        for (uint i = 0; i < targets.length; i++) {
+        for (uint256 i = 0; i < targets.length; i++) {
             if (targets[i] == target1) found1 = true;
             if (targets[i] == target2) found2 = true;
             if (targets[i] == target3) found3 = true;
@@ -499,7 +498,7 @@ contract AdapterRegistryTest is Test {
         registry.registerAdapter(adapter);
     }
 
-    function test_AdminRole_Verification() public {
+    function test_AdminRole_Verification() public view {
         // Verify admin has the admin role
         assertTrue(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), admin));
 
@@ -623,7 +622,7 @@ contract AdapterRegistryTest is Test {
         vm.stopPrank();
     }
 
-    function test_RoleManagement_RoleQueries() public {
+    function test_RoleManagement_RoleQueries() public view {
         // Test role query functions
         bytes32 adminRole = registry.DEFAULT_ADMIN_ROLE();
         bytes32 emergencyRole = registry.EMERGENCY_ROLE();
@@ -637,7 +636,7 @@ contract AdapterRegistryTest is Test {
         assertFalse(registry.hasRole(emergencyRole, admin));
     }
 
-    function test_RoleManagement_RoleAdminRelationships() public {
+    function test_RoleManagement_RoleAdminRelationships() public view {
         // Test role admin relationships
         bytes32 adminRole = registry.DEFAULT_ADMIN_ROLE();
         bytes32 emergencyRole = registry.EMERGENCY_ROLE();
@@ -679,4 +678,5 @@ contract AdapterRegistryTest is Test {
 /// @dev Simple mock adapter contract for testing
 contract MockAdapter {
     // Empty contract that has code (not EOA)
-}
+
+    }

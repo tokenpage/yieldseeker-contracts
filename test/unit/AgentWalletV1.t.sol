@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
+import {MockAgentWallet} from "../mocks/MockAgentWallet.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
-import "../mocks/MockAgentWallet.sol";
-import "../mocks/MockERC20.sol";
-import "../mocks/MockAdapterRegistry.sol";
-import "../mocks/MockFeeTracker.sol";
+import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+import {Test} from "forge-std/Test.sol";
 
 /// @title AgentWalletV1 Unit Tests
 /// @notice Isolated unit tests for ERC-4337 wallet logic with complete isolation
@@ -45,7 +44,7 @@ contract AgentWalletV1Test is Test {
 
     // ============ ERC-4337 Validation Tests ============
 
-    function test_ValidateUserOp_WrongOwner() public {
+    function test_ValidateUserOp_WrongOwner() public view {
         UserOperation memory userOp = _createUserOp(nonOwner);
         bytes32 userOpHash = keccak256("test");
 
@@ -53,7 +52,7 @@ contract AgentWalletV1Test is Test {
         assertEq(result, 1); // SIG_VALIDATION_FAILED
     }
 
-    function test_ValidateUserOp_ReplayAttack() public {
+    function test_ValidateUserOp_ReplayAttack() public view {
         UserOperation memory userOp = _createUserOp(owner);
         userOp.nonce = 0; // Old nonce - should be validated by EntryPoint
         bytes32 userOpHash = keccak256("test");
@@ -62,7 +61,7 @@ contract AgentWalletV1Test is Test {
         assertEq(result, 0); // Owner signature is valid
     }
 
-    function test_ValidateUserOp_InsufficientGas() public {
+    function test_ValidateUserOp_InsufficientGas() public view {
         UserOperation memory userOp = _createUserOp(owner);
         userOp.preVerificationGas = 1; // Low gas - should be validated by EntryPoint
         bytes32 userOpHash = keccak256("test");
@@ -71,7 +70,7 @@ contract AgentWalletV1Test is Test {
         assertEq(result, 0); // Signature itself is valid
     }
 
-    function test_ValidateUserOp_EmptySignature() public {
+    function test_ValidateUserOp_EmptySignature() public view {
         UserOperation memory userOp = _createUserOp(owner);
         userOp.signature = "";
         bytes32 userOpHash = keccak256("test");
@@ -80,7 +79,7 @@ contract AgentWalletV1Test is Test {
         assertEq(result, 1); // Invalid signature
     }
 
-    function test_ValidateUserOp_MalformedSignature() public {
+    function test_ValidateUserOp_MalformedSignature() public view {
         UserOperation memory userOp = _createUserOp(owner);
         userOp.signature = "0x1234"; // Invalid signature
         bytes32 userOpHash = keccak256("test");
@@ -265,7 +264,7 @@ contract AgentWalletV1Test is Test {
         address[] memory targets = new address[](5);
         bytes[] memory datas = new bytes[](5);
 
-        for (uint i = 0; i < 5; i++) {
+        for (uint256 i = 0; i < 5; i++) {
             adapters[i] = makeAddr(string(abi.encodePacked("adapter", i)));
             targets[i] = makeAddr(string(abi.encodePacked("target", i)));
             datas[i] = "0x1234";

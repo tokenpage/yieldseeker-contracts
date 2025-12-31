@@ -1,24 +1,32 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {Test} from "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
 
 // Real contracts (not mocks)
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../../src/AdminTimelock.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-
-// Contract type aliases used in source
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
 
 // Test utilities
-import "../mocks/MockERC20.sol";
-import "../mocks/MockERC4626.sol";
-import "../mocks/MockEntryPoint.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockERC4626} from "../mocks/MockERC4626.sol";
+import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
+
+// Mock Merkl Distributor for testing reward claims
+contract MockMerklDistributor {
+    function claim(address[] calldata, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata) external {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            require(MockERC20(tokens[i]).transfer(msg.sender, amounts[i]), "Transfer failed");
+        }
+    }
+}
 
 /// @title AgentWallet Integration Tests
 /// @notice Integration tests using real contracts with minimal mocking
@@ -29,11 +37,13 @@ contract AgentWalletIntegrationTest is Test {
     FeeTracker feeTracker;
     AdminTimelock timelock;
     ERC4626Adapter vaultAdapter;
+    MerklAdapter merklAdapter;
 
     // Test utilities (minimal mocking)
     MockERC20 usdc;
     MockERC4626 vault;
     MockEntryPoint entryPoint;
+    MockMerklDistributor merklDistributor;
 
     // Test accounts
     address admin = makeAddr("admin");
@@ -56,6 +66,7 @@ contract AgentWalletIntegrationTest is Test {
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
         entryPoint = new MockEntryPoint();
+        merklDistributor = new MockMerklDistributor();
 
         vm.startPrank(admin);
 
@@ -84,10 +95,13 @@ contract AgentWalletIntegrationTest is Test {
 
         // Deploy real adapters
         vaultAdapter = new ERC4626Adapter();
+        merklAdapter = new MerklAdapter();
 
-        // Configure registry with real adapter
+        // Configure registry with real adapters
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
+        registry.registerAdapter(address(merklAdapter));
+        registry.setTargetAdapter(address(merklDistributor), address(merklAdapter));
 
         // Grant operator role
         // Role already granted in constructor
@@ -97,6 +111,7 @@ contract AgentWalletIntegrationTest is Test {
 
         // Setup test tokens
         usdc.mint(user, 10000e6); // 10,000 USDC
+        usdc.mint(address(merklDistributor), 1000000e6); // Fund merkl distributor
         vm.prank(user);
         usdc.approve(address(vault), type(uint256).max);
     }
@@ -106,12 +121,7 @@ contract AgentWalletIntegrationTest is Test {
     function test_CreateWalletViaFactory_Success() public {
         // Create wallet through factory using real contracts
         vm.expectEmit(true, true, true, true);
-        emit AgentWalletCreated(
-            address(computeExpectedWalletAddress()),
-            user,
-            AGENT_INDEX,
-            address(usdc)
-        );
+        emit AgentWalletCreated(address(computeExpectedWalletAddress()), user, AGENT_INDEX, address(usdc));
 
         vm.prank(operator);
         AgentWalletV1 walletAddr = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
@@ -130,8 +140,7 @@ contract AgentWalletIntegrationTest is Test {
     }
 
     function test_InitializeWalletWithRealContracts() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV1 wallet = AgentWalletV1(payable(walletAddr));
+        createWalletForUser(user);
 
         // Verify wallet initialized with real registry reference
         // Note: We'd need to add a getter to check this, but we can test behavior
@@ -164,11 +173,7 @@ contract AgentWalletIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
 
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            depositData
-        );
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Verify successful execution
         assertTrue(vault.balanceOf(walletAddr) > 0);
@@ -192,12 +197,7 @@ contract AgentWalletIntegrationTest is Test {
     function test_InitializationEvent_RealEmission() public {
         // Test that real events are emitted during creation
         vm.expectEmit(true, true, true, true);
-        emit AgentWalletCreated(
-            computeExpectedWalletAddress(),
-            user,
-            AGENT_INDEX,
-            address(usdc)
-        );
+        emit AgentWalletCreated(computeExpectedWalletAddress(), user, AGENT_INDEX, address(usdc));
 
         vm.prank(operator);
         factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
@@ -216,11 +216,7 @@ contract AgentWalletIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
 
         vm.prank(user);
-        wallet.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            depositData
-        );
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Verify execution - wallet should have vault shares now
         assertTrue(vault.balanceOf(walletAddr) > 0);
@@ -455,7 +451,6 @@ contract AgentWalletIntegrationTest is Test {
 
     function test_InitialState_CorrectConfiguration() public {
         address walletAddr = createWalletForUser(user);
-        AgentWalletV1 wallet = AgentWalletV1(payable(walletAddr));
 
         // Wallet should be properly initialized
         // Note: Would test owner, baseAsset, etc if getters existed
@@ -463,7 +458,7 @@ contract AgentWalletIntegrationTest is Test {
     }
 
     function test_InitializeWithRegistry_Correct() public {
-        address walletAddr = createWalletForUser(user);
+        createWalletForUser(user);
 
         // Wallet should have access to registry via factory
         assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
@@ -480,7 +475,7 @@ contract AgentWalletIntegrationTest is Test {
         factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
     }
 
-    function test_FactoryComponents_ProperlySet() public {
+    function test_FactoryComponents_ProperlySet() public view {
         // Verify factory has all required components
         assertTrue(address(registry) != address(0));
         assertTrue(address(feeTracker) != address(0));
@@ -969,5 +964,124 @@ contract AgentWalletIntegrationTest is Test {
 
     function computeExpectedWalletAddress() internal view returns (address) {
         return factory.getAddress(user, AGENT_INDEX);
+    }
+
+    // ============ Vault Share Reward Tests ============
+
+    function test_VaultShareReward_FeesTrackedCorrectly() public {
+        // Create second vault for reward scenario (VAULT B for rewards)
+        MockERC4626 vaultB = new MockERC4626(address(usdc), "Vault B", "vB");
+        
+        // Register vaultB with adapter
+        vm.startPrank(admin);
+        registry.setTargetAdapter(address(vaultB), address(vaultAdapter));
+        vm.stopPrank();
+
+        // Step 1: User deposits 10 USDC into their wallet
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV1 wallet = AgentWalletV1(payable(walletAddr));
+        
+        usdc.mint(user, 10e6);
+        vm.prank(user);
+        usdc.transfer(walletAddr, 10e6);
+        
+        assertEq(usdc.balanceOf(walletAddr), 10e6, "Wallet should have 10 USDC");
+
+        // Step 2: Executor moves 10 USDC into VAULT A
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (10e6));
+        
+        vm.prank(user); // owner can execute
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+        
+        uint256 vaultAShares = vault.balanceOf(walletAddr);
+        assertGt(vaultAShares, 0, "Should have VAULT A shares");
+        assertEq(usdc.balanceOf(walletAddr), 0, "USDC should be in vault");
+
+        console.log("\n=== After Step 2: Deposited to VAULT A ===");
+        (uint256 vaultACost, uint256 vaultASharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        console.log("VAULT A cost basis:", vaultACost);
+        console.log("VAULT A shares tracked:", vaultASharesTracked);
+
+        // Step 3: User receives vault share reward via Merkl
+        // First, seed vaultB with liquidity so shares have value
+        usdc.mint(address(this), 100e6);
+        usdc.approve(address(vaultB), 100e6);
+        vaultB.deposit(100e6, address(this));
+        
+        // Now claim vault shares as reward (simulating Merkl distributing vault tokens as rewards)
+        uint256 rewardShareAmount = 1e6; // 1 USDC worth of shares (1:1 ratio)
+        
+        // Transfer shares to merkl distributor so it can distribute them
+        vaultB.transfer(address(merklDistributor), rewardShareAmount);
+        
+        // Prepare Merkl claim for vault B shares
+        address[] memory users = new address[](1);
+        users[0] = walletAddr;
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(vaultB); // Claiming VAULT B shares as reward
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = rewardShareAmount;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+        
+        bytes memory claimData = abi.encodeCall(merklAdapter.claim, (users, tokens, amounts, proofs));
+        
+        vm.prank(user);
+        wallet.executeViaAdapter(address(merklAdapter), address(merklDistributor), claimData);
+        
+        assertEq(vaultB.balanceOf(walletAddr), rewardShareAmount, "Wallet should have reward shares in VAULT B");
+
+        console.log("\n=== After Step 3: Claimed VAULT B shares via Merkl ===");
+        console.log("VAULT B shares in wallet:", vaultB.balanceOf(walletAddr));
+        (uint256 vaultBCost, uint256 vaultBSharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vaultB));
+        console.log("VAULT B cost basis:", vaultBCost);
+        console.log("VAULT B shares tracked:", vaultBSharesTracked);
+        uint256 vaultBFeesOwed = feeTracker.getAgentYieldTokenFeesOwed(walletAddr, address(vaultB));
+        console.log("VAULT B token fees owed:", vaultBFeesOwed);
+
+        // Step 4: Executor withdraws from VAULT B and deposits converted USDC into VAULT A
+        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (rewardShareAmount));
+        
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vaultB), withdrawData);
+        
+        // Should now have ~1 USDC from the withdrawal
+        uint256 usdcFromReward = usdc.balanceOf(walletAddr);
+        assertApproxEqAbs(usdcFromReward, 1e6, 100, "Should have ~1 USDC from VAULT B withdrawal");
+
+        console.log("\n=== After Step 4a: Withdrew from VAULT B ===");
+        console.log("USDC balance:", usdcFromReward);
+        (vaultBCost, vaultBSharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vaultB));
+        console.log("VAULT B cost basis:", vaultBCost);
+        console.log("VAULT B shares tracked:", vaultBSharesTracked);
+
+        // Deposit that USDC into VAULT A
+        bytes memory depositRewardData = abi.encodeCall(vaultAdapter.deposit, (usdcFromReward));
+        
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositRewardData);
+
+        console.log("\n=== After Step 4b: Deposited reward USDC to VAULT A ===");
+        (vaultACost, vaultASharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        console.log("VAULT A cost basis:", vaultACost);
+        console.log("VAULT A shares tracked:", vaultASharesTracked);
+
+        // Step 5: Check final fee tracker state
+        console.log("\n=== Final Fee Tracker State ===");
+        (uint256 feesCharged, uint256 feesPaid, uint256 feesOwed) = feeTracker.getWalletStats(walletAddr);
+        console.log("Fees charged:", feesCharged);
+        console.log("Fees paid:", feesPaid);
+        console.log("Fees owed:", feesOwed);
+        
+        console.log("\n=== Expected vs Actual ===");
+        console.log("Expected fee (10% of 1 USDC reward): 100000");
+        console.log("Actual fee owed:", feesOwed);
+        console.log("\nIssue: Vault share rewards aren't recognized as rewards.");
+        console.log("The FeeTracker sees VAULT B shares appear (not from deposit),");
+        console.log("then disappear (withdraw). But it has 0 cost basis, so no profit.");
+        console.log("It doesn't know those shares were a REWARD that should incur fees.");
+        
+        // This assertion will FAIL, highlighting the issue
+        assertEq(feesOwed, 100000, "Should owe 10% fee on vault share reward value");
     }
 }

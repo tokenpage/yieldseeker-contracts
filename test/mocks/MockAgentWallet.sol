@@ -3,9 +3,8 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
 interface IAdapterRegistry {
     function getTargetAdapter(address target) external view returns (address);
@@ -66,11 +65,7 @@ contract MockAgentWallet {
     }
 
     /// @dev Execute via adapter with validation
-    function executeViaAdapter(address adapter, address target, bytes calldata data)
-        external
-        onlyOwner
-        returns (bytes memory)
-    {
+    function executeViaAdapter(address adapter, address target, bytes calldata data) external view onlyOwner returns (bytes memory) {
         // Validate adapter is registered for target
         address registeredAdapter = adapterRegistry.getTargetAdapter(target);
         require(registeredAdapter == adapter, "Invalid adapter");
@@ -85,11 +80,7 @@ contract MockAgentWallet {
     }
 
     /// @dev Batch execute via adapters
-    function executeViaAdapterBatch(
-        address[] calldata adapters,
-        address[] calldata targets,
-        bytes[] calldata datas
-    ) external onlyOwner returns (bytes[] memory results) {
+    function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external view onlyOwner returns (bytes[] memory results) {
         if (adapters.length != targets.length || targets.length != datas.length) {
             revert YieldSeekerErrors.InvalidState();
         }
@@ -149,7 +140,7 @@ contract MockAgentWallet {
         }
 
         if (amount > 0) {
-            token.transfer(recipient, amount);
+            require(token.transfer(recipient, amount), "Transfer failed");
         }
 
         emit WithdrewTokenToUser(owner, recipient, baseAsset, amount);
@@ -162,7 +153,7 @@ contract MockAgentWallet {
         }
 
         if (amount > 0) {
-            (bool success, ) = recipient.call{value: amount}("");
+            (bool success,) = recipient.call{value: amount}("");
             require(success, "ETH transfer failed");
         }
 

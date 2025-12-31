@@ -104,6 +104,20 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @param assetsReceived The amount of assets received
      */
     function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
+        // Handle vault share rewards: if we have yield token fees owed for this vault,
+        // we're effectively converting those vault share fees to base asset
+        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[msg.sender][vault];
+        if (vaultTokenFeesOwed > 0) {
+            // Determine how much of the fee-owed vault shares are being withdrawn
+            uint256 feeTokenSwapped = sharesSpent > vaultTokenFeesOwed ? vaultTokenFeesOwed : sharesSpent;
+            // Deduct from the tracked fee owed in vault shares
+            agentYieldTokenFeesOwed[msg.sender][vault] = vaultTokenFeesOwed - feeTokenSwapped;
+            // Calculate the fee in base asset terms (proportional to amount withdrawn)
+            uint256 feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
+            agentFeesCharged[msg.sender] += feeInBaseAsset;
+            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
+        }
+        // Handle normal vault position profit/loss tracking
         uint256 totalShares = agentVaultShares[msg.sender][vault];
         uint256 totalCostBasis = agentVaultCostBasis[msg.sender][vault];
         if (totalShares == 0) return;

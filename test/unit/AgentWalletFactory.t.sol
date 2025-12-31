@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
+import {MockAgentWalletFactory} from "../mocks/MockAgentWalletFactory.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import "../mocks/MockAgentWalletFactory.sol";
-import "../mocks/MockAgentWallet.sol";
-import "../mocks/MockERC20.sol";
-import "../mocks/MockAdapterRegistry.sol";
-import "../mocks/MockFeeTracker.sol";
+import {Test} from "forge-std/Test.sol";
 
 /// @title AgentWalletFactory Unit Tests
 /// @notice Isolated unit tests for wallet creation logic with complete isolation
@@ -22,7 +20,7 @@ contract AgentWalletFactoryTest is Test {
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
 
-    MockERC20 mockUSDC;
+    MockERC20 mockUsdc;
     MockAdapterRegistry mockRegistry;
     MockFeeTracker mockFeeTracker;
     address mockImplementation;
@@ -31,13 +29,7 @@ contract AgentWalletFactoryTest is Test {
     bytes32 constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
-    event WalletCreated(
-        address indexed owner,
-        uint256 indexed agentIndex,
-        address indexed wallet,
-        address baseAsset,
-        address implementation
-    );
+    event WalletCreated(address indexed owner, uint256 indexed agentIndex, address indexed wallet, address baseAsset, address implementation);
     event ImplementationUpdated(address indexed oldImplementation, address indexed newImplementation);
     event AdapterRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
     event FeeTrackerUpdated(address indexed oldTracker, address indexed newTracker);
@@ -45,33 +37,29 @@ contract AgentWalletFactoryTest is Test {
     event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender);
 
     function setUp() public {
-        mockUSDC = new MockERC20("Mock USDC", "mUSDC");
+        mockUsdc = new MockERC20("Mock USDC", "mUSDC");
         mockRegistry = new MockAdapterRegistry();
         mockFeeTracker = new MockFeeTracker(1000, makeAddr("feeCollector")); // 10% fee rate
         mockImplementation = makeAddr("implementation");
 
         vm.prank(admin);
-        factory = new MockAgentWalletFactory(
-            address(mockRegistry),
-            address(mockFeeTracker),
-            mockImplementation
-        );
+        factory = new MockAgentWalletFactory(address(mockRegistry), address(mockFeeTracker), mockImplementation);
     }
 
     // ============ CREATE2 Deployment Logic Tests ============
 
     function test_ComputeWalletAddress_Deterministic() public view {
-        address computed1 = factory.computeWalletAddress(user1, 1, address(mockUSDC));
-        address computed2 = factory.computeWalletAddress(user1, 1, address(mockUSDC));
+        address computed1 = factory.computeWalletAddress(user1, 1, address(mockUsdc));
+        address computed2 = factory.computeWalletAddress(user1, 1, address(mockUsdc));
 
         assertEq(computed1, computed2);
         assertTrue(computed1 != address(0));
     }
 
     function test_ComputeWalletAddress_DifferentSalts() public view {
-        address addr1 = factory.computeWalletAddress(user1, 1, address(mockUSDC));
-        address addr2 = factory.computeWalletAddress(user1, 2, address(mockUSDC));
-        address addr3 = factory.computeWalletAddress(user2, 1, address(mockUSDC));
+        address addr1 = factory.computeWalletAddress(user1, 1, address(mockUsdc));
+        address addr2 = factory.computeWalletAddress(user1, 2, address(mockUsdc));
+        address addr3 = factory.computeWalletAddress(user2, 1, address(mockUsdc));
 
         assertTrue(addr1 != addr2);
         assertTrue(addr1 != addr3);
@@ -79,8 +67,8 @@ contract AgentWalletFactoryTest is Test {
     }
 
     function test_ComputeWalletAddress_SameInputs() public view {
-        address addr1 = factory.computeWalletAddress(user1, 5, address(mockUSDC));
-        address addr2 = factory.computeWalletAddress(user1, 5, address(mockUSDC));
+        address addr1 = factory.computeWalletAddress(user1, 5, address(mockUsdc));
+        address addr2 = factory.computeWalletAddress(user1, 5, address(mockUsdc));
 
         assertEq(addr1, addr2);
     }
@@ -89,13 +77,13 @@ contract AgentWalletFactoryTest is Test {
         vm.prank(admin); // Admin has operator role by default
         factory.grantRole(OPERATOR_ROLE, operator);
 
-        address predicted = factory.computeWalletAddress(user1, 1, address(mockUSDC));
+        address predicted = factory.computeWalletAddress(user1, 1, address(mockUsdc));
 
         vm.expectEmit(true, true, true, true);
-        emit WalletCreated(user1, 1, predicted, address(mockUSDC), mockImplementation);
+        emit WalletCreated(user1, 1, predicted, address(mockUsdc), mockImplementation);
 
         vm.prank(operator);
-        address wallet = factory.createAgentWallet(user1, 1, address(mockUSDC));
+        address wallet = factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         assertEq(wallet, predicted);
         assertTrue(factory.walletExists(wallet));
@@ -107,24 +95,24 @@ contract AgentWalletFactoryTest is Test {
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.WalletAlreadyExists.selector));
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
     function test_CreateAgentWallet_EmitsEvent() public {
         vm.prank(admin);
         factory.grantRole(OPERATOR_ROLE, operator);
 
-        address predicted = factory.computeWalletAddress(user1, 1, address(mockUSDC));
+        address predicted = factory.computeWalletAddress(user1, 1, address(mockUsdc));
 
         vm.expectEmit(true, true, true, true);
-        emit WalletCreated(user1, 1, predicted, address(mockUSDC), mockImplementation);
+        emit WalletCreated(user1, 1, predicted, address(mockUsdc), mockImplementation);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
     // ============ Role Management Tests ============
@@ -171,11 +159,11 @@ contract AgentWalletFactoryTest is Test {
     function test_CreateWallet_OnlyOperators() public {
         vm.prank(nonOperator);
         vm.expectRevert();
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         // Admin should work (has all roles)
         vm.prank(admin);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
     function test_OperatorRole_EmitsEvents() public {
@@ -266,7 +254,7 @@ contract AgentWalletFactoryTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
-        factory.createAgentWallet(address(0), 1, address(mockUSDC));
+        factory.createAgentWallet(address(0), 1, address(mockUsdc));
     }
 
     function test_CreateWallet_ZeroAsset() public {
@@ -295,7 +283,7 @@ contract AgentWalletFactoryTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAgentIndex.selector));
-        factory.createAgentWallet(user1, 0, address(mockUSDC));
+        factory.createAgentWallet(user1, 0, address(mockUsdc));
     }
 
     function test_CreateWallet_MaxGasUsage() public {
@@ -304,7 +292,7 @@ contract AgentWalletFactoryTest is Test {
 
         uint256 gasBefore = gasleft();
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
         uint256 gasUsed = gasBefore - gasleft();
 
         // Should be reasonable gas usage (less than 200k for mock)
@@ -316,7 +304,7 @@ contract AgentWalletFactoryTest is Test {
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        address wallet = factory.createAgentWallet(user1, 1, address(mockUSDC));
+        address wallet = factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         // Change implementation
         address newImpl = makeAddr("newImpl");
@@ -338,15 +326,15 @@ contract AgentWalletFactoryTest is Test {
         assertEq(factory.getWalletCounter(), 0);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
         assertEq(factory.getWalletCounter(), 1);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 2, address(mockUSDC));
+        factory.createAgentWallet(user1, 2, address(mockUsdc));
         assertEq(factory.getWalletCounter(), 2);
 
         vm.prank(operator);
-        factory.createAgentWallet(user2, 1, address(mockUSDC));
+        factory.createAgentWallet(user2, 1, address(mockUsdc));
         assertEq(factory.getWalletCounter(), 3);
     }
 
@@ -355,7 +343,7 @@ contract AgentWalletFactoryTest is Test {
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         uint256 counter1 = factory.getWalletCounter();
         uint256 counter2 = factory.getWalletCounter();
@@ -372,16 +360,16 @@ contract AgentWalletFactoryTest is Test {
         assertEq(factory.getOwnerWalletCount(user2), 0);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
         assertEq(factory.getOwnerWalletCount(user1), 1);
         assertEq(factory.getOwnerWalletCount(user2), 0);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 2, address(mockUSDC));
+        factory.createAgentWallet(user1, 2, address(mockUsdc));
         assertEq(factory.getOwnerWalletCount(user1), 2);
 
         vm.prank(operator);
-        factory.createAgentWallet(user2, 1, address(mockUSDC));
+        factory.createAgentWallet(user2, 1, address(mockUsdc));
         assertEq(factory.getOwnerWalletCount(user1), 2);
         assertEq(factory.getOwnerWalletCount(user2), 1);
     }
@@ -390,11 +378,11 @@ contract AgentWalletFactoryTest is Test {
         vm.prank(admin);
         factory.grantRole(OPERATOR_ROLE, operator);
 
-        address predicted = factory.computeWalletAddress(user1, 1, address(mockUSDC));
+        address predicted = factory.computeWalletAddress(user1, 1, address(mockUsdc));
         assertFalse(factory.walletExists(predicted));
 
         vm.prank(operator);
-        address wallet = factory.createAgentWallet(user1, 1, address(mockUSDC));
+        address wallet = factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         assertTrue(factory.walletExists(wallet));
         assertEq(wallet, predicted);
@@ -408,14 +396,14 @@ contract AgentWalletFactoryTest is Test {
         assertEq(wallets.length, 0);
 
         vm.prank(operator);
-        address wallet1 = factory.createAgentWallet(user1, 1, address(mockUSDC));
+        address wallet1 = factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         wallets = factory.getWalletsByOwner(user1);
         assertEq(wallets.length, 1);
         assertEq(wallets[0], wallet1);
 
         vm.prank(operator);
-        address wallet2 = factory.createAgentWallet(user1, 2, address(mockUSDC));
+        address wallet2 = factory.createAgentWallet(user1, 2, address(mockUsdc));
 
         wallets = factory.getWalletsByOwner(user1);
         assertEq(wallets.length, 2);
@@ -431,13 +419,13 @@ contract AgentWalletFactoryTest is Test {
         address[] memory expectedWallets = new address[](3);
 
         vm.prank(operator);
-        expectedWallets[0] = factory.createAgentWallet(user1, 1, address(mockUSDC));
+        expectedWallets[0] = factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(operator);
-        expectedWallets[1] = factory.createAgentWallet(user1, 2, address(mockUSDC));
+        expectedWallets[1] = factory.createAgentWallet(user1, 2, address(mockUsdc));
 
         vm.prank(operator);
-        expectedWallets[2] = factory.createAgentWallet(user2, 1, address(mockUSDC));
+        expectedWallets[2] = factory.createAgentWallet(user2, 1, address(mockUsdc));
 
         // Verify counter
         assertEq(factory.getWalletCounter(), 3);
@@ -447,7 +435,7 @@ contract AgentWalletFactoryTest is Test {
         assertEq(factory.getOwnerWalletCount(user2), 1);
 
         // Verify existence
-        for (uint i = 0; i < expectedWallets.length; i++) {
+        for (uint256 i = 0; i < expectedWallets.length; i++) {
             assertTrue(factory.walletExists(expectedWallets[i]));
         }
 
@@ -499,18 +487,18 @@ contract AgentWalletFactoryTest is Test {
         // Non-operator cannot create
         vm.prank(nonOperator);
         vm.expectRevert();
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         // Operator can create
         vm.prank(admin);
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         // Admin can also create (has all roles)
         vm.prank(admin);
-        factory.createAgentWallet(user1, 2, address(mockUSDC));
+        factory.createAgentWallet(user1, 2, address(mockUsdc));
     }
 
     function test_AccessControl_EventEmission() public {
@@ -536,7 +524,7 @@ contract AgentWalletFactoryTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(Pausable.EnforcedPause.selector));
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
     function test_UnpausedState_ResumeOperations() public {
@@ -548,12 +536,12 @@ contract AgentWalletFactoryTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(Pausable.EnforcedPause.selector));
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(admin);
         factory.unpause();
 
         vm.prank(operator);
-        factory.createAgentWallet(user1, 1, address(mockUSDC));
+        factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 }

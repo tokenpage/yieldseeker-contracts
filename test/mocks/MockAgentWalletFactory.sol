@@ -22,13 +22,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     mapping(address => address[]) private _ownerWallets;
 
     // Events
-    event WalletCreated(
-        address indexed owner,
-        uint256 indexed agentIndex,
-        address indexed wallet,
-        address baseAsset,
-        address implementation
-    );
+    event WalletCreated(address indexed owner, uint256 indexed agentIndex, address indexed wallet, address baseAsset, address implementation);
     event ImplementationUpdated(address indexed oldImplementation, address indexed newImplementation);
     event AdapterRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
     event FeeTrackerUpdated(address indexed oldTracker, address indexed newTracker);
@@ -46,28 +40,14 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     }
 
     /// @dev Compute deterministic wallet address using CREATE2
-    function computeWalletAddress(address owner, uint256 agentIndex, address baseAsset)
-        external
-        view
-        returns (address)
-    {
+    function computeWalletAddress(address owner, uint256 agentIndex, address baseAsset) external view returns (address) {
         bytes32 salt = keccak256(abi.encode(owner, agentIndex, baseAsset));
-        bytes32 hash = keccak256(abi.encodePacked(
-            bytes1(0xff),
-            address(this),
-            salt,
-            keccak256(abi.encode(agentWalletImplementation, owner, baseAsset))
-        ));
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(abi.encode(agentWalletImplementation, owner, baseAsset))));
         return address(uint160(uint256(hash)));
     }
 
     /// @dev Create agent wallet with mock deployment
-    function createAgentWallet(address owner, uint256 agentIndex, address baseAsset)
-        external
-        onlyOperator
-        whenNotPaused
-        returns (address wallet)
-    {
+    function createAgentWallet(address owner, uint256 agentIndex, address baseAsset) external onlyOperator whenNotPaused returns (address wallet) {
         if (owner == address(0)) {
             revert YieldSeekerErrors.ZeroAddress();
         }
@@ -99,10 +79,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     }
 
     /// @dev Set agent wallet implementation
-    function setAgentWalletImplementation(address newImplementation)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function setAgentWalletImplementation(address newImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newImplementation == address(0)) {
             revert YieldSeekerErrors.ZeroAddress();
         }

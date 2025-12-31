@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {Test} from "forge-std/Test.sol";
 
 // Real contracts (not mocks)
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 
 // Test utilities
-import "../mocks/MockERC20.sol";
-import "../mocks/MockERC4626.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockERC4626} from "../mocks/MockERC4626.sol";
 
 /// @title System Integration Tests
 /// @notice Simplified integration tests using real contracts working together
@@ -83,7 +83,7 @@ contract SystemIntegrationTest is Test {
 
     // ============ Basic System Integration Tests ============
 
-    function test_FullSystemSetup_Success() public {
+    function test_FullSystemSetup_Success() public view {
         // Verify all components are properly configured
         assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
 
@@ -117,11 +117,7 @@ contract SystemIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
 
         vm.prank(user);
-        bytes memory result = wallet.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            depositData
-        );
+        bytes memory result = wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Verify execution worked - handle double ABI encoding issue
         // The wallet returns bytes, and we need to decode the inner uint256
@@ -527,7 +523,7 @@ contract SystemIntegrationTest is Test {
 
     function test_WalletSync_UpdatesConfiguration() public {
         vm.prank(operator);
-        AgentWalletV1 wallet = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
 
         // Create new registry and fee tracker
         AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test} from "forge-std/Test.sol";
-import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerErrors} from "../../../src/Errors.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
+import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract ERC4626AdapterTest is Test {
     YieldSeekerERC4626Adapter adapter;
@@ -34,11 +34,7 @@ contract ERC4626AdapterTest is Test {
 
     function test_Execute_Deposit_Succeeds() public {
         uint256 amount = 1_000e6;
-        bytes memory result = wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.deposit.selector, amount)
-        );
+        bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, amount));
         uint256 shares = _decodeUint(result);
         assertEq(shares, amount);
         assertEq(vault.balanceOf(address(wallet)), amount);
@@ -48,11 +44,7 @@ contract ERC4626AdapterTest is Test {
 
     function test_Execute_DepositPercentage_UsesBalance() public {
         uint256 initialBalance = baseAsset.balanceOf(address(wallet));
-        bytes memory result = wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.depositPercentage.selector, uint256(2500))
-        );
+        bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.depositPercentage.selector, uint256(2500)));
         uint256 shares = _decodeUint(result);
         uint256 expectedAmount = (initialBalance * 2500) / 10_000;
         assertEq(shares, expectedAmount);
@@ -67,21 +59,13 @@ contract ERC4626AdapterTest is Test {
     function test_Execute_Deposit_InvalidAsset_Reverts() public {
         MockERC4626 badVault = new MockERC4626(address(altAsset), "Bad", "bALT");
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAddress.selector));
-        wallet.executeAdapter(
-            address(adapter),
-            address(badVault),
-            abi.encodeWithSelector(adapter.deposit.selector, 1e6)
-        );
+        wallet.executeAdapter(address(adapter), address(badVault), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 
     function test_Execute_Withdraw_Succeeds() public {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
         uint256 walletBalanceBefore = baseAsset.balanceOf(address(wallet));
-        bytes memory result = wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_200e6))
-        );
+        bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_200e6)));
         uint256 assetsReceived = _decodeUint(result);
         assertEq(assetsReceived, 1_200e6);
         assertEq(baseAsset.balanceOf(address(wallet)), walletBalanceBefore + assetsReceived);
@@ -92,11 +76,7 @@ contract ERC4626AdapterTest is Test {
 
     function test_Execute_WithdrawZeroShares_Reverts() public {
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAmount.selector));
-        wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.withdraw.selector, uint256(0))
-        );
+        wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(0)));
     }
 
     function test_FeeAccrual_OnProfitableWithdraw() public {
@@ -109,11 +89,7 @@ contract ERC4626AdapterTest is Test {
     function test_Deposit_PrecisionWithExistingShares() public {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         baseAsset.mint(address(vault), 1_000e6);
-        bytes memory result = wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.deposit.selector, 500e6)
-        );
+        bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 500e6));
         uint256 shares = _decodeUint(result);
         assertGe(shares, 250e6);
     }
@@ -121,11 +97,7 @@ contract ERC4626AdapterTest is Test {
     function test_Withdraw_PrecisionWithExistingShares() public {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
         baseAsset.mint(address(vault), 1_000e6);
-        bytes memory result = wallet.executeAdapter(
-            address(adapter),
-            address(vault),
-            abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6))
-        );
+        bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
         uint256 assets = _decodeUint(result);
         assertGt(assets, 1_000e6);
     }

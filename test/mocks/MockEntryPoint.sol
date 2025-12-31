@@ -6,15 +6,7 @@ pragma solidity 0.8.28;
 contract MockEntryPoint {
     mapping(address => uint256) public nonces;
 
-    event UserOperationEvent(
-        bytes32 indexed userOpHash,
-        address indexed sender,
-        address indexed paymaster,
-        uint256 nonce,
-        bool success,
-        uint256 actualGasCost,
-        uint256 actualGasUsed
-    );
+    event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed);
 
     function getNonce(address sender, uint192 key) external view returns (uint256) {
         return nonces[sender];

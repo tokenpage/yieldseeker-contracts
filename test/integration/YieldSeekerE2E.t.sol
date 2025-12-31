@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {Test} from "forge-std/Test.sol";
 
 // Real contracts
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 
 // Test utilities
-import "../mocks/MockERC20.sol";
-import "../mocks/MockERC4626.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockERC4626} from "../mocks/MockERC4626.sol";
 
 /// @title Yield Seeker System End-to-End Tests
 /// @notice Tests for realistic user workflows and system stress scenarios
@@ -88,11 +87,7 @@ contract YieldSeekerE2ETest is Test {
         // Step 2: User deposits initial capital
         usdc.mint(address(agent1), 50000e6);
         vm.prank(user1);
-        agent1.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (50000e6))
-        );
+        agent1.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (50000e6)));
 
         assertEq(vault.balanceOf(address(agent1)), 50000e6);
 
@@ -103,11 +98,7 @@ contract YieldSeekerE2ETest is Test {
         // Step 4: User deposits to second agent
         usdc.mint(address(agent2), 30000e6);
         vm.prank(user1);
-        agent2.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (30000e6))
-        );
+        agent2.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (30000e6)));
 
         // Verify both agents have deposits
         assertEq(vault.balanceOf(address(agent1)), 50000e6);
@@ -136,25 +127,13 @@ contract YieldSeekerE2ETest is Test {
 
         // Execute deposits
         vm.prank(user1);
-        agent1.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (10000e6))
-        );
+        agent1.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (10000e6)));
 
         vm.prank(user2);
-        agent2.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (20000e6))
-        );
+        agent2.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (20000e6)));
 
         vm.prank(user3);
-        agent3.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (15000e6))
-        );
+        agent3.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (15000e6)));
 
         // Total vault deposits = 45000
         // Each user's balance proportional to contribution
@@ -163,12 +142,7 @@ contract YieldSeekerE2ETest is Test {
         assertEq(vault.balanceOf(address(agent3)), 15000e6);
 
         // Total shares
-        assertEq(
-            vault.balanceOf(address(agent1)) +
-            vault.balanceOf(address(agent2)) +
-            vault.balanceOf(address(agent3)),
-            45000e6
-        );
+        assertEq(vault.balanceOf(address(agent1)) + vault.balanceOf(address(agent2)) + vault.balanceOf(address(agent3)), 45000e6);
     }
 
     function test_ComplexRebalancingStrategy() public {
@@ -180,11 +154,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Initial deposit
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (100000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (100000e6)));
 
         assertEq(vault.balanceOf(address(agent)), 100000e6);
 
@@ -193,11 +163,7 @@ contract YieldSeekerE2ETest is Test {
         uint256 sharesToKeep = vault.balanceOf(address(agent)) - sharesToWithdraw; // 60000
 
         vm.prank(user1);
-        bytes memory withdrawResult = agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.withdraw, (sharesToWithdraw))
-        );
+        bytes memory withdrawResult = agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (sharesToWithdraw)));
 
         // Decode withdrawal result
         bytes memory innerResult = abi.decode(withdrawResult, (bytes));
@@ -222,21 +188,13 @@ contract YieldSeekerE2ETest is Test {
         for (uint256 i = 0; i < 10; i++) {
             // Deposit 1000
             vm.prank(user1);
-            agent.executeViaAdapter(
-                address(vaultAdapter),
-                address(vault),
-                abi.encodeCall(vaultAdapter.deposit, (1000e6))
-            );
+            agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1000e6)));
 
             uint256 shares = vault.balanceOf(address(agent));
 
             // Withdraw all
             vm.prank(user1);
-            agent.executeViaAdapter(
-                address(vaultAdapter),
-                address(vault),
-                abi.encodeCall(vaultAdapter.withdraw, (shares))
-            );
+            agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (shares)));
         }
 
         // Final balance should be correct
@@ -253,11 +211,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Deposit entire balance
         vm.prank(user1);
-        bytes memory result = agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (100000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (100000e6)));
 
         // Verify all funds deployed
         assertEq(vault.balanceOf(address(agent)), 100000e6);
@@ -265,11 +219,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Full withdrawal
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.withdraw, (100000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (100000e6)));
 
         // Verify all funds recovered
         assertEq(vault.balanceOf(address(agent)), 0);
@@ -288,11 +238,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Deposit successfully
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (5000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (5000e6)));
 
         // Accidentally block adapter
         vm.prank(user1);
@@ -301,11 +247,7 @@ contract YieldSeekerE2ETest is Test {
         // Cannot deposit or withdraw
         vm.prank(user1);
         vm.expectRevert();
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (1000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1000e6)));
 
         // Recover by unblocking
         vm.prank(user1);
@@ -313,11 +255,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Can now operate again
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (3000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (3000e6)));
 
         assertEq(vault.balanceOf(address(agent)), 8000e6);
     }
@@ -330,11 +268,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Initial deposit works
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (5000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (5000e6)));
 
         // Registry gets paused (emergency)
         vm.prank(admin);
@@ -343,11 +277,7 @@ contract YieldSeekerE2ETest is Test {
         // Cannot execute
         vm.prank(user1);
         vm.expectRevert();
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (1000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1000e6)));
 
         // Admin unpauses
         vm.prank(admin);
@@ -355,11 +285,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Can operate again
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (3000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (3000e6)));
 
         assertEq(vault.balanceOf(address(agent)), 8000e6);
     }
@@ -376,20 +302,12 @@ contract YieldSeekerE2ETest is Test {
 
         // Only owner can execute
         vm.prank(user1);
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (5000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (5000e6)));
 
         // Non-owner cannot execute
         vm.prank(user2);
         vm.expectRevert();
-        agent.executeViaAdapter(
-            address(vaultAdapter),
-            address(vault),
-            abi.encodeCall(vaultAdapter.deposit, (1000e6))
-        );
+        agent.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1000e6)));
     }
 
     function test_AccessControl_BlockingIsOwnerPrerogative() public {

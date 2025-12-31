@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test} from "forge-std/Test.sol";
-import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerErrors} from "../../../src/Errors.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
+import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {Test} from "forge-std/Test.sol";
 
 contract MockZeroXTarget {
     address internal constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -26,10 +26,10 @@ contract MockZeroXTarget {
         if (shouldRevert) revert("swap failed");
         lastValue = msg.value;
         if (sellToken != NATIVE_TOKEN) {
-            MockERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount);
+            require(MockERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount), "TransferFrom failed");
         }
         uint256 buyAmount = configuredBuyAmount == 0 ? minBuyAmount : configuredBuyAmount;
-        MockERC20(buyToken).transfer(msg.sender, buyAmount);
+        require(MockERC20(buyToken).transfer(msg.sender, buyAmount), "Transfer failed");
     }
 }
 
@@ -93,13 +93,7 @@ contract ZeroXAdapterTest is Test {
 
     function test_Execute_Swap_RevertsOnZeroAmounts() public {
         bytes memory data = abi.encodeWithSelector(
-            adapter.swap.selector,
-            address(sellToken),
-            address(baseAsset),
-            uint256(0),
-            uint256(0),
-            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(0), uint256(0)),
-            uint256(0)
+            adapter.swap.selector, address(sellToken), address(baseAsset), uint256(0), uint256(0), abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(0), uint256(0)), uint256(0)
         );
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAmount.selector));
         wallet.executeAdapter(address(adapter), address(target), data);
