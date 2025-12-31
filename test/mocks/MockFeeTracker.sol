@@ -112,6 +112,9 @@ contract MockFeeTracker is AccessControl {
     }
 
     function recordAgentTokenSwap(address wallet, address token, uint256 swappedAmount, uint256 baseAssetReceived) external onlyRole(ADMIN_ROLE) {
+        // Guard against division by zero - can happen with broken/paused tokens
+        if (swappedAmount == 0) return;
+        
         uint256 feeTokenOwed = agentYieldTokenFeesOwed[wallet][token];
 
         if (feeTokenOwed > 0) {

@@ -555,4 +555,34 @@ contract FeeTrackerTest is Test {
         vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
         feeTracker.setFeeConfig(500, collector);
     }
+
+    // ============ Edge Case Tests ============
+
+    function test_TokenSwap_ZeroSwappedAmount_DoesNotRevert() public {
+        address yieldToken = makeAddr("yieldToken");
+        uint256 yieldAmount = 100e18;
+
+        // Record yield in token
+        vm.prank(admin);
+        feeTracker.recordAgentYieldTokenEarned(agent1, yieldToken, yieldAmount);
+
+        // Verify fees are tracked
+        uint256 tokenFees = feeTracker.getAgentYieldTokenFeesOwed(agent1, yieldToken);
+        uint256 expectedFee = (yieldAmount * DEFAULT_FEE_RATE) / BASIS_POINTS;
+        assertEq(tokenFees, expectedFee);
+
+        // Attempt swap with zero swappedAmount (e.g., paused/broken token)
+        // This should not revert, allowing transaction to proceed
+        vm.prank(admin);
+        feeTracker.recordAgentTokenSwap(agent1, yieldToken, 0, 100e6);
+
+        // Token fees should remain unchanged (no fee conversion happened)
+        uint256 tokenFeesAfter = feeTracker.getAgentYieldTokenFeesOwed(agent1, yieldToken);
+        assertEq(tokenFeesAfter, expectedFee, "Token fees should not change");
+
+        // Base asset fees should not increase
+        uint256 baseFees = feeTracker.getFeesOwed(agent1);
+        assertEq(baseFees, 0, "No base fees should be charged");
+    }
 }
+

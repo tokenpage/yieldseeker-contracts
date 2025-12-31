@@ -189,6 +189,10 @@ contract YieldSeekerFeeTracker is AccessControl {
      *      to base asset fees when the token is swapped.
      */
     function recordAgentTokenSwap(address swappedToken, uint256 swappedAmount, uint256 baseAssetReceived) external {
+        // Guard against division by zero - can happen with broken/paused tokens
+        // Allows swap to proceed without charging fees rather than reverting
+        if (swappedAmount == 0) return;
+        
         uint256 feeTokenOwed = agentYieldTokenFeesOwed[msg.sender][swappedToken];
         if (feeTokenOwed > 0) {
             // Determine how much of the fee-owed tokens are being swapped
