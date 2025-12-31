@@ -98,7 +98,7 @@ contract AgentWalletFactoryTest is Test {
         factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.WalletAlreadyExists.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AgentAlreadyExists.selector, user1, 1));
         factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 

@@ -105,40 +105,19 @@ contract AWKAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
-     * @notice Calculate the CREATE2 salt for a wallet
+     * @notice Deploy a new wallet proxy, validate preconditions, and register it
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner
-     * @return salt The CREATE2 salt
+     * @return ret The deployed wallet proxy
      */
-    function _calculateSalt(address owner, uint256 ownerAgentIndex) internal pure returns (bytes32) {
-        return keccak256(abi.encode(owner, ownerAgentIndex));
-    }
-
-    /**
-     * @notice Validate wallet creation preconditions
-     * @param owner The owner address for the wallet
-     * @param ownerAgentIndex Index of this agent for the owner
-     */
-    function _validateWalletCreation(address owner, uint256 ownerAgentIndex) internal view {
+    function _deployWallet(address owner, uint256 ownerAgentIndex) internal returns (AgentWallet ret) {
         if (owner == address(0)) revert AWKErrors.ZeroAddress();
         if (address(_agentWalletImplementation) == address(0)) revert AWKErrors.NoAgentWalletImplementationSet();
         if (address(adapterRegistry) == address(0)) revert AWKErrors.NoAdapterRegistrySet();
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AWKErrors.AgentAlreadyExists(owner, ownerAgentIndex);
-    }
-
-    /**
-     * @notice Create an AgentWallet for the given owner with deterministic CREATE2 address
-     * @param owner The owner address for the wallet
-     * @param ownerAgentIndex Index of this agent for the owner (enables multiple agents per owner)
-     * @return ret The deployed AgentWallet
-     */
-    function createAgentWallet(address owner, uint256 ownerAgentIndex) public virtual onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
-        _validateWalletCreation(owner, ownerAgentIndex);
-        bytes32 salt = _calculateSalt(owner, ownerAgentIndex);
+        bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new AWKAgentWalletProxy{salt: salt}()));
-        ret.initialize(owner, ownerAgentIndex);
         userWallets[owner][ownerAgentIndex] = address(ret);
-        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex);
     }
 
     /**
@@ -147,8 +126,8 @@ contract AWKAgentWalletFactory is AccessControlEnumerable {
      * @param ownerAgentIndex Index of this agent for the owner
      * @return The predicted wallet address
      */
-    function getAddress(address owner, uint256 ownerAgentIndex) public view virtual returns (address) {
-        bytes32 salt = _calculateSalt(owner, ownerAgentIndex);
+    function getAddress(address owner, uint256 ownerAgentIndex) public view returns (address) {
+        bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         return Create2.computeAddress(salt, keccak256(type(AWKAgentWalletProxy).creationCode));
     }
 }
