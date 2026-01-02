@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "./Errors.sol";
+import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
@@ -29,13 +30,13 @@ contract YieldSeekerFeeTracker is AccessControl {
     event FeeConfigUpdated(uint256 feeRateBps, address feeCollector);
 
     constructor(address admin) {
-        if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (admin == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_feeRateBps > MAX_FEE_RATE_BPS) revert YieldSeekerErrors.InvalidFeeRate();
-        if (_feeCollector == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (_feeCollector == address(0)) revert AWKErrors.ZeroAddress();
         feeRateBps = _feeRateBps;
         feeCollector = _feeCollector;
         emit FeeConfigUpdated(_feeRateBps, _feeCollector);

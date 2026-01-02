@@ -8,6 +8,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {AWKAgentWalletFactory, AWKAgentWalletProxy} from "./agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV1 as AWKAgentWallet} from "./agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 /**
@@ -31,8 +32,8 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
      * @param newFeeTracker The new tracker contract
      */
     function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(newFeeTracker) == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (address(newFeeTracker).code.length == 0) revert YieldSeekerErrors.NotAContract(address(newFeeTracker));
+        if (address(newFeeTracker) == address(0)) revert AWKErrors.ZeroAddress();
+        if (address(newFeeTracker).code.length == 0) revert AWKErrors.NotAContract(address(newFeeTracker));
         FeeTracker oldFeeTracker = feeTracker;
         feeTracker = newFeeTracker;
         emit TrackerUpdated(address(oldFeeTracker), address(newFeeTracker));
@@ -46,8 +47,8 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
      * @return ret The deployed AgentWallet
      */
     function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
-        if (baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(baseAsset);
+        if (baseAsset == address(0)) revert AWKErrors.ZeroAddress();
+        if (baseAsset.code.length == 0) revert AWKErrors.NotAContract(baseAsset);
         ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex))));
         ret.initialize(owner, ownerAgentIndex, baseAsset);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);

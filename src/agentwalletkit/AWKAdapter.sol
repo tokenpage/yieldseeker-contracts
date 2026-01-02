@@ -42,7 +42,7 @@ abstract contract AWKAdapter is IAWKAdapter {
      */
     function execute(address target, bytes calldata data) external payable virtual override returns (bytes memory);
 
-    function _agentWallet() internal view returns (IAWKAgentWallet) {
+    function _agentWallet() internal view virtual returns (IAWKAgentWallet) {
         return IAWKAgentWallet(address(this));
     }
 }

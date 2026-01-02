@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @title MockFeeTracker
@@ -27,7 +28,7 @@ contract MockFeeTracker is AccessControl {
 
     constructor(uint256 feeRate, address feeCollector) {
         if (feeCollector == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
             revert YieldSeekerErrors.InvalidFeeRate();
@@ -42,7 +43,7 @@ contract MockFeeTracker is AccessControl {
 
     function setFeeConfig(uint256 feeRate, address feeCollector) external onlyRole(ADMIN_ROLE) {
         if (feeCollector == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
             revert YieldSeekerErrors.InvalidFeeRate();
@@ -141,7 +142,7 @@ contract MockFeeTracker is AccessControl {
     // Access control override for custom error
     function _checkRole(bytes32 role, address account) internal view override {
         if (!hasRole(role, account)) {
-            revert YieldSeekerErrors.Unauthorized(account);
+            revert AWKErrors.Unauthorized(account);
         }
     }
 }

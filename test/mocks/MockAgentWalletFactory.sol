@@ -52,13 +52,13 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Create agent wallet with mock deployment
     function createAgentWallet(address owner, uint256 agentIndex, address baseAsset) external onlyOperator whenNotPaused returns (address wallet) {
         if (owner == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
         if (baseAsset == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
         if (!_isContract(baseAsset)) {
-            revert YieldSeekerErrors.NotAContract(baseAsset);
+            revert AWKErrors.NotAContract(baseAsset);
         }
 
         wallet = this.computeWalletAddress(owner, agentIndex, baseAsset);
@@ -81,7 +81,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set agent wallet implementation
     function setAgentWalletImplementation(address newImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newImplementation == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldImplementation = agentWalletImplementation;
@@ -93,7 +93,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set adapter registry
     function setAdapterRegistry(address newRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newRegistry == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldRegistry = adapterRegistry;
@@ -105,7 +105,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set fee tracker
     function setFeeTracker(address newTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newTracker == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldTracker = feeTracker;

@@ -8,6 +8,7 @@ import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {AWKAgentWalletV1} from "./agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
@@ -53,8 +54,8 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     }
 
     function _initializeYieldSeeker(address _owner, uint256 _ownerAgentIndex, address _baseAsset) internal onlyInitializing {
-        if (_baseAsset == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (_baseAsset.code.length == 0) revert YieldSeekerErrors.NotAContract(_baseAsset);
+        if (_baseAsset == address(0)) revert AWKErrors.ZeroAddress();
+        if (_baseAsset.code.length == 0) revert AWKErrors.NotAContract(_baseAsset);
 
         YieldSeekerStorageV1.Layout storage $ys = YieldSeekerStorageV1.layout();
         $ys.baseAsset = IERC20(_baseAsset);
@@ -124,12 +125,12 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      * @param amount Amount to withdraw
      */
     function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
         uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-        if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
+        if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
         asset.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
     }
@@ -139,7 +140,7 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      * @param recipient Address to send the base asset to
      */
     function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 asset = baseAsset();
         uint256 balance = asset.balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
@@ -156,8 +157,8 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
      */
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external override onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
 
@@ -165,10 +166,10 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
         if (asset == address(baseAsset())) {
             uint256 feesOwed = feeTracker().getFeesOwed(address(this));
             uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-            if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
+            if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
         } else {
             // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
-            if (balance < amount) revert YieldSeekerErrors.InsufficientBalance();
+            if (balance < amount) revert AWKErrors.InsufficientBalance();
         }
 
         token.safeTransfer(recipient, amount);
@@ -182,8 +183,8 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
      */
     function withdrawAllAssetToUser(address recipient, address asset) external override onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
         uint256 amount = balance;

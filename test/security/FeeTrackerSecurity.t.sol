@@ -7,6 +7,7 @@ import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1
 import {YieldSeekerErrors} from "../../src/Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";

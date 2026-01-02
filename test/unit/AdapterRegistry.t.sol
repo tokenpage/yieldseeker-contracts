@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @title AdapterRegistry Unit Tests
@@ -48,7 +49,7 @@ contract AdapterRegistryTest is Test {
 
     function test_RegisterAdapter_ZeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         registry.registerAdapter(address(0));
     }
 
@@ -56,7 +57,7 @@ contract AdapterRegistryTest is Test {
         address eoa = makeAddr("eoa");
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.NotAContract.selector, eoa));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, eoa));
         registry.registerAdapter(eoa);
     }
 
@@ -122,7 +123,7 @@ contract AdapterRegistryTest is Test {
         vm.startPrank(admin);
         registry.registerAdapter(adapter);
 
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         registry.setTargetAdapter(address(0), adapter);
         vm.stopPrank();
     }
@@ -132,7 +133,7 @@ contract AdapterRegistryTest is Test {
         address target = makeAddr("target");
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, adapter));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, adapter));
         registry.setTargetAdapter(target, adapter);
     }
 
@@ -228,7 +229,7 @@ contract AdapterRegistryTest is Test {
         address adapter = address(new MockAdapter());
 
         vm.prank(emergencyAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, adapter));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, adapter));
         registry.unregisterAdapter(adapter);
     }
 
@@ -286,7 +287,7 @@ contract AdapterRegistryTest is Test {
         address target = makeAddr("target");
 
         vm.prank(emergencyAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.TargetNotRegistered.selector, target));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TargetNotRegistered.selector, target));
         registry.removeTarget(target);
     }
 
@@ -665,7 +666,7 @@ contract AdapterRegistryTest is Test {
         assertEq(registry.getTargetAdapter(target1), adapter1);
 
         // Second operation should fail due to unregistered adapter
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, adapter2));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, adapter2));
         registry.setTargetAdapter(target2, adapter2);
         vm.stopPrank();
 

@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
 import {MockAgentWallet} from "../mocks/MockAgentWallet.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -234,7 +235,7 @@ contract AgentWalletV1Test is Test {
         bytes[] memory datas = new bytes[](2);
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidState.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InvalidState.selector));
         wallet.executeViaAdapterBatch(adapters, targets, datas);
     }
 
@@ -463,7 +464,7 @@ contract AgentWalletV1Test is Test {
         // Don't mint tokens to wallet
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
         wallet.withdrawTokenToUser(recipient, amount);
     }
 
@@ -508,7 +509,7 @@ contract AgentWalletV1Test is Test {
         // Don't give ETH to wallet
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
         wallet.withdrawEthToUser(recipient, amount);
     }
 
@@ -553,7 +554,7 @@ contract AgentWalletV1Test is Test {
 
         // Should only be able to withdraw 900 USDC (1000 - 100 fees)
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
         wallet.withdrawAssetToUser(recipient, address(mockAsset), amount);
 
         // Should succeed with withdrawable amount
@@ -580,13 +581,13 @@ contract AgentWalletV1Test is Test {
         mockAsset.mint(address(wallet), 1000e6);
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         wallet.withdrawAssetToUser(address(0), address(mockAsset), 1000e6);
     }
 
     function test_WithdrawAssetToUser_ZeroAsset() public {
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         wallet.withdrawAssetToUser(recipient, address(0), 1000e6);
     }
 
@@ -602,7 +603,7 @@ contract AgentWalletV1Test is Test {
         // Don't mint any tokens
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientBalance.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
         wallet.withdrawAssetToUser(recipient, address(mockAsset), 1000e6);
     }
 
@@ -642,13 +643,13 @@ contract AgentWalletV1Test is Test {
         mockAsset.mint(address(wallet), 1000e6);
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         wallet.withdrawAllAssetToUser(address(0), address(mockAsset));
     }
 
     function test_WithdrawAllAssetToUser_ZeroAsset() public {
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         wallet.withdrawAllAssetToUser(recipient, address(0));
     }
 

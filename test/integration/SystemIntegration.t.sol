@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts (not mocks)
@@ -253,7 +253,7 @@ contract SystemIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Unblock and retry
@@ -287,7 +287,7 @@ contract SystemIntegrationTest is Test {
 
         // Second execution should fail
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -346,7 +346,7 @@ contract SystemIntegrationTest is Test {
         // Wallet1 should fail to execute
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet1.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Wallet2 should succeed

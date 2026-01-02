@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -49,13 +50,13 @@ contract FeeTrackerTest is Test {
         address newCollector = makeAddr("newCollector");
 
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, nonAdmin));
         feeTracker.setFeeConfig(newFeeRate, newCollector);
     }
 
     function test_SetFeeConfig_ZeroCollector() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         feeTracker.setFeeConfig(500, address(0));
     }
 
@@ -97,7 +98,7 @@ contract FeeTrackerTest is Test {
 
     function test_RecordYield_OnlyAdmin() public {
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, nonAdmin));
         feeTracker.recordYield(agent1, 1000e6);
     }
 
@@ -532,7 +533,7 @@ contract FeeTrackerTest is Test {
 
         // Non-admin cannot record vault deposits
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, nonAdmin));
         feeTracker.recordAgentVaultShareDeposit(agent1, vault, 1000e6, 1000e18);
     }
 
@@ -545,14 +546,14 @@ contract FeeTrackerTest is Test {
 
         // Non-admin cannot record withdrawals
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, nonAdmin));
         feeTracker.recordAgentVaultShareWithdraw(agent1, vault, 500e18, 550e6);
     }
 
     function test_AccessControl_AdminOnly_SetFeeConfig() public {
         // Already tested in earlier tests, but adding explicit security test
         vm.prank(nonAdmin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.Unauthorized.selector, nonAdmin));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, nonAdmin));
         feeTracker.setFeeConfig(500, collector);
     }
 

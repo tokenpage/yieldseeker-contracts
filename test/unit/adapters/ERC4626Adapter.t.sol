@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerErrors} from "../../../src/Errors.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
@@ -52,13 +53,13 @@ contract ERC4626AdapterTest is Test {
     }
 
     function test_Execute_DepositZeroAmount_Reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAmount.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 0));
     }
 
     function test_Execute_Deposit_InvalidAsset_Reverts() public {
         MockERC4626 badVault = new MockERC4626(address(altAsset), "Bad", "bALT");
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.InvalidAddress.selector));
         wallet.executeAdapter(address(adapter), address(badVault), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 
@@ -75,7 +76,7 @@ contract ERC4626AdapterTest is Test {
     }
 
     function test_Execute_WithdrawZeroShares_Reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAmount.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(0)));
     }
 

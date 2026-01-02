@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerErrors} from "../../../src/Errors.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
@@ -95,7 +96,7 @@ contract ZeroXAdapterTest is Test {
         bytes memory data = abi.encodeWithSelector(
             adapter.swap.selector, address(sellToken), address(baseAsset), uint256(0), uint256(0), abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(0), uint256(0)), uint256(0)
         );
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAmount.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         wallet.executeAdapter(address(adapter), address(target), data);
     }
 

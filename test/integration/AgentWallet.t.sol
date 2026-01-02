@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
@@ -282,7 +283,7 @@ contract AgentWalletIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vault.deposit, (500e6, walletAddr));
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -364,7 +365,7 @@ contract AgentWalletIntegrationTest is Test {
 
         // Second execution should fail
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -827,7 +828,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -850,7 +851,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.TargetBlocked.selector, address(vault)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TargetBlocked.selector, address(vault)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -1189,7 +1190,7 @@ contract AgentWalletIntegrationTest is Test {
         // Try to withdraw all USDC via withdrawAssetToUser - should respect fees
         address recipient = makeAddr("recipient");
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.InsufficientBalance.selector);
+        vm.expectRevert(AWKErrors.InsufficientBalance.selector);
         wallet.withdrawAssetToUser(recipient, address(usdc), usdcBalance); // Should fail
 
         // Should be able to withdraw withdrawable amount (balance - fees)
@@ -1278,12 +1279,12 @@ contract AgentWalletIntegrationTest is Test {
 
         // Should revert on zero recipient
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(address(0), address(usdc), 100e6);
 
         // Should revert on zero asset
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(user, address(0), 100e6);
     }
 

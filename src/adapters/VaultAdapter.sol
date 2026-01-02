@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../Errors.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 /**
@@ -21,7 +21,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositInternal()
      */
     function deposit(uint256 amount) external pure returns (uint256 shares) {
-        revert YieldSeekerErrors.DirectCallForbidden();
+        revert AWKErrors.DirectCallForbidden();
     }
 
     /**
@@ -31,7 +31,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositPercentageInternal()
      */
     function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares) {
-        revert YieldSeekerErrors.DirectCallForbidden();
+        revert AWKErrors.DirectCallForbidden();
     }
 
     /**
@@ -51,7 +51,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev Implemented in base class - calculates amount and calls _depositInternal
      */
     function _depositPercentageInternal(address vault, uint256 percentageBps) internal returns (uint256 shares) {
-        if (percentageBps == 0 || percentageBps > 1e4) revert YieldSeekerErrors.InvalidPercentage(percentageBps);
+        if (percentageBps == 0 || percentageBps > 1e4) revert AWKErrors.InvalidPercentage(percentageBps);
         uint256 balance = _baseAsset().balanceOf(address(this));
         uint256 amount = (balance * percentageBps) / 1e4;
         return _depositInternal(vault, amount);
@@ -64,7 +64,7 @@ abstract contract YieldSeekerVaultAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _withdrawInternal()
      */
     function withdraw(uint256 shares) external pure returns (uint256 assets) {
-        revert YieldSeekerErrors.DirectCallForbidden();
+        revert AWKErrors.DirectCallForbidden();
     }
 
     /**

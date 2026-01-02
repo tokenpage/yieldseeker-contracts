@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
@@ -143,7 +143,7 @@ contract AdapterIntegrationTest is Test {
 
         // All operations on this adapter now fail
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter1)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter1)));
         wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         // Unblock and try again
