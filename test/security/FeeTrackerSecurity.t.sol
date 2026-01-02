@@ -78,6 +78,53 @@ contract FeeTrackerSecurityTest is Test {
         assertEq(feeTracker.getFeesOwed(address(wallet)), 20e6);
     }
 
+    function test_PartialWithdrawWithVaultTokenFees_DoesNotDoubleChargeProfit() public {
+        AgentWalletV1 wallet = _createWallet();
+        address vaultAddr = address(vault);
+
+        // Seed vault position
+        vm.prank(address(wallet));
+        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+
+        // Accrue vault shares as a reward token, creating fee liability of 100e6 shares
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldTokenEarned(vaultAddr, 1_000e6);
+
+        uint256 initialFees = feeTracker.getFeesOwed(address(wallet));
+
+        // Partial withdraw: spend 100e6 shares worth 120e6 assets, all of which are fee-designated
+        vm.prank(address(wallet));
+        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 100e6, 120e6);
+
+        uint256 finalFees = feeTracker.getFeesOwed(address(wallet));
+
+        // Only the fee conversion (120e6) should be charged; profit fee should not apply to fee-designated value
+        assertEq(finalFees - initialFees, 120e6);
+    }
+
+    function test_MixedRewardAndDepositShares_WithdrawalRetainsRemainingRewardShares() public {
+        AgentWalletV1 wallet = _createWallet();
+        address vaultAddr = address(vault);
+
+        // Deposit principal: 100 assets for 100 shares tracked in position
+        vm.prank(address(wallet));
+        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 100e6, 100e6);
+
+        // Receive 50 vault shares as rewards (tracked only as token fees, not as position shares)
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldTokenEarned(vaultAddr, 50e6);
+
+        // Withdraw 120 shares for 150 assets (spends all principal shares plus 20 reward shares)
+        vm.prank(address(wallet));
+        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 120e6, 150e6);
+
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), vaultAddr);
+
+        // FeeTracker only tracks fee-related positions, not total holdings; reward shares are not tracked
+        assertEq(costBasis, 0);
+        assertEq(shares, 0);
+    }
+
     function test_LossWithdrawalDoesNotChargeFees() public {
         AgentWalletV1 wallet = _createWallet();
         address vaultAddr = address(vault);

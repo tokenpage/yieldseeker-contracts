@@ -339,7 +339,6 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
     /**
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
-    // TODO(krishan711): do we need to upate itratively thorugh all the versions or is it fine to skip to latest?
     function upgradeToLatest() external onlyOwner {
         upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
         _syncFromFactory();

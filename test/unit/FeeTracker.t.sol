@@ -637,7 +637,7 @@ contract YieldSeekerFeeTrackerTest is Test {
         // Verify initial state
         (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(agent1, vault);
         assertEq(costBasis, 100e6, "Cost basis should be 100e6");
-        assertEq(shares, 100e18, "Tracked shares should be 100e18");
+        assertEq(shares, 100e18, "Tracked shares should only include deposit shares");
 
         uint256 feeOwnedShares = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
         assertEq(feeOwnedShares, 1e18, "Fee-owed shares should be 1e18 (10% of 10e18)");
@@ -703,7 +703,7 @@ contract YieldSeekerFeeTrackerTest is Test {
 
         // Expect the yield event
         vm.expectEmit(true, false, false, true);
-        emit YieldRecorded(agent1, 1e6, 0.1e6);  // profit=1, fee=0.1
+        emit YieldRecorded(agent1, 1e6, 0.1e6); // profit=1, fee=0.1
 
         vm.prank(agent1);
         feeTracker.recordAgentVaultShareWithdraw(vault, 10e18, 11e6);
@@ -757,11 +757,13 @@ contract YieldSeekerFeeTrackerTest is Test {
         uint256 feesAfter = feeTracker.getFeesOwed(agent1);
         uint256 totalFees = feesAfter - feesBefore;
 
-        // feeInBaseAsset = (13.2 * 0.2) / 12 = 0.22
-        // profit = 13.2 - 10 - 0.22 = 2.98
-        // fee = 2.98 * 10% = 0.298
-        // Total = 0.22 + 0.298 = 0.518
-        uint256 expectedTotal = 0.22e6 + 0.298e6;
+        // New calculation: only charge profit on deposit shares portion
+        // feeInBaseAsset = (13.2 * 0.2) / 12 = 0.22 USDC (fee on yield token)
+        // depositSharesValue = (13.2 * 10) / 12 = 11.0 USDC
+        // profit on deposit = 11.0 - 10.0 = 1.0 USDC
+        // profit fee = 1.0 * 10% = 0.1 USDC
+        // Total = 0.22 + 0.1 = 0.32 USDC
+        uint256 expectedTotal = 0.32e6;
 
         assertApproxEqAbs(totalFees, expectedTotal, 1e3, "Total fees should match calculation");
     }

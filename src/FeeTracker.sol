@@ -123,33 +123,42 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @param assetsReceived The amount of assets received
      */
     function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
-        uint256 totalShares = agentVaultShares[msg.sender][vault];
-        uint256 totalCostBasis = agentVaultCostBasis[msg.sender][vault];
-        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[msg.sender][vault];
+        if (sharesSpent == 0) return;
+        address wallet = msg.sender;
+        uint256 totalShares = agentVaultShares[wallet][vault];
+        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
+        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
         uint256 feeInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
-            // Handle cases where the vault token has been given to the agent as a reward (yield) and therefore has fees owed
+            // Convert fee-owed vault tokens into base asset fees
             uint256 feeTokenSwapped = sharesSpent > vaultTokenFeesOwed ? vaultTokenFeesOwed : sharesSpent;
-            agentYieldTokenFeesOwed[msg.sender][vault] = vaultTokenFeesOwed - feeTokenSwapped;
+            agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSwapped;
             feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
-            agentFeesCharged[msg.sender] += feeInBaseAsset;
-            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
+            agentFeesCharged[wallet] += feeInBaseAsset;
+            emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
         }
         if (sharesSpent > totalShares) {
-            if (totalCostBasis > 0 && assetsReceived > totalCostBasis + feeInBaseAsset) {
-                uint256 profit = assetsReceived - totalCostBasis - feeInBaseAsset;
-                _chargeFeesOnProfit(msg.sender, profit);
+            // Withdrawing more shares than deposits tracked - treat as full withdrawal
+            if (totalCostBasis > 0 && totalShares > 0) {
+                uint256 depositSharesValue = (assetsReceived * totalShares) / sharesSpent;
+                if (depositSharesValue > totalCostBasis) {
+                    uint256 profit = depositSharesValue - totalCostBasis;
+                    _chargeFeesOnProfit(wallet, profit);
+                }
             }
-            agentVaultCostBasis[msg.sender][vault] = 0;
-            agentVaultShares[msg.sender][vault] = 0;
+            agentVaultCostBasis[wallet][vault] = 0;
+            agentVaultShares[wallet][vault] = 0;
+            return;
         } else if (totalShares > 0) {
+            // Normal withdrawal within tracked deposits
             uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
-            if (assetsReceived > proportionalCost) {
-                uint256 profit = assetsReceived - proportionalCost;
-                _chargeFeesOnProfit(msg.sender, profit);
+            uint256 netAssets = assetsReceived - feeInBaseAsset;
+            if (netAssets > proportionalCost) {
+                uint256 profit = netAssets - proportionalCost;
+                _chargeFeesOnProfit(wallet, profit);
             }
-            agentVaultCostBasis[msg.sender][vault] = totalCostBasis - proportionalCost;
-            agentVaultShares[msg.sender][vault] = totalShares - sharesSpent;
+            agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
+            agentVaultShares[wallet][vault] = totalShares - sharesSpent;
         }
     }
 
