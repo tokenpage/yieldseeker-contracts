@@ -401,9 +401,9 @@ contract SystemIntegrationTest is Test {
 
         // Record multiple yield events from the wallet
         vm.startPrank(address(wallet));
-        feeTracker.recordYield(100e6);
-        feeTracker.recordYield(50e6);
-        feeTracker.recordYield(75e6);
+        feeTracker.recordAgentYieldEarned(100e6);
+        feeTracker.recordAgentYieldEarned(50e6);
+        feeTracker.recordAgentYieldEarned(75e6);
         vm.stopPrank();
 
         // Get total fees owed for the wallet

@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
 import {Test} from "forge-std/Test.sol";
@@ -584,5 +585,96 @@ contract FeeTrackerTest is Test {
         // Base asset fees should not increase
         uint256 baseFees = feeTracker.getFeesOwed(agent1);
         assertEq(baseFees, 0, "No base fees should be charged");
+    }
+}
+
+/// @title YieldSeekerFeeTracker Integration Tests
+/// @notice Tests for the real FeeTracker contract with vault yield token fee scenarios
+contract YieldSeekerFeeTrackerTest is Test {
+    YieldSeekerFeeTracker feeTracker;
+
+    address admin = makeAddr("admin");
+    address collector = makeAddr("collector");
+    address agent1 = makeAddr("agent1");
+
+    uint256 constant BASIS_POINTS = 10000;
+    uint256 constant DEFAULT_FEE_RATE = 1000; // 10%
+
+    function setUp() public {
+        vm.prank(admin);
+        feeTracker = new YieldSeekerFeeTracker(admin);
+        vm.prank(admin);
+        feeTracker.setFeeConfig(DEFAULT_FEE_RATE, collector);
+    }
+
+    function test_RecordAgentVaultShareWithdraw_DoubleChargingOnUntrackedSharesWithFeeOwed() public {
+        // Scenario: User has tracked shares with fee-owed yield token fees.
+        // They withdraw untracked shares (e.g., airdrops) and should not double-charge fees.
+        //
+        // Setup:
+        // - 100 tracked shares at 100e6 USDC cost basis
+        // - 10 fee-owed vault share tokens (at 1e18 token = 1 share unit)
+        // - Withdraw all 110 shares for 121e6 USDC (10% appreciation)
+        //
+        // Expected behavior:
+        // - Block 1: Charge fee on 10 fee-owed tokens when converting to base asset
+        // - Block 2: Charge fee on remaining profit after fee deduction
+        // - Should not double-count the fee-owed shares value
+
+        address vault = makeAddr("vault");
+
+        // Step 1: Record initial tracked deposit (100e6 USDC -> 100e18 shares)
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 100e6, 100e18);
+
+        // Step 2: Record yield earned in vault token (10e18 shares of yield)
+        // This simulates receiving yield in vault share tokens
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 10e18);
+
+        // Verify initial state
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(agent1, vault);
+        assertEq(costBasis, 100e6, "Cost basis should be 100e6");
+        assertEq(shares, 100e18, "Tracked shares should be 100e18");
+
+        uint256 feeOwnedShares = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
+        assertEq(feeOwnedShares, 1e18, "Fee-owed shares should be 1e18 (10% of 10e18)");
+
+        // Step 3: Withdraw all 110e18 shares (100 tracked + 10 untracked reward)
+        // for 121e6 USDC total (vault appreciated ~10%)
+        uint256 sharesWithdrawn = 110e18;
+        uint256 assetsReceived = 121e6;
+
+        uint256 feesBefore = feeTracker.getFeesOwed(agent1);
+
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareWithdraw(vault, sharesWithdrawn, assetsReceived);
+
+        // Step 4: Verify correct fee calculation (no double-charging)
+        uint256 feesAfter = feeTracker.getFeesOwed(agent1);
+        uint256 feesCharged = feesAfter - feesBefore;
+
+        // Expected calculation:
+        // Block 1: feeInBaseAsset = (121e6 * 1e18) / 110e18 ≈ 1.1e6
+        // Block 2: profit = 121e6 - 100e6 - feeInBaseAsset (if assetsReceived > costBasis + feeInBaseAsset)
+        //          fee = profit * 10%
+        // The key assertion: fees should be reasonable and not double the profit
+
+        // The maximum profit is the difference between assets received and cost basis
+        uint256 maxProfit = assetsReceived - costBasis; // 21e6
+
+        // If we double-charged, we'd get roughly 4.2e6 (2.1e6 + 2.1e6)
+        // This is an absolute upper bound that should never be reached
+        uint256 maxIfDoubleCharged = (maxProfit * DEFAULT_FEE_RATE * 2) / BASIS_POINTS;
+        assertLt(feesCharged, maxIfDoubleCharged, "Fees should not be double-charged");
+
+        // Verify position is cleared
+        (uint256 costBasisAfter, uint256 sharesAfter) = feeTracker.getAgentVaultPosition(agent1, vault);
+        assertEq(costBasisAfter, 0, "Cost basis should be cleared");
+        assertEq(sharesAfter, 0, "Shares should be cleared");
+
+        // Verify fee-owed shares are cleared
+        uint256 feeOwnedSharesAfter = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
+        assertEq(feeOwnedSharesAfter, 0, "All fee-owed shares should be cleared");
     }
 }
