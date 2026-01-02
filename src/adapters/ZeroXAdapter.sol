@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../Errors.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -47,7 +48,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
      * @dev This is a placeholder - actual execution happens via execute() -> _swapInternal()
      */
     function swap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes calldata swapCallData, uint256 value) external payable returns (uint256) {
-        revert YieldSeekerErrors.DirectCallForbidden();
+        revert AWKErrors.DirectCallForbidden();
     }
 
     /**
@@ -55,7 +56,7 @@ contract YieldSeekerZeroXAdapter is YieldSeekerAdapter {
      * @dev Runs in wallet context via delegatecall
      */
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal returns (uint256 buyAmount) {
-        if (sellAmount == 0 || minBuyAmount == 0) revert YieldSeekerErrors.ZeroAmount();
+        if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
         _requireBaseAsset(buyToken);
         // Security: For native ETH swaps, ignore the 'value' parameter from calldata and always send exactly sellAmount.
         // This prevents a malicious operator from oversending ETH (e.g., value=10 ETH but sellAmount=1 ETH),

@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "./Errors.sol";
+import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
@@ -29,26 +30,16 @@ contract YieldSeekerFeeTracker is AccessControl {
     event FeeConfigUpdated(uint256 feeRateBps, address feeCollector);
 
     constructor(address admin) {
-        if (admin == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (admin == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_feeRateBps > MAX_FEE_RATE_BPS) revert YieldSeekerErrors.InvalidFeeRate();
-        if (_feeCollector == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (_feeCollector == address(0)) revert AWKErrors.ZeroAddress();
         feeRateBps = _feeRateBps;
         feeCollector = _feeCollector;
         emit FeeConfigUpdated(_feeRateBps, _feeCollector);
-    }
-
-    /**
-     * @notice Record yield earned and calculate fees
-     * @param yieldAmount The amount of yield earned in base asset terms
-     */
-    function recordYield(uint256 yieldAmount) external {
-        uint256 fee = (yieldAmount * feeRateBps) / 1e4;
-        agentFeesCharged[msg.sender] += fee;
-        emit YieldRecorded(msg.sender, yieldAmount, fee);
     }
 
     /**
@@ -84,6 +75,28 @@ contract YieldSeekerFeeTracker is AccessControl {
         feesOwed = this.getFeesOwed(wallet);
     }
 
+    /**
+     * @notice Get vault position for a wallet
+     * @param wallet The wallet address
+     * @param vault The vault address
+     * @return costBasis The cost basis in the vault
+     * @return shares The vault shares held
+     */
+    function getAgentVaultPosition(address wallet, address vault) external view returns (uint256 costBasis, uint256 shares) {
+        costBasis = agentVaultCostBasis[wallet][vault];
+        shares = agentVaultShares[wallet][vault];
+    }
+
+    /**
+     * @notice Get yield token fees owed for a wallet
+     * @param wallet The wallet address
+     * @param token The token in which yield was earned
+     * @return feesOwed The amount of fees owed denominated in the token
+     */
+    function getAgentYieldTokenFeesOwed(address wallet, address token) external view returns (uint256 feesOwed) {
+        feesOwed = agentYieldTokenFeesOwed[wallet][token];
+    }
+
     // ============ Position Tracking ============
 
     /**
@@ -97,6 +110,12 @@ contract YieldSeekerFeeTracker is AccessControl {
         agentVaultShares[msg.sender][vault] += sharesReceived;
     }
 
+    function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
+        uint256 fee = (profit * feeRateBps) / 1e4;
+        agentFeesCharged[wallet] += fee;
+        emit YieldRecorded(wallet, profit, fee);
+    }
+
     /**
      * @notice Record a vault share withdrawal and calculate yield
      * @param vault The vault address
@@ -104,56 +123,43 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @param assetsReceived The amount of assets received
      */
     function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
-        // Handle vault share rewards: if we have yield token fees owed for this vault,
-        // we're effectively converting those vault share fees to base asset
-        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[msg.sender][vault];
+        if (sharesSpent == 0) return;
+        address wallet = msg.sender;
+        uint256 totalShares = agentVaultShares[wallet][vault];
+        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
+        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
+        uint256 feeInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
-            // Determine how much of the fee-owed vault shares are being withdrawn
+            // Convert fee-owed vault tokens into base asset fees
             uint256 feeTokenSwapped = sharesSpent > vaultTokenFeesOwed ? vaultTokenFeesOwed : sharesSpent;
-            // Deduct from the tracked fee owed in vault shares
-            agentYieldTokenFeesOwed[msg.sender][vault] = vaultTokenFeesOwed - feeTokenSwapped;
-            // Calculate the fee in base asset terms (proportional to amount withdrawn)
-            uint256 feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
-            agentFeesCharged[msg.sender] += feeInBaseAsset;
-            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
+            agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSwapped;
+            feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
+            agentFeesCharged[wallet] += feeInBaseAsset;
+            emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
         }
-        // Handle normal vault position profit/loss tracking
-        uint256 totalShares = agentVaultShares[msg.sender][vault];
-        uint256 totalCostBasis = agentVaultCostBasis[msg.sender][vault];
-        // Handle case where shares were received outside adapter system (direct transfers, airdrops, etc)
-        // This prevents underflow and allows users to always withdraw their shares
         if (sharesSpent > totalShares) {
-            // Withdrawing more shares than tracked - treat excess as zero-cost-basis
-            // Only calculate proportional cost for the tracked shares
-            uint256 costOfTrackedShares = totalCostBasis; // All tracked shares being withdrawn
-
-            if (totalShares > 0 && assetsReceived > costOfTrackedShares) {
-                // Calculate profit only from the tracked portion
-                uint256 profit = assetsReceived - costOfTrackedShares;
-                uint256 fee = (profit * feeRateBps) / 1e4;
-                agentFeesCharged[msg.sender] += fee;
-                emit YieldRecorded(msg.sender, profit, fee);
+            // Withdrawing more shares than deposits tracked - treat as full withdrawal
+            if (totalCostBasis > 0 && totalShares > 0) {
+                uint256 depositSharesValue = (assetsReceived * totalShares) / sharesSpent;
+                if (depositSharesValue > totalCostBasis) {
+                    uint256 profit = depositSharesValue - totalCostBasis;
+                    _chargeFeesOnProfit(wallet, profit);
+                }
             }
-
-            // Clear position completely
-            agentVaultCostBasis[msg.sender][vault] = 0;
-            agentVaultShares[msg.sender][vault] = 0;
+            agentVaultCostBasis[wallet][vault] = 0;
+            agentVaultShares[wallet][vault] = 0;
             return;
+        } else if (totalShares > 0) {
+            // Normal withdrawal within tracked deposits
+            uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
+            uint256 netAssets = assetsReceived - feeInBaseAsset;
+            if (netAssets > proportionalCost) {
+                uint256 profit = netAssets - proportionalCost;
+                _chargeFeesOnProfit(wallet, profit);
+            }
+            agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
+            agentVaultShares[wallet][vault] = totalShares - sharesSpent;
         }
-
-        // Normal case: withdrawing tracked shares
-        if (totalShares == 0) return;
-        uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
-        if (assetsReceived > proportionalCost) {
-            uint256 profit = assetsReceived - proportionalCost;
-            uint256 fee = (profit * feeRateBps) / 1e4;
-            agentFeesCharged[msg.sender] += fee;
-            emit YieldRecorded(msg.sender, profit, fee);
-        }
-        // Use proportional cost basis accounting to prevent double-charging fees.
-        // This ensures the cost basis model is consistent with profit calculation.
-        agentVaultCostBasis[msg.sender][vault] = totalCostBasis - proportionalCost;
-        agentVaultShares[msg.sender][vault] = totalShares - sharesSpent;
     }
 
     /**
@@ -202,27 +208,5 @@ contract YieldSeekerFeeTracker is AccessControl {
             agentFeesCharged[msg.sender] += feeInBaseAsset;
             emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
         }
-    }
-
-    /**
-     * @notice Get vault position for a wallet
-     * @param wallet The wallet address
-     * @param vault The vault address
-     * @return costBasis The cost basis in the vault
-     * @return shares The vault shares held
-     */
-    function getAgentVaultPosition(address wallet, address vault) external view returns (uint256 costBasis, uint256 shares) {
-        costBasis = agentVaultCostBasis[wallet][vault];
-        shares = agentVaultShares[wallet][vault];
-    }
-
-    /**
-     * @notice Get yield token fees owed for a wallet
-     * @param wallet The wallet address
-     * @param token The token in which yield was earned
-     * @return feesOwed The amount of fees owed denominated in the token
-     */
-    function getAgentYieldTokenFeesOwed(address wallet, address token) external view returns (uint256 feesOwed) {
-        feesOwed = agentYieldTokenFeesOwed[wallet][token];
     }
 }

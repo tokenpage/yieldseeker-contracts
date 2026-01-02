@@ -6,13 +6,13 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {IYieldSeekerAdapter} from "../../src/adapters/IAdapter.sol";
+import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
 import {Test} from "forge-std/Test.sol";
 
-contract ReenterExecuteAdapter is IYieldSeekerAdapter {
+contract ReenterExecuteAdapter is IAWKAdapter {
     function execute(address target, bytes calldata data) external payable returns (bytes memory) {
         // Attempt to re-enter wallet execution; should revert due to onlyExecutors
         AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));
@@ -21,7 +21,7 @@ contract ReenterExecuteAdapter is IYieldSeekerAdapter {
     }
 }
 
-contract ReenterWithdrawAdapter is IYieldSeekerAdapter {
+contract ReenterWithdrawAdapter is IAWKAdapter {
     function execute(address target, bytes calldata) external payable returns (bytes memory) {
         // Attempt to withdraw during adapter call; should revert due to onlyOwner
         AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));

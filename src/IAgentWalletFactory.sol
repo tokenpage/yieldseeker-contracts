@@ -1,24 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
+import {IAWKAgentWalletFactory} from "./agentwalletkit/IAWKAgentWalletFactory.sol";
 
 /**
  * @title IAgentWalletFactory
  * @notice Interface for the YieldSeeker agent wallet factory
- * @dev Used by wallets to sync configuration from the factory
+ * @dev Extends AWK factory interface with YieldSeeker-specific fee tracker
  */
-interface IAgentWalletFactory {
-    /// @notice Get the current approved wallet implementation
-    function agentWalletImplementation() external view returns (address);
-
-    /// @notice Get the adapter registry contract
-    function adapterRegistry() external view returns (AdapterRegistry);
-
+interface IAgentWalletFactory is IAWKAgentWalletFactory {
     /// @notice Get the fee tracker contract
     function feeTracker() external view returns (FeeTracker);
-
-    /// @notice Get all registered agent operators
-    function listAgentOperators() external view returns (address[] memory);
 }

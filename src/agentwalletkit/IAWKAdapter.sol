@@ -2,10 +2,10 @@
 pragma solidity 0.8.28;
 
 /**
- * @title IYieldSeekerAdapter
- * @notice Standard interface for all YieldSeeker adapters.
+ * @title IAWKAdapter
+ * @notice Standard interface for all AWK adapters.
  */
-interface IYieldSeekerAdapter {
+interface IAWKAdapter {
     /**
      * @notice Standard entry point for all adapter logic
      * @param target The contract the adapter will interact with (e.g., a vault or swap router)

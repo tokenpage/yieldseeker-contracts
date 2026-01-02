@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
@@ -83,7 +83,7 @@ contract MockAgentWallet {
     /// @dev Batch execute via adapters
     function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external view onlyOwner returns (bytes[] memory results) {
         if (adapters.length != targets.length || targets.length != datas.length) {
-            revert YieldSeekerErrors.InvalidState();
+            revert AWKErrors.InvalidState();
         }
 
         results = new bytes[](adapters.length);
@@ -135,8 +135,8 @@ contract MockAgentWallet {
 
     /// @dev Withdraw specific asset to user
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
 
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
@@ -145,10 +145,10 @@ contract MockAgentWallet {
         if (asset == baseAsset) {
             uint256 feesOwed = feeTracker.getFeesOwed(address(this));
             uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-            if (withdrawable < amount) revert YieldSeekerErrors.InsufficientBalance();
+            if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
         } else {
             // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
-            if (balance < amount) revert YieldSeekerErrors.InsufficientBalance();
+            if (balance < amount) revert AWKErrors.InsufficientBalance();
         }
 
         if (amount > 0) {
@@ -159,8 +159,8 @@ contract MockAgentWallet {
 
     /// @dev Withdraw all of a specific asset to user
     function withdrawAllAssetToUser(address recipient, address asset) external onlyOwner {
-        if (recipient == address(0)) revert YieldSeekerErrors.ZeroAddress();
-        if (asset == address(0)) revert YieldSeekerErrors.ZeroAddress();
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
 
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
@@ -182,7 +182,7 @@ contract MockAgentWallet {
     function withdrawTokenToUser(address recipient, uint256 amount) external onlyOwner {
         IERC20 token = IERC20(baseAsset);
         if (token.balanceOf(address(this)) < amount) {
-            revert YieldSeekerErrors.InsufficientBalance();
+            revert AWKErrors.InsufficientBalance();
         }
 
         if (amount > 0) {
@@ -195,7 +195,7 @@ contract MockAgentWallet {
     /// @dev Withdraw ETH to user
     function withdrawEthToUser(address recipient, uint256 amount) external onlyOwner {
         if (address(this).balance < amount) {
-            revert YieldSeekerErrors.InsufficientBalance();
+            revert AWKErrors.InsufficientBalance();
         }
 
         if (amount > 0) {

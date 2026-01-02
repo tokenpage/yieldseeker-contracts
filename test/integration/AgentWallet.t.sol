@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
@@ -15,10 +16,10 @@ import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ER
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
 
 // Test utilities
+import {MockAgentWalletV2} from "../mocks/MockAgentWalletV2.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
-import {MockAgentWalletV2} from "../mocks/MockAgentWalletV2.sol";
 
 // Mock Merkl Distributor for testing reward claims
 contract MockMerklDistributor {
@@ -282,7 +283,7 @@ contract AgentWalletIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vault.deposit, (500e6, walletAddr));
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -364,7 +365,7 @@ contract AgentWalletIntegrationTest is Test {
 
         // Second execution should fail
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -827,7 +828,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -850,7 +851,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.TargetBlocked.selector, address(vault)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TargetBlocked.selector, address(vault)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -984,7 +985,7 @@ contract AgentWalletIntegrationTest is Test {
 
         usdc.mint(user, 10e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 10e6);
+        require(usdc.transfer(walletAddr, 10e6), "Transfer failed");
 
         assertEq(usdc.balanceOf(walletAddr), 10e6, "Wallet should have 10 USDC");
 
@@ -1013,7 +1014,7 @@ contract AgentWalletIntegrationTest is Test {
         uint256 rewardShareAmount = 1e6; // 1 USDC worth of shares (1:1 ratio)
 
         // Transfer shares to merkl distributor so it can distribute them
-        vaultB.transfer(address(merklDistributor), rewardShareAmount);
+        require(vaultB.transfer(address(merklDistributor), rewardShareAmount), "Transfer failed");
 
         // Prepare Merkl claim for vault B shares
         address[] memory users = new address[](1);
@@ -1099,7 +1100,7 @@ contract AgentWalletIntegrationTest is Test {
 
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1120,7 +1121,7 @@ contract AgentWalletIntegrationTest is Test {
         usdc.mint(address(this), 500e6);
         usdc.approve(address(vault), 500e6);
         vault.deposit(500e6, address(this)); // Get vault shares
-        vault.transfer(walletAddr, 500e6); // Direct transfer to wallet
+        require(vault.transfer(walletAddr, 500e6), "Transfer failed"); // Direct transfer to wallet
 
         console.log("\n=== After Step 2: Direct transfer of 500 vault shares ===");
         console.log("Actual vault shares:", vault.balanceOf(walletAddr));
@@ -1164,7 +1165,7 @@ contract AgentWalletIntegrationTest is Test {
         // Give wallet 1000 USDC and deposit into vault
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1189,7 +1190,7 @@ contract AgentWalletIntegrationTest is Test {
         // Try to withdraw all USDC via withdrawAssetToUser - should respect fees
         address recipient = makeAddr("recipient");
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.InsufficientBalance.selector);
+        vm.expectRevert(AWKErrors.InsufficientBalance.selector);
         wallet.withdrawAssetToUser(recipient, address(usdc), usdcBalance); // Should fail
 
         // Should be able to withdraw withdrawable amount (balance - fees)
@@ -1210,7 +1211,7 @@ contract AgentWalletIntegrationTest is Test {
         // Give wallet 1000 USDC and deposit into vault
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1242,31 +1243,31 @@ contract AgentWalletIntegrationTest is Test {
         assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
     }
 
-    function test_WithdrawAssetToUser_NonBaseAsset_AllowsRecovery() public {
-        // Test that withdrawing non-baseAsset tokens allows full recovery (griefing scenario)
+    function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
+        // Test that withdrawing non-baseAsset tokens is now blocked to prevent fee bypass
         address walletAddr = factory.getAddress(user, AGENT_INDEX);
 
         // Create a different token that will be the "wrong" baseAsset
         MockERC20 wrongToken = new MockERC20("Wrong Token", "WRONG");
 
-        // Operator creates wallet with wrong baseAsset (griefing attack)
+        // Operator creates wallet with wrong baseAsset
         vm.prank(operator);
         AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(wrongToken))));
 
-        // User accidentally sends USDC to this wallet (thinking it's their USDC wallet)
+        // User accidentally sends USDC to this wallet
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
-        // User realizes the wallet has wrong baseAsset and wants to recover USDC
-        // withdrawAssetToUser should allow recovery without charging fees
+        // User tries to recover USDC but it's not the baseAsset, so it reverts
         address recipient = makeAddr("recipient");
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAsset.selector));
         wallet.withdrawAssetToUser(recipient, address(usdc), 1000e6);
 
-        assertEq(usdc.balanceOf(recipient), 1000e6, "Should recover all USDC");
-        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no USDC left");
-        assertEq(feeTracker.getFeesOwed(walletAddr), 0, "Should not charge any fees");
+        // USDC remains in wallet (recovery requires different mechanism)
+        assertEq(usdc.balanceOf(recipient), 0, "Should not have received USDC");
+        assertEq(usdc.balanceOf(walletAddr), 1000e6, "Wallet should still have USDC");
     }
 
     function test_WithdrawAssetToUser_RevertsOnZeroAddress() public {
@@ -1278,12 +1279,12 @@ contract AgentWalletIntegrationTest is Test {
 
         // Should revert on zero recipient
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(address(0), address(usdc), 100e6);
 
         // Should revert on zero asset
         vm.prank(user);
-        vm.expectRevert(YieldSeekerErrors.ZeroAddress.selector);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(user, address(0), 100e6);
     }
 
@@ -1300,7 +1301,7 @@ contract AgentWalletIntegrationTest is Test {
         uint256 userBalanceBefore = usdc.balanceOf(user);
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1398,8 +1399,7 @@ contract AgentWalletIntegrationTest is Test {
         assertEq(vault.balanceOf(walletAddr), sharesAfterDeposit, "Vault shares should be preserved");
 
         // Verify position tracking is preserved
-        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) =
-            feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(costBasisAfterUpgrade, costBasis, "Cost basis should be preserved");
         assertEq(trackedSharesAfterUpgrade, trackedShares, "Tracked shares should be preserved");
 
@@ -1439,12 +1439,7 @@ contract AgentWalletIntegrationTest is Test {
         console.log("User received (delta):", usdc.balanceOf(user) - userBalanceBefore);
 
         // Verify user got the right amount (principal + profit - fees)
-        assertApproxEqAbs(
-            usdc.balanceOf(user) - userBalanceBefore,
-            1090e6,
-            100,
-            "User should receive ~1090 USDC (1100 - 10 fees)"
-        );
+        assertApproxEqAbs(usdc.balanceOf(user) - userBalanceBefore, 1090e6, 100, "User should receive ~1090 USDC (1100 - 10 fees)");
 
         // Verify fees remain in wallet
         assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have ~10 USDC fees remaining");
@@ -1559,7 +1554,7 @@ contract AgentWalletIntegrationTest is Test {
         // Step 9: Verify V1 functionality still works (deposit to vault)
         usdc.mint(user2, 500e6);
         vm.prank(user2);
-        usdc.transfer(walletAddr, 500e6);
+        require(usdc.transfer(walletAddr, 500e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
         vm.prank(user2);

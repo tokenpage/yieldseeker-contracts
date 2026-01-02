@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../Errors.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -54,7 +54,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
      * @dev Runs in wallet context via delegatecall
      */
     function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
-        if (amount == 0) revert YieldSeekerErrors.ZeroAmount();
+        if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         IERC20(asset).forceApprove(vault, amount);
@@ -68,7 +68,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
      * @dev Runs in wallet context via delegatecall
      */
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        if (shares == 0) revert YieldSeekerErrors.ZeroAmount();
+        if (shares == 0) revert AWKErrors.ZeroAmount();
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         assets = IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});

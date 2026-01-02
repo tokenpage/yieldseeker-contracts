@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
@@ -143,7 +143,7 @@ contract AdapterIntegrationTest is Test {
 
         // All operations on this adapter now fail
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.AdapterBlocked.selector, address(vaultAdapter1)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter1)));
         wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
 
         // Unblock and try again
@@ -322,5 +322,40 @@ contract AdapterIntegrationTest is Test {
         wallet.executeViaAdapter(address(newAdapter), address(newVault), abi.encodeCall(newAdapter.deposit, (2000e6)));
 
         assertEq(newVault.balanceOf(address(wallet)), 2000e6);
+    }
+
+    function test_ERC4626_DepositThenAppreciateThenWithdraw_ChargesFees() public {
+        // Create wallet and fund with 10 USDC
+        vm.prank(operator);
+        AgentWalletV1 wallet = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        usdc.mint(address(wallet), 10e6);
+
+        // Deposit 10 USDC via adapter (expect 10 shares minted)
+        vm.prank(user);
+        bytes memory depositResult = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (10e6)));
+        bytes memory depositInner = abi.decode(depositResult, (bytes));
+        uint256 sharesMinted = abi.decode(depositInner, (uint256));
+        assertEq(sharesMinted, 10e6, "Should mint 10 shares for 10 USDC");
+
+        // Simulate yield: vault grows by 1 USDC
+        usdc.mint(address(vault1), 1e6);
+
+        // Withdraw all shares; assets should be 11 USDC after growth
+        uint256 feesBefore = feeTracker.getFeesOwed(address(wallet));
+
+        vm.prank(user);
+        bytes memory withdrawResult = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.withdraw, (10e6)));
+        bytes memory withdrawInner = abi.decode(withdrawResult, (bytes));
+        uint256 assetsReceived = abi.decode(withdrawInner, (uint256));
+        assertEq(assetsReceived, 11e6, "Should withdraw 11 USDC after appreciation");
+
+        uint256 feesAfter = feeTracker.getFeesOwed(address(wallet));
+        uint256 feesCharged = feesAfter - feesBefore;
+
+        // Profit = 1 USDC, fee at 10% should be 0.1 USDC
+        assertEq(feesCharged, 0.1e6, "Should charge 0.1 USDC fee on 1 USDC profit");
+
+        // Position should be cleared
+        assertEq(vault1.balanceOf(address(wallet)), 0, "Shares should be zero after full withdrawal");
     }
 }

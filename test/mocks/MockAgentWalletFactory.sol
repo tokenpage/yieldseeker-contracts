@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
@@ -51,22 +51,19 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Create agent wallet with mock deployment
     function createAgentWallet(address owner, uint256 agentIndex, address baseAsset) external onlyOperator whenNotPaused returns (address wallet) {
         if (owner == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
         if (baseAsset == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
-        }
-        if (agentIndex == 0) {
-            revert YieldSeekerErrors.InvalidAgentIndex();
+            revert AWKErrors.ZeroAddress();
         }
         if (!_isContract(baseAsset)) {
-            revert YieldSeekerErrors.InvalidAsset();
+            revert AWKErrors.NotAContract(baseAsset);
         }
 
         wallet = this.computeWalletAddress(owner, agentIndex, baseAsset);
 
         if (_walletExists[wallet]) {
-            revert YieldSeekerErrors.WalletAlreadyExists();
+            revert AWKErrors.AgentAlreadyExists(owner, agentIndex);
         }
 
         // Mock wallet creation (in real implementation, this would deploy via CREATE2)
@@ -83,7 +80,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set agent wallet implementation
     function setAgentWalletImplementation(address newImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newImplementation == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldImplementation = agentWalletImplementation;
@@ -95,7 +92,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set adapter registry
     function setAdapterRegistry(address newRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newRegistry == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldRegistry = adapterRegistry;
@@ -107,7 +104,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Set fee tracker
     function setFeeTracker(address newTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newTracker == address(0)) {
-            revert YieldSeekerErrors.ZeroAddress();
+            revert AWKErrors.ZeroAddress();
         }
 
         address oldTracker = feeTracker;
@@ -165,7 +162,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Only reverts if we're at the limit AND trying to add a new operator
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
         if (role == OPERATOR_ROLE && _operatorCount >= MAX_OPERATORS && !hasRole(role, account)) {
-            revert YieldSeekerErrors.TooManyOperators();
+            revert AWKErrors.TooManyOperators();
         }
         bool granted = super._grantRole(role, account);
         if (granted && role == OPERATOR_ROLE) {

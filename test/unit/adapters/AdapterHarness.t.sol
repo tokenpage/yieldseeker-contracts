@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IAgentWallet} from "../../../src/IAgentWallet.sol";
-import {IYieldSeekerAdapter} from "../../../src/adapters/IAdapter.sol";
+import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title AdapterWalletHarness
@@ -27,7 +27,7 @@ contract AdapterWalletHarness is IAgentWallet {
 
     /// @notice Execute adapter logic via delegatecall
     function executeAdapter(address adapter, address target, bytes memory data) external returns (bytes memory) {
-        (bool ok, bytes memory res) = adapter.delegatecall(abi.encodeWithSelector(IYieldSeekerAdapter.execute.selector, target, data));
+        (bool ok, bytes memory res) = adapter.delegatecall(abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data));
         if (!ok) {
             assembly {
                 revert(add(res, 0x20), mload(res))

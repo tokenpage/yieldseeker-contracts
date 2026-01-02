@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
 import {MockAgentWalletFactory} from "../mocks/MockAgentWalletFactory.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -98,7 +99,7 @@ contract AgentWalletFactoryTest is Test {
         factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.WalletAlreadyExists.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AgentAlreadyExists.selector, user1, 1));
         factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
@@ -228,15 +229,15 @@ contract AgentWalletFactoryTest is Test {
 
     function test_SetConfiguration_ZeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.setAgentWalletImplementation(address(0));
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.setAdapterRegistry(address(0));
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.setFeeTracker(address(0));
     }
 
@@ -253,7 +254,7 @@ contract AgentWalletFactoryTest is Test {
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.createAgentWallet(address(0), 1, address(mockUsdc));
     }
 
@@ -262,7 +263,7 @@ contract AgentWalletFactoryTest is Test {
         factory.grantRole(OPERATOR_ROLE, operator);
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.createAgentWallet(user1, 1, address(0));
     }
 
@@ -273,17 +274,8 @@ contract AgentWalletFactoryTest is Test {
         address eoa = makeAddr("eoa");
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAsset.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, eoa));
         factory.createAgentWallet(user1, 1, eoa);
-    }
-
-    function test_CreateWallet_InvalidAgentIndex() public {
-        vm.prank(admin);
-        factory.grantRole(OPERATOR_ROLE, operator);
-
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAgentIndex.selector));
-        factory.createAgentWallet(user1, 0, address(mockUsdc));
     }
 
     function test_CreateWallet_MaxGasUsage() public {
@@ -566,7 +558,7 @@ contract AgentWalletFactoryTest is Test {
         // Trying to add a NEW operator should still revert
         address newOperatorAtLimit = makeAddr("newOperatorAtLimit");
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.TooManyOperators.selector));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TooManyOperators.selector));
         factory.grantRole(OPERATOR_ROLE, newOperatorAtLimit);
     }
 }
