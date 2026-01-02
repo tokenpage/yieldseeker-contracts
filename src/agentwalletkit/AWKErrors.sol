@@ -83,9 +83,6 @@ library AWKErrors {
     /// @notice Thrown when the registry configuration is invalid
     error InvalidRegistry();
 
-    /// @notice Thrown when the fee tracker configuration is invalid
-    error InvalidFeeTracker();
-
     // ============ Factory Errors ============
 
     /// @notice Thrown when an agent already exists for owner/index combination
@@ -104,37 +101,4 @@ library AWKErrors {
 
     /// @notice Thrown when trying to add too many operators
     error TooManyOperators();
-
-    /// @notice Thrown when a wallet already exists for the same owner/index
-    error WalletAlreadyExists();
-
-    /// @notice Thrown when an invalid agent index is provided (zero or negative)
-    error InvalidAgentIndex();
-
-    /// @notice Thrown when an invalid asset is provided (not a contract)
-    error InvalidAsset();
-
-    // ============ Fee Errors ============
-
-    /// @notice Thrown when an invalid fee rate is provided
-    error InvalidFeeRate();
-
-    // ============ Swap Errors ============
-
-    /// @notice Thrown when the allowance target is invalid
-    error InvalidAllowanceTarget();
-
-    /// @notice Thrown when a swap operation fails
-    /// @param reason The revert reason from the swap
-    error SwapFailed(bytes reason);
-
-    /// @notice Thrown when swap output is below minimum
-    /// @param received The amount received
-    /// @param minExpected The minimum expected amount
-    error InsufficientOutput(uint256 received, uint256 minExpected);
-
-    /// @notice Thrown when insufficient ETH for swap
-    /// @param have The available ETH balance
-    /// @param need The required ETH amount
-    error InsufficientEth(uint256 have, uint256 need);
 }

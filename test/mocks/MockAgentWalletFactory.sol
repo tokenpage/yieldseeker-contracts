@@ -185,9 +185,3 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
         return account.code.length > 0;
     }
 }
-
-/// @title MockWalletAlreadyExistsError
-/// @notice Mock error for testing duplicate wallet creation
-contract MockWalletAlreadyExistsError {
-    error WalletAlreadyExists();
-}
