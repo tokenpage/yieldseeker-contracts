@@ -5,7 +5,6 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../agentwalletkit/IAWKAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**

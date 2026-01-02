@@ -2,9 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerErrors} from "../Errors.sol";
-import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";

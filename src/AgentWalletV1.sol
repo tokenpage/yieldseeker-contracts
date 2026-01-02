@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {AWKAgentWalletV1} from "./agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
-import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 
 /**
  * @title YieldSeekerStorageV1
@@ -57,8 +54,8 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
         if (_baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (_baseAsset.code.length == 0) revert AWKErrors.NotAContract(_baseAsset);
 
-        YieldSeekerStorageV1.Layout storage $ys = YieldSeekerStorageV1.layout();
-        $ys.baseAsset = IERC20(_baseAsset);
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+        ys.baseAsset = IERC20(_baseAsset);
 
         // Call parent initializer
         super._initializeV1(_owner, _ownerAgentIndex);
@@ -87,12 +84,12 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     function _syncFromFactory() internal virtual override {
         super._syncFromFactory();
 
-        YieldSeekerStorageV1.Layout storage $ys = YieldSeekerStorageV1.layout();
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
 
         FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
         if (address(newTracker) == address(0)) revert YieldSeekerErrors.InvalidFeeTracker();
         if (address(newTracker).code.length == 0) revert YieldSeekerErrors.InvalidFeeTracker();
-        $ys.feeTracker = newTracker;
+        ys.feeTracker = newTracker;
 
         emit SyncedFromFactory(address(adapterRegistry()), address(newTracker));
     }

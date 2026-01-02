@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../../src/Errors.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";

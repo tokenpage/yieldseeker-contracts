@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title AWKAdapter

@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {IAgentWalletFactory} from "../../src/IAgentWalletFactory.sol";
 
 /**
  * @title MockAgentWalletV2

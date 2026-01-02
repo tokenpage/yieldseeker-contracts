@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
@@ -985,7 +984,7 @@ contract AgentWalletIntegrationTest is Test {
 
         usdc.mint(user, 10e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 10e6);
+        require(usdc.transfer(walletAddr, 10e6), "Transfer failed");
 
         assertEq(usdc.balanceOf(walletAddr), 10e6, "Wallet should have 10 USDC");
 
@@ -1014,7 +1013,7 @@ contract AgentWalletIntegrationTest is Test {
         uint256 rewardShareAmount = 1e6; // 1 USDC worth of shares (1:1 ratio)
 
         // Transfer shares to merkl distributor so it can distribute them
-        vaultB.transfer(address(merklDistributor), rewardShareAmount);
+        require(vaultB.transfer(address(merklDistributor), rewardShareAmount), "Transfer failed");
 
         // Prepare Merkl claim for vault B shares
         address[] memory users = new address[](1);
@@ -1100,7 +1099,7 @@ contract AgentWalletIntegrationTest is Test {
 
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1121,7 +1120,7 @@ contract AgentWalletIntegrationTest is Test {
         usdc.mint(address(this), 500e6);
         usdc.approve(address(vault), 500e6);
         vault.deposit(500e6, address(this)); // Get vault shares
-        vault.transfer(walletAddr, 500e6); // Direct transfer to wallet
+        require(vault.transfer(walletAddr, 500e6), "Transfer failed"); // Direct transfer to wallet
 
         console.log("\n=== After Step 2: Direct transfer of 500 vault shares ===");
         console.log("Actual vault shares:", vault.balanceOf(walletAddr));
@@ -1165,7 +1164,7 @@ contract AgentWalletIntegrationTest is Test {
         // Give wallet 1000 USDC and deposit into vault
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1211,7 +1210,7 @@ contract AgentWalletIntegrationTest is Test {
         // Give wallet 1000 USDC and deposit into vault
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1257,7 +1256,7 @@ contract AgentWalletIntegrationTest is Test {
         // User accidentally sends USDC to this wallet (thinking it's their USDC wallet)
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         // User realizes the wallet has wrong baseAsset and wants to recover USDC
         // withdrawAssetToUser should allow recovery without charging fees
@@ -1301,7 +1300,7 @@ contract AgentWalletIntegrationTest is Test {
         uint256 userBalanceBefore = usdc.balanceOf(user);
         usdc.mint(user, 1000e6);
         vm.prank(user);
-        usdc.transfer(walletAddr, 1000e6);
+        require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
@@ -1554,7 +1553,7 @@ contract AgentWalletIntegrationTest is Test {
         // Step 9: Verify V1 functionality still works (deposit to vault)
         usdc.mint(user2, 500e6);
         vm.prank(user2);
-        usdc.transfer(walletAddr, 500e6);
+        require(usdc.transfer(walletAddr, 500e6), "Transfer failed");
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
         vm.prank(user2);

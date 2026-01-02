@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerAdapterRegistry as AdapterRegistry} from "./AdapterRegistry.sol";
 import {YieldSeekerAgentWalletV1 as AgentWallet} from "./AgentWalletV1.sol";
-import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
-import {AWKAgentWalletFactory, AWKAgentWalletProxy} from "./agentwalletkit/AWKAgentWalletFactory.sol";
-import {AWKAgentWalletV1 as AWKAgentWallet} from "./agentwalletkit/AWKAgentWalletV1.sol";
+import {AWKAgentWalletFactory} from "./agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
-import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
-import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 /**
  * @title YieldSeekerAgentWalletFactory

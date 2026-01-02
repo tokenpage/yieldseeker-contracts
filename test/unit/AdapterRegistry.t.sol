@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerErrors} from "../../src/Errors.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
