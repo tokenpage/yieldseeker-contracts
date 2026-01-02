@@ -600,6 +600,8 @@ contract YieldSeekerFeeTrackerTest is Test {
     uint256 constant BASIS_POINTS = 10000;
     uint256 constant DEFAULT_FEE_RATE = 1000; // 10%
 
+    event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
+
     function setUp() public {
         vm.prank(admin);
         feeTracker = new YieldSeekerFeeTracker(admin);
@@ -676,5 +678,91 @@ contract YieldSeekerFeeTrackerTest is Test {
         // Verify fee-owed shares are cleared
         uint256 feeOwnedSharesAfter = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
         assertEq(feeOwnedSharesAfter, 0, "All fee-owed shares should be cleared");
+    }
+
+    function test_VaultWithdrawal_SimpleYieldCalculation() public {
+        // Simple scenario without vault token fees:
+        // User deposits 10 USDC -> gets 10 shares
+        // Later withdraws 10 shares -> gets 11 USDC
+        // Yield earned: 1 USDC
+        // Fees owed at 10%: 0.1 USDC
+
+        address vault = makeAddr("vault");
+
+        // Step 1: Deposit 10 USDC for 10 shares
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 10e6, 10e18);
+
+        (uint256 costBasis1, uint256 shares1) = feeTracker.getAgentVaultPosition(agent1, vault);
+        assertEq(costBasis1, 10e6);
+        assertEq(shares1, 10e18);
+
+        // Step 2: Withdraw all 10 shares for 11 USDC
+        uint256 feesBefore = feeTracker.getFeesOwed(agent1);
+        assertEq(feesBefore, 0, "No fees owed initially");
+
+        // Expect the yield event
+        vm.expectEmit(true, false, false, true);
+        emit YieldRecorded(agent1, 1e6, 0.1e6);  // profit=1, fee=0.1
+
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareWithdraw(vault, 10e18, 11e6);
+
+        // Step 3: Verify fees charged
+        uint256 feesAfter = feeTracker.getFeesOwed(agent1);
+
+        // Profit = 11 - 10 = 1 USDC
+        // Fee = 1 * 10% = 0.1 USDC
+        uint256 expectedFee = 0.1e6;
+        assertEq(feesAfter, expectedFee, "Should charge 0.1 USDC fee on 1 USDC profit");
+
+        // Step 4: Verify position is cleared
+        (uint256 costBasisAfter, uint256 sharesAfter) = feeTracker.getAgentVaultPosition(agent1, vault);
+        assertEq(costBasisAfter, 0);
+        assertEq(sharesAfter, 0);
+    }
+
+    function test_VaultWithdrawal_WithYieldTokenFees() public {
+        // Scenario with vault token fees:
+        // User deposits 10 USDC -> gets 10 shares (cost basis 10)
+        // Receives 2 yield shares (recordAgentYieldTokenEarned called with 2 shares)
+        // Withdraws all 12 shares for 13.2 USDC (vault appreciated 10%)
+        // Expected:
+        // - Yield token fee: 0.2 shares owed (10% of 2)
+        // - When withdrawing: 0.2 * (13.2 / 12) = 0.22 USDC charged as fee
+        // - Remaining assets: 13.2 - 0.22 = 12.98
+        // - Profit: 12.98 - 10 = 2.98
+        // - Fee on profit: 2.98 * 10% = 0.298
+
+        address vault = makeAddr("vault");
+
+        // Step 1: Deposit 10 USDC for 10 shares
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 10e6, 10e18);
+
+        // Step 2: Record yield earned in vault tokens (2 shares)
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 2e18);
+
+        uint256 feeOwnedShares = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
+        assertEq(feeOwnedShares, 0.2e18, "Should have 0.2 shares owed (10% of 2)");
+
+        // Step 3: Withdraw all 12 shares for 13.2 USDC
+        uint256 feesBefore = feeTracker.getFeesOwed(agent1);
+
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareWithdraw(vault, 12e18, 13.2e6);
+
+        // Step 4: Verify total fees
+        uint256 feesAfter = feeTracker.getFeesOwed(agent1);
+        uint256 totalFees = feesAfter - feesBefore;
+
+        // feeInBaseAsset = (13.2 * 0.2) / 12 = 0.22
+        // profit = 13.2 - 10 - 0.22 = 2.98
+        // fee = 2.98 * 10% = 0.298
+        // Total = 0.22 + 0.298 = 0.518
+        uint256 expectedTotal = 0.22e6 + 0.298e6;
+
+        assertApproxEqAbs(totalFees, expectedTotal, 1e3, "Total fees should match calculation");
     }
 }

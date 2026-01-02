@@ -99,12 +99,6 @@ contract YieldSeekerFeeTracker is AccessControl {
 
     // ============ Position Tracking ============
 
-    function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
-        uint256 fee = (profit * feeRateBps) / 1e4;
-        agentFeesCharged[wallet] += fee;
-        emit YieldRecorded(wallet, profit, fee);
-    }
-
     /**
      * @notice Record a vault share deposit for cost-basis tracking
      * @param vault The vault address
@@ -114,6 +108,12 @@ contract YieldSeekerFeeTracker is AccessControl {
     function recordAgentVaultShareDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) external {
         agentVaultCostBasis[msg.sender][vault] += assetsDeposited;
         agentVaultShares[msg.sender][vault] += sharesReceived;
+    }
+
+    function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
+        uint256 fee = (profit * feeRateBps) / 1e4;
+        agentFeesCharged[wallet] += fee;
+        emit YieldRecorded(wallet, profit, fee);
     }
 
     /**
@@ -128,10 +128,12 @@ contract YieldSeekerFeeTracker is AccessControl {
         uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[msg.sender][vault];
         uint256 feeInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
+            // Handle cases where the vault token has been given to the agent as a reward (yield) and therefore has fees owed
             uint256 feeTokenSwapped = sharesSpent > vaultTokenFeesOwed ? vaultTokenFeesOwed : sharesSpent;
             agentYieldTokenFeesOwed[msg.sender][vault] = vaultTokenFeesOwed - feeTokenSwapped;
             feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
             agentFeesCharged[msg.sender] += feeInBaseAsset;
+            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
         }
         if (sharesSpent > totalShares) {
             if (totalCostBasis > 0 && assetsReceived > totalCostBasis + feeInBaseAsset) {
@@ -149,7 +151,6 @@ contract YieldSeekerFeeTracker is AccessControl {
             agentVaultCostBasis[msg.sender][vault] = totalCostBasis - proportionalCost;
             agentVaultShares[msg.sender][vault] = totalShares - sharesSpent;
         }
-        emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
     }
 
     /**
