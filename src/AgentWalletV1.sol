@@ -147,50 +147,44 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     }
 
     /**
-     * @notice User withdraws any ERC20 asset from agent wallet (fee-aware for baseAsset)
+     * @notice User withdraws any ERC20 asset from agent wallet
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw
      * @param amount Amount to withdraw
-     * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
+     * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
+     *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external override onlyOwner {
         if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         if (asset == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset != address(baseAsset())) revert YieldSeekerErrors.InvalidAsset();
+
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
-
-        // If withdrawing baseAsset, respect fees
-        if (asset == address(baseAsset())) {
-            uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-            uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-            if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
-        } else {
-            // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
-            if (balance < amount) revert AWKErrors.InsufficientBalance();
-        }
+        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
+        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+        if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
 
         token.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, asset, amount);
     }
 
     /**
-     * @notice User withdraws all of a specific ERC20 asset from agent wallet (fee-aware for baseAsset)
+     * @notice User withdraws all of a specific ERC20 asset from agent wallet
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw
-     * @dev If asset is baseAsset, respects fee deductions. Otherwise transfers directly (recovery mechanism).
+     * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
+     *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
     function withdrawAllAssetToUser(address recipient, address asset) external override onlyOwner {
         if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         if (asset == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset != address(baseAsset())) revert YieldSeekerErrors.InvalidAsset();
+
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
-        uint256 amount = balance;
-
-        // If withdrawing baseAsset, deduct fees from withdrawable amount
-        if (asset == address(baseAsset())) {
-            uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-            amount = balance > feesOwed ? balance - feesOwed : 0;
-        }
+        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
+        uint256 amount = balance > feesOwed ? balance - feesOwed : 0;
 
         token.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, asset, amount);

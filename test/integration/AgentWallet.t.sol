@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {YieldSeekerErrors} from "../../src/Errors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 
@@ -1242,31 +1243,31 @@ contract AgentWalletIntegrationTest is Test {
         assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
     }
 
-    function test_WithdrawAssetToUser_NonBaseAsset_AllowsRecovery() public {
-        // Test that withdrawing non-baseAsset tokens allows full recovery (griefing scenario)
+    function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
+        // Test that withdrawing non-baseAsset tokens is now blocked to prevent fee bypass
         address walletAddr = factory.getAddress(user, AGENT_INDEX);
 
         // Create a different token that will be the "wrong" baseAsset
         MockERC20 wrongToken = new MockERC20("Wrong Token", "WRONG");
 
-        // Operator creates wallet with wrong baseAsset (griefing attack)
+        // Operator creates wallet with wrong baseAsset
         vm.prank(operator);
         AgentWalletV1 wallet = AgentWalletV1(payable(factory.createAgentWallet(user, AGENT_INDEX, address(wrongToken))));
 
-        // User accidentally sends USDC to this wallet (thinking it's their USDC wallet)
+        // User accidentally sends USDC to this wallet
         usdc.mint(user, 1000e6);
         vm.prank(user);
         require(usdc.transfer(walletAddr, 1000e6), "Transfer failed");
 
-        // User realizes the wallet has wrong baseAsset and wants to recover USDC
-        // withdrawAssetToUser should allow recovery without charging fees
+        // User tries to recover USDC but it's not the baseAsset, so it reverts
         address recipient = makeAddr("recipient");
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAsset.selector));
         wallet.withdrawAssetToUser(recipient, address(usdc), 1000e6);
 
-        assertEq(usdc.balanceOf(recipient), 1000e6, "Should recover all USDC");
-        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no USDC left");
-        assertEq(feeTracker.getFeesOwed(walletAddr), 0, "Should not charge any fees");
+        // USDC remains in wallet (recovery requires different mechanism)
+        assertEq(usdc.balanceOf(recipient), 0, "Should not have received USDC");
+        assertEq(usdc.balanceOf(walletAddr), 1000e6, "Wallet should still have USDC");
     }
 
     function test_WithdrawAssetToUser_RevertsOnZeroAddress() public {

@@ -7,6 +7,12 @@ pragma solidity 0.8.28;
  * @dev For common errors, use AWKErrors library
  */
 library YieldSeekerErrors {
+    // ============ Withdrawal Errors ============
+
+    /// @notice Thrown when attempting to withdraw a non-base asset
+    /// @dev Only base asset withdrawals are allowed to enforce fee accounting
+    error InvalidAsset();
+
     // ============ Fee Errors ============
 
     /// @notice Thrown when an invalid fee rate is provided
