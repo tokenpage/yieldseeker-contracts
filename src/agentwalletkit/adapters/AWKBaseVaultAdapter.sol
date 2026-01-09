@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "./AWKErrors.sol";
-import {AWKAdapter} from "./AWKAdapter.sol";
+import {AWKAdapter} from "../AWKAdapter.sol";
+import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -44,42 +44,6 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
     function withdraw(uint256 shares) external pure returns (uint256 assets) {
         revert AWKErrors.DirectCallForbidden();
     }
-
-    // ============ Hook System ============
-
-    /**
-     * @notice Hook called before deposit
-     * @param vault The vault address
-     * @param amount The amount of assets to deposit
-     * @dev Override to add custom pre-deposit logic
-     */
-    function _preDeposit(address vault, uint256 amount) internal virtual {}
-
-    /**
-     * @notice Hook called after deposit
-     * @param vault The vault address
-     * @param assetsDeposited The amount of assets deposited
-     * @param sharesReceived The amount of shares received
-     * @dev Override to add custom post-deposit logic (e.g., fee tracking)
-     */
-    function _postDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) internal virtual {}
-
-    /**
-     * @notice Hook called before withdraw
-     * @param vault The vault address
-     * @param shares The amount of shares to withdraw
-     * @dev Override to add custom pre-withdraw logic
-     */
-    function _preWithdraw(address vault, uint256 shares) internal virtual {}
-
-    /**
-     * @notice Hook called after withdraw
-     * @param vault The vault address
-     * @param sharesSpent The amount of shares withdrawn
-     * @param assetsReceived The amount of assets received
-     * @dev Override to add custom post-withdraw logic (e.g., fee tracking)
-     */
-    function _postWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) internal virtual {}
 
     // ============ Internal Implementations ============
 

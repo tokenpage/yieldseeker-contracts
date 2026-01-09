@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {AWKBaseVaultAdapter} from "../agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
-import {AWKBaseVaultAdapter} from "../agentwalletkit/AWKBaseVaultAdapter.sol";
 
 /**
  * @title YieldSeekerVaultAdapter

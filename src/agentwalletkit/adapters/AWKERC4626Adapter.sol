@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "./AWKErrors.sol";
+import {AWKErrors} from "../AWKErrors.sol";
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -33,28 +33,24 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
     function execute(address target, bytes calldata data) external payable virtual override returns (bytes memory);
 
     /**
-     * @notice Internal deposit implementation with hooks
+     * @notice Internal deposit implementation
      * @dev Runs in wallet context via delegatecall
      */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = IERC4626(vault).asset();
-        _preDeposit(vault, amount);
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
-        _postDeposit(vault, amount, shares);
         emit Deposited(address(this), vault, amount, shares);
     }
 
     /**
-     * @notice Internal withdraw implementation with hooks
+     * @notice Internal withdraw implementation
      * @dev Runs in wallet context via delegatecall
      */
-    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
+    function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         if (shares == 0) revert AWKErrors.ZeroAmount();
-        _preWithdraw(vault, shares);
         assets = IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
-        _postWithdraw(vault, shares, assets);
         emit Withdrawn(address(this), vault, shares, assets);
     }
 }

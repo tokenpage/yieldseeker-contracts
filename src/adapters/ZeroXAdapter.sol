@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {AWKZeroXAdapter} from "../agentwalletkit/adapters/AWKZeroXAdapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
-import {AWKZeroXAdapter} from "../agentwalletkit/AWKZeroXAdapter.sol";
 
 /**
  * @title YieldSeekerZeroXAdapter
@@ -13,18 +13,17 @@ contract YieldSeekerZeroXAdapter is AWKZeroXAdapter, YieldSeekerAdapter {
     constructor(address allowanceTarget_) AWKZeroXAdapter(allowanceTarget_) {}
 
     /**
-     * @notice Pre-swap hook - validate buy token is base asset
-     * @dev Called before swap to ensure we're buying the correct base asset
+     * @notice Internal swap implementation with validation and fee tracking
+     * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
-    function _preSwap(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) internal view override {
+    function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal override returns (uint256 buyAmount, uint256 soldAmount) {
+        // Pre-swap check: validate buy token is base asset
         _requireBaseAsset(buyToken);
-    }
 
-    /**
-     * @notice Post-swap hook - record fee tracking
-     * @dev Called after swap to record token swap for yield fee calculation
-     */
-    function _postSwap(address target, address sellToken, address buyToken, uint256 actualSellAmount, uint256 buyAmount) internal override {
-        _feeTracker().recordAgentTokenSwap(sellToken, actualSellAmount, buyAmount);
+        // Execute swap via parent
+        (buyAmount, soldAmount) = super._swapInternal(target, sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value);
+
+        // Post-swap tracking
+        _feeTracker().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);
     }
 }
