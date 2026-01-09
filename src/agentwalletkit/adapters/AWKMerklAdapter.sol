@@ -49,7 +49,6 @@ contract AWKMerklAdapter is AWKAdapter {
      * @dev Runs in wallet context via delegatecall.
      */
     function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
-        // Execute claim (Merkl handles original tokens array with potential duplicates)
         IMerklDistributor(distributor).claim(users, tokens, amounts, proofs);
     }
 }

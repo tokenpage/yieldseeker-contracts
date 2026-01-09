@@ -20,7 +20,6 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
         uint256 tokensLength = tokens.length;
         uint256 uniqueCount = 0;
         bool[] memory isFirstOccurrence = new bool[](tokensLength);
-
         for (uint256 i = 0; i < tokensLength; i++) {
             bool isDuplicate = false;
             for (uint256 j = 0; j < i; j++) {
@@ -34,7 +33,6 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
                 uniqueCount++;
             }
         }
-
         // 2. Snapshot balances
         uint256[] memory balancesBefore = new uint256[](uniqueCount);
         address[] memory uniqueTokens = new address[](uniqueCount);
@@ -46,17 +44,14 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
                 uniqueIndex++;
             }
         }
-
         // 3. Call super to execute claim
         super._claimInternal(distributor, users, tokens, amounts, proofs);
-
         // 4. Check balances and record fees
         address baseAsset = _baseAssetAddress();
         for (uint256 i = 0; i < uniqueCount; i++) {
             address token = uniqueTokens[i];
             uint256 balanceAfter = IERC20(token).balanceOf(address(this));
             uint256 claimed = balanceAfter - balancesBefore[i];
-
             if (claimed > 0) {
                 if (token == baseAsset) {
                     _feeTracker().recordAgentYieldEarned(claimed);
