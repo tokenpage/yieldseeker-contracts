@@ -41,7 +41,7 @@ contract DeployScript is Script {
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     // Deployment Salt for deterministic addresses
-    uint256 constant SALT = 0x4;
+    uint256 constant SALT = 0x5;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 72-hour delay)

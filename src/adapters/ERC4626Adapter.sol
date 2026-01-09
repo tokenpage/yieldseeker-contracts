@@ -1,35 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-/**
- * @title IERC4626
- * @notice Minimal ERC4626 interface
- */
-interface IERC4626 {
-    function asset() external view returns (address);
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
-}
+import {YieldSeekerAdapter} from "./Adapter.sol";
+import {AWKERC4626Adapter, IERC4626} from "../agentwalletkit/AWKERC4626Adapter.sol";
+import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 
 /**
  * @title YieldSeekerERC4626Adapter
- * @notice Adapter for interacting with ERC4626 tokenized vaults
- * @dev Handles deposits and withdrawals for standard ERC4626 vaults.
+ * @notice YieldSeeker-specific ERC4626 adapter with fee tracking
+ * @dev Extends the generic AWKERC4626Adapter and implements post hooks for fee tracking.
  *      Records position changes with FeeTracker for yield fee calculation.
  */
-contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
-    using SafeERC20 for IERC20;
-
+contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
     /**
-     * @notice Override execute to handle vault operations
+     * @notice Override execute to handle vault operations with base asset validation
      * @dev Already running in wallet context via delegatecall from AgentWallet
      */
-    function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
+    function execute(address target, bytes calldata data) external payable override(AWKAdapter, AWKERC4626Adapter) onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
@@ -38,7 +25,7 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
         }
         if (selector == this.depositPercentage.selector) {
             uint256 percentageBps = abi.decode(data[4:], (uint256));
-            uint256 shares = _depositPercentageInternal(target, percentageBps);
+            uint256 shares = _depositPercentageInternal(target, percentageBps, _baseAsset());
             return abi.encode(shares);
         }
         if (selector == this.withdraw.selector) {
@@ -50,29 +37,36 @@ contract YieldSeekerERC4626Adapter is YieldSeekerVaultAdapter {
     }
 
     /**
-     * @notice Internal deposit implementation
-     * @dev Runs in wallet context via delegatecall
+     * @notice Pre-deposit hook - validate base asset
+     * @dev Called before deposit to ensure the vault uses the correct base asset
      */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
-        if (amount == 0) revert AWKErrors.ZeroAmount();
+    function _preDeposit(address vault, uint256 amount) internal view override {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-        IERC20(asset).forceApprove(vault, amount);
-        shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
-        emit Deposited(address(this), vault, amount, shares);
     }
 
     /**
-     * @notice Internal withdraw implementation
-     * @dev Runs in wallet context via delegatecall
+     * @notice Post-deposit hook - record fee tracking
+     * @dev Called after deposit to record position changes for yield fee calculation
      */
-    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        if (shares == 0) revert AWKErrors.ZeroAmount();
+    function _postDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) internal override {
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: sharesReceived});
+    }
+
+    /**
+     * @notice Pre-withdraw hook - validate base asset
+     * @dev Called before withdraw to ensure the vault uses the correct base asset
+     */
+    function _preWithdraw(address vault, uint256 shares) internal view override {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-        assets = IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
-        _feeTracker().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
-        emit Withdrawn(address(this), vault, shares, assets);
+    }
+
+    /**
+     * @notice Post-withdraw hook - record fee tracking
+     * @dev Called after withdraw to record position changes for yield fee calculation
+     */
+    function _postWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) internal override {
+        _feeTracker().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: sharesSpent, assetsReceived: assetsReceived});
     }
 }

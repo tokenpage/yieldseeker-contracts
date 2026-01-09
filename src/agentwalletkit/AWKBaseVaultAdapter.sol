@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {AWKErrors} from "./AWKErrors.sol";
+import {AWKAdapter} from "./AWKAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+/**
+ * @title AWKBaseVaultAdapter
+ * @notice Abstract base class for all vault adapters with pre/post hook support
+ * @dev Defines the standard vault operations interface that all vault adapters must implement.
+ *      Provides hook points for custom logic before/after operations.
+ */
+abstract contract AWKBaseVaultAdapter is AWKAdapter {
+    event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
+    event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
+
+    /**
+     * @notice Deposit assets into a vault (public interface, should not be called directly)
+     * @param amount The amount of assets to deposit
+     * @return shares The amount of vault shares received
+     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositInternal()
+     */
+    function deposit(uint256 amount) external pure returns (uint256 shares) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    /**
+     * @notice Deposit a percentage of base asset balance into a vault (public interface, should not be called directly)
+     * @param percentageBps The percentage in basis points (10000 = 100%)
+     * @return shares The amount of vault shares received
+     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositPercentageInternal()
+     */
+    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    /**
+     * @notice Withdraw assets from a vault (public interface, should not be called directly)
+     * @param shares The amount of vault shares to withdraw
+     * @return assets The amount of assets received
+     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _withdrawInternal()
+     */
+    function withdraw(uint256 shares) external pure returns (uint256 assets) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    // ============ Hook System ============
+
+    /**
+     * @notice Hook called before deposit
+     * @param vault The vault address
+     * @param amount The amount of assets to deposit
+     * @dev Override to add custom pre-deposit logic
+     */
+    function _preDeposit(address vault, uint256 amount) internal virtual {}
+
+    /**
+     * @notice Hook called after deposit
+     * @param vault The vault address
+     * @param assetsDeposited The amount of assets deposited
+     * @param sharesReceived The amount of shares received
+     * @dev Override to add custom post-deposit logic (e.g., fee tracking)
+     */
+    function _postDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) internal virtual {}
+
+    /**
+     * @notice Hook called before withdraw
+     * @param vault The vault address
+     * @param shares The amount of shares to withdraw
+     * @dev Override to add custom pre-withdraw logic
+     */
+    function _preWithdraw(address vault, uint256 shares) internal virtual {}
+
+    /**
+     * @notice Hook called after withdraw
+     * @param vault The vault address
+     * @param sharesSpent The amount of shares withdrawn
+     * @param assetsReceived The amount of assets received
+     * @dev Override to add custom post-withdraw logic (e.g., fee tracking)
+     */
+    function _postWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) internal virtual {}
+
+    // ============ Internal Implementations ============
+
+    /**
+     * @notice Internal deposit implementation
+     * @param vault The vault address
+     * @param amount The amount of assets to deposit
+     * @return shares The amount of vault shares received
+     * @dev Must be implemented by concrete vault adapters. Hooks are called automatically.
+     */
+    function _depositInternal(address vault, uint256 amount) internal virtual returns (uint256 shares);
+
+    /**
+     * @notice Internal deposit percentage implementation
+     * @param vault The vault address
+     * @param percentageBps The percentage in basis points (10000 = 100%)
+     * @param baseAsset The base asset token
+     * @return shares The amount of vault shares received
+     * @dev Calculates amount based on balance and calls _depositInternal
+     */
+    function _depositPercentageInternal(address vault, uint256 percentageBps, IERC20 baseAsset) internal returns (uint256 shares) {
+        if (percentageBps == 0 || percentageBps > 1e4) revert AWKErrors.InvalidPercentage(percentageBps);
+        uint256 balance = baseAsset.balanceOf(address(this));
+        uint256 amount = (balance * percentageBps) / 1e4;
+        return _depositInternal(vault, amount);
+    }
+
+    /**
+     * @notice Internal withdraw implementation
+     * @param vault The vault address
+     * @param shares The amount of vault shares to withdraw
+     * @return assets The amount of assets received
+     * @dev Must be implemented by concrete vault adapters. Hooks are called automatically.
+     */
+    function _withdrawInternal(address vault, uint256 shares) internal virtual returns (uint256 assets);
+}
