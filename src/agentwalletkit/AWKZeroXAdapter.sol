@@ -90,9 +90,7 @@ contract AWKZeroXAdapter is AWKAdapter {
      */
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal returns (uint256 buyAmount) {
         if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
-        
         _preSwap(target, sellToken, buyToken, sellAmount, minBuyAmount);
-        
         // Security: For native ETH swaps, ignore the 'value' parameter from calldata and always send exactly sellAmount.
         // This prevents a malicious operator from oversending ETH (e.g., value=10 ETH but sellAmount=1 ETH),
         // which would trap excess ETH in the 0x proxy contract. We only send what we're actually selling.
@@ -104,23 +102,16 @@ contract AWKZeroXAdapter is AWKAdapter {
             ethToSend = 0;
             IERC20(sellToken).forceApprove(ALLOWANCE_TARGET, sellAmount);
         }
-        
         uint256 buyBalanceBefore = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
         uint256 sellBalanceBefore = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
-        
         (bool success, bytes memory reason) = target.call{value: ethToSend}(swapCallData);
         if (!success) revert SwapFailed(reason);
-        
         uint256 buyBalanceAfter = buyToken == NATIVE_TOKEN ? address(this).balance : IERC20(buyToken).balanceOf(address(this));
         uint256 sellBalanceAfter = sellToken == NATIVE_TOKEN ? address(this).balance : IERC20(sellToken).balanceOf(address(this));
-        
         uint256 actualSellAmount = sellBalanceBefore - sellBalanceAfter;
         buyAmount = buyBalanceAfter - buyBalanceBefore;
-        
         if (buyAmount < minBuyAmount) revert InsufficientOutput(buyAmount, minBuyAmount);
-        
         _postSwap(target, sellToken, buyToken, actualSellAmount, buyAmount);
-        
         emit Swapped(address(this), target, sellToken, buyToken, actualSellAmount, buyAmount);
     }
 }

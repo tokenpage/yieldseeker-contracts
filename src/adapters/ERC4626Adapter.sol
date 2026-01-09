@@ -25,7 +25,7 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         }
         if (selector == this.depositPercentage.selector) {
             uint256 percentageBps = abi.decode(data[4:], (uint256));
-            uint256 shares = _depositPercentageInternal(target, percentageBps, _baseAsset());
+            uint256 shares = super._depositPercentageInternal(target, percentageBps, _baseAsset());
             return abi.encode(shares);
         }
         if (selector == this.withdraw.selector) {
