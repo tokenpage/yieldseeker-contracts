@@ -17,13 +17,8 @@ contract YieldSeekerZeroXAdapter is AWKZeroXAdapter, YieldSeekerAdapter {
      * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal override returns (uint256 buyAmount, uint256 soldAmount) {
-        // Pre-swap check: validate buy token is base asset
         _requireBaseAsset(buyToken);
-
-        // Execute swap via parent
         (buyAmount, soldAmount) = super._swapInternal(target, sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value);
-
-        // Post-swap tracking
         _feeTracker().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);
     }
 }
