@@ -26,11 +26,11 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
     using SafeERC20 for IERC20;
 
     /**
-     * @notice Override execute to handle vault operations
-     * @dev Already running in wallet context via delegatecall from AgentWallet.
-     *      Subclasses must implement this to provide baseAsset for depositPercentage.
+     * @notice Fetch asset from vault
      */
-    function execute(address target, bytes calldata data) external payable virtual override returns (bytes memory);
+    function _getVaultAsset(address vault) internal view override returns (address) {
+        return IERC4626(vault).asset();
+    }
 
     /**
      * @notice Internal deposit implementation

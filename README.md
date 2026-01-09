@@ -415,12 +415,6 @@ Abstract base class for all adapters providing:
 - Helper functions: `_agentWallet()`, `_baseAsset()`, `_feeTracker()`
 - Base asset validation: `_requireBaseAsset(address)`
 
-**YieldSeekerVaultAdapter (`src/adapters/VaultAdapter.sol`)**
-Abstract base class for vault-type adapters extending `YieldSeekerAdapter` with:
-- Standard vault interface: `deposit()`, `depositPercentage()`, `withdraw()`
-- Consistent fee tracking integration
-- Event emission for vault operations
-
 #### Concrete Adapters
 
 #### ERC4626Adapter (`src/adapters/ERC4626Adapter.sol`)

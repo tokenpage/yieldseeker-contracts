@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 import {AWKERC4626Adapter} from "../agentwalletkit/adapters/AWKERC4626Adapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -14,39 +13,13 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
  */
 contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
     /**
-     * @notice Override execute to handle vault operations with base asset validation
-     * @dev Already running in wallet context via delegatecall from AgentWallet
-     */
-    function execute(address target, bytes calldata data) external payable override(AWKAdapter, AWKERC4626Adapter) onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.deposit.selector) {
-            uint256 amount = abi.decode(data[4:], (uint256));
-            uint256 shares = _depositInternal(target, amount);
-            return abi.encode(shares);
-        }
-        if (selector == this.depositPercentage.selector) {
-            uint256 percentageBps = abi.decode(data[4:], (uint256));
-            uint256 shares = super._depositPercentageInternal(target, percentageBps, _baseAsset());
-            return abi.encode(shares);
-        }
-        if (selector == this.withdraw.selector) {
-            uint256 shares = abi.decode(data[4:], (uint256));
-            uint256 assets = _withdrawInternal(target, shares);
-            return abi.encode(assets);
-        }
-        revert UnknownOperation();
-    }
-
-    /**
      * @notice Internal deposit implementation with validation and fee tracking
      * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
     function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-
         shares = super._depositInternal(vault, amount);
-
         _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
     }
 
@@ -55,14 +28,9 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
      * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        // Validation check requires asset, which we can fetch or trust super?
-        // AWK's _withdrawInternal doesn't return asset.
-        // We must fetch it to validate it.
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-
         assets = super._withdrawInternal(vault, shares);
-
         _feeTracker().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
     }
 }

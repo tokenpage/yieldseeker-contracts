@@ -45,6 +45,41 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         revert AWKErrors.DirectCallForbidden();
     }
 
+    // ============ Execution Logic ============
+
+    /**
+     * @notice Fetch the underlying asset of a vault
+     * @param vault The vault address
+     * @return asset The vault's underlying asset token
+     * @dev Must be implemented by concrete vault adapters
+     */
+    function _getVaultAsset(address vault) internal view virtual returns (address);
+
+    /**
+     * @notice Execute generic vault operations
+     * @dev Already running in wallet context via delegatecall from AgentWallet.
+     */
+    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.deposit.selector) {
+            uint256 amount = abi.decode(data[4:], (uint256));
+            uint256 shares = _depositInternal(target, amount);
+            return abi.encode(shares);
+        }
+        if (selector == this.depositPercentage.selector) {
+            uint256 percentageBps = abi.decode(data[4:], (uint256));
+            address asset = _getVaultAsset(target);
+            uint256 shares = _depositPercentageInternal(target, percentageBps, IERC20(asset));
+            return abi.encode(shares);
+        }
+        if (selector == this.withdraw.selector) {
+            uint256 shares = abi.decode(data[4:], (uint256));
+            uint256 assets = _withdrawInternal(target, shares);
+            return abi.encode(assets);
+        }
+        revert UnknownOperation();
+    }
+
     // ============ Internal Implementations ============
 
     /**
