@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKAdapter} from "../AWKAdapter.sol";
+import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+error InvalidAllowanceTarget();
+error InsufficientEth(uint256 balance, uint256 required);
+error SwapFailed(bytes reason);
+error InsufficientOutput(uint256 received, uint256 minimum);
 
 /**
  * @title AWKZeroXAdapter
@@ -18,11 +23,6 @@ contract AWKZeroXAdapter is AWKAdapter {
     address internal constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     event Swapped(address indexed wallet, address indexed target, address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount);
-
-    error InvalidAllowanceTarget();
-    error InsufficientEth(uint256 balance, uint256 required);
-    error SwapFailed(bytes reason);
-    error InsufficientOutput(uint256 received, uint256 minimum);
 
     constructor(address allowanceTarget_) {
         if (allowanceTarget_ == address(0)) revert InvalidAllowanceTarget();

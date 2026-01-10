@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKAdapter} from "../AWKAdapter.sol";
+import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+error InvalidPercentage(uint256 percentage);
 
 /**
  * @title AWKBaseVaultAdapter
@@ -100,7 +102,7 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @dev Calculates amount based on balance and calls _depositInternal
      */
     function _depositPercentageInternal(address vault, uint256 percentageBps, IERC20 baseAsset) internal returns (uint256 shares) {
-        if (percentageBps == 0 || percentageBps > 1e4) revert AWKErrors.InvalidPercentage(percentageBps);
+        if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
         uint256 balance = baseAsset.balanceOf(address(this));
         uint256 amount = (balance * percentageBps) / 1e4;
         return _depositInternal(vault, amount);

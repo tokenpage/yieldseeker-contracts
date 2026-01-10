@@ -5,6 +5,8 @@ import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 
+error UnknownOperation();
+
 /**
  * @title AWKAdapter
  * @notice Base class for all adapters in the AWK system.
@@ -12,8 +14,6 @@ import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
  *      Direct calls to adapter contracts are prevented via the onlyDelegateCall modifier.
  */
 abstract contract AWKAdapter is IAWKAdapter {
-    error UnknownOperation();
-
     /// @notice The adapter's own address, set at deployment
     /// @dev Used to detect direct calls vs delegatecalls
     address private immutable SELF;

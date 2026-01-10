@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {TargetNotRegistered} from "../../src/agentwalletkit/AWKAdapterRegistry.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -286,7 +287,7 @@ contract AdapterRegistryTest is Test {
         address target = makeAddr("target");
 
         vm.prank(emergencyAdmin);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TargetNotRegistered.selector, target));
+        vm.expectRevert(abi.encodeWithSelector(TargetNotRegistered.selector, target));
         registry.removeTarget(target);
     }
 

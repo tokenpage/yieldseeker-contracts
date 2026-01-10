@@ -16,6 +16,15 @@ import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
+error AdapterIsBlocked(address adapter);
+error TargetIsBlocked(address target);
+error AdapterExecutionFailed(bytes reason);
+error TransferFailed();
+error NotApprovedImplementation();
+error InvalidRegistry();
+error InvalidState();
+error NotAllowed();
+
 /**
  * @title AgentWalletStorageV1
  * @notice Storage layout for AgentWallet V1 using ERC-7201 namespaced storage pattern
@@ -236,8 +245,8 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
 
         // AdapterRegistry
         address registryAddr = FACTORY.adapterRegistry();
-        if (registryAddr == address(0)) revert AWKErrors.InvalidRegistry();
-        if (registryAddr.code.length == 0) revert AWKErrors.InvalidRegistry();
+        if (registryAddr == address(0)) revert InvalidRegistry();
+        if (registryAddr.code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = AdapterRegistry(registryAddr);
 
         emit SyncedFromFactory(registryAddr);
@@ -270,14 +279,14 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      * @notice Standard execute disallowed to enforce authorized adapter usage
      */
     function execute(address, uint256, bytes calldata) external virtual {
-        revert AWKErrors.NotAllowed();
+        revert NotAllowed();
     }
 
     /**
      * @notice Standard executeBatch disallowed to enforce authorized adapter usage
      */
     function executeBatch(address[] calldata, bytes[] calldata) external virtual {
-        revert AWKErrors.NotAllowed();
+        revert NotAllowed();
     }
 
     // ============ Execution (Via Adapter) ============
@@ -292,10 +301,10 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
 
         // Check user-level blocklists first (owner sovereignty)
         if ($.blockedAdapters[adapter]) {
-            revert AWKErrors.AdapterBlocked(adapter);
+            revert AdapterIsBlocked(adapter);
         }
         if ($.blockedTargets[target]) {
-            revert AWKErrors.TargetBlocked(target);
+            revert TargetIsBlocked(target);
         }
 
         // Then check global registry validation
@@ -308,7 +317,7 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
         bool success;
         (success, result) = adapter.delegatecall(callData);
         if (!success) {
-            revert AWKErrors.AdapterExecutionFailed(result);
+            revert AdapterExecutionFailed(result);
         }
     }
 
@@ -327,7 +336,7 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      */
     function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
-        if (length != targets.length || length != datas.length) revert AWKErrors.InvalidState();
+        if (length != targets.length || length != datas.length) revert InvalidState();
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             results[i] = _executeAdapterCall(adapters[i], targets[i], datas[i]);
@@ -354,7 +363,7 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
     function _authorizeUpgrade(address newImplementation) internal view override onlyOwner {
         address approvedImplementation = FACTORY.agentWalletImplementation();
         if (newImplementation != approvedImplementation) {
-            revert AWKErrors.NotApprovedImplementation();
+            revert NotApprovedImplementation();
         }
     }
 
@@ -428,7 +437,7 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
     function _withdrawEth(address recipient, uint256 amount) internal {
         if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         (bool success,) = recipient.call{value: amount}("");
-        if (!success) revert AWKErrors.TransferFailed();
+        if (!success) revert TransferFailed();
         emit WithdrewEthToUser(owner(), recipient, amount);
     }
 }

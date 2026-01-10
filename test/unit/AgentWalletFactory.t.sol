@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {AgentAlreadyExists, TooManyOperators} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
 import {MockAgentWalletFactory} from "../mocks/MockAgentWalletFactory.sol";
@@ -99,7 +99,7 @@ contract AgentWalletFactoryTest is Test {
         factory.createAgentWallet(user1, 1, address(mockUsdc));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AgentAlreadyExists.selector, user1, 1));
+        vm.expectRevert(abi.encodeWithSelector(AgentAlreadyExists.selector, user1, 1));
         factory.createAgentWallet(user1, 1, address(mockUsdc));
     }
 
@@ -558,7 +558,7 @@ contract AgentWalletFactoryTest is Test {
         // Trying to add a NEW operator should still revert
         address newOperatorAtLimit = makeAddr("newOperatorAtLimit");
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TooManyOperators.selector));
+        vm.expectRevert(abi.encodeWithSelector(TooManyOperators.selector));
         factory.grantRole(OPERATOR_ROLE, newOperatorAtLimit);
     }
 }

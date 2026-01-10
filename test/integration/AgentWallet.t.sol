@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
+import {AdapterIsBlocked, TargetIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
@@ -283,7 +284,7 @@ contract AgentWalletIntegrationTest is Test {
         bytes memory depositData = abi.encodeCall(vault.deposit, (500e6, walletAddr));
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -828,7 +829,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterBlocked.selector, address(vaultAdapter)));
+        vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
@@ -851,7 +852,7 @@ contract AgentWalletIntegrationTest is Test {
         // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.TargetBlocked.selector, address(vault)));
+        vm.expectRevert(abi.encodeWithSelector(TargetIsBlocked.selector, address(vault)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 

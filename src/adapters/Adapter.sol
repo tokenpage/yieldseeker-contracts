@@ -4,8 +4,9 @@ pragma solidity 0.8.28;
 import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
-import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+error InvalidBaseAsset();
 
 /**
  * @title YieldSeekerAdapter
@@ -27,7 +28,7 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
     }
 
     function _requireBaseAsset(address asset) internal view {
-        if (asset != _baseAssetAddress()) revert AWKErrors.InvalidAddress();
+        if (asset != _baseAssetAddress()) revert InvalidBaseAsset();
     }
 
     function _feeTracker() internal view returns (FeeTracker) {

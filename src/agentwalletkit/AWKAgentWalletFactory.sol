@@ -8,6 +8,12 @@ import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
+error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
+error NoAgentWalletImplementationSet();
+error NoAdapterRegistrySet();
+error InvalidImplementationFactory();
+error TooManyOperators();
+
 /**
  * @title AWKAgentWalletProxy
  * @notice A custom ERC1967Proxy that queries the Factory for its implementation.
@@ -67,7 +73,7 @@ contract AWKAgentWalletFactory is AccessControlEnumerable {
      */
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
         if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= MAX_OPERATORS && !hasRole(role, account)) {
-            revert AWKErrors.TooManyOperators();
+            revert TooManyOperators();
         }
         return super._grantRole(role, account);
     }
@@ -87,7 +93,7 @@ contract AWKAgentWalletFactory is AccessControlEnumerable {
     function setAgentWalletImplementation(AgentWallet newAgentWalletImplementation) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newAgentWalletImplementation) == address(0)) revert AWKErrors.ZeroAddress();
         if (address(newAgentWalletImplementation).code.length == 0) revert AWKErrors.NotAContract(address(newAgentWalletImplementation));
-        if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert AWKErrors.InvalidImplementationFactory();
+        if (address(newAgentWalletImplementation.FACTORY()) != address(this)) revert InvalidImplementationFactory();
         _agentWalletImplementation = newAgentWalletImplementation;
         emit ImplementationSet(address(newAgentWalletImplementation));
     }
@@ -112,9 +118,9 @@ contract AWKAgentWalletFactory is AccessControlEnumerable {
      */
     function _deployWallet(address owner, uint256 ownerAgentIndex) internal returns (AgentWallet ret) {
         if (owner == address(0)) revert AWKErrors.ZeroAddress();
-        if (address(_agentWalletImplementation) == address(0)) revert AWKErrors.NoAgentWalletImplementationSet();
-        if (address(adapterRegistry) == address(0)) revert AWKErrors.NoAdapterRegistrySet();
-        if (userWallets[owner][ownerAgentIndex] != address(0)) revert AWKErrors.AgentAlreadyExists(owner, ownerAgentIndex);
+        if (address(_agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
+        if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
+        if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new AWKAgentWalletProxy{salt: salt}()));
         userWallets[owner][ownerAgentIndex] = address(ret);

@@ -6,6 +6,8 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 
+error TargetNotRegistered(address target);
+
 contract AWKAdapterRegistry is AccessControl, Pausable {
     using EnumerableMap for EnumerableMap.AddressToAddressMap;
 
@@ -84,7 +86,7 @@ contract AWKAdapterRegistry is AccessControl, Pausable {
      */
     function removeTarget(address target) external onlyRole(EMERGENCY_ROLE) {
         (bool exists, address adapter) = _targetToAdapter.tryGet(target);
-        if (!exists) revert AWKErrors.TargetNotRegistered(target);
+        if (!exists) revert TargetNotRegistered(target);
         _targetToAdapter.remove(target);
         emit TargetRemoved(target, adapter);
     }

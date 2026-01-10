@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {AgentAlreadyExists, TooManyOperators} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -63,7 +64,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
         wallet = this.computeWalletAddress(owner, agentIndex, baseAsset);
 
         if (_walletExists[wallet]) {
-            revert AWKErrors.AgentAlreadyExists(owner, agentIndex);
+            revert AgentAlreadyExists(owner, agentIndex);
         }
 
         // Mock wallet creation (in real implementation, this would deploy via CREATE2)
@@ -162,7 +163,7 @@ contract MockAgentWalletFactory is AccessControl, Pausable {
     /// @dev Only reverts if we're at the limit AND trying to add a new operator
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
         if (role == OPERATOR_ROLE && _operatorCount >= MAX_OPERATORS && !hasRole(role, account)) {
-            revert AWKErrors.TooManyOperators();
+            revert TooManyOperators();
         }
         bool granted = super._grantRole(role, account);
         if (granted && role == OPERATOR_ROLE) {
