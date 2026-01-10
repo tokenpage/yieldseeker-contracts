@@ -119,33 +119,14 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
 
     /**
-     * @notice User withdraws base asset from agent wallet
-     * @param recipient Address to send the base asset to
-     * @param amount Amount to withdraw
+     * @notice Calculate withdrawable balance (total balance minus fees owed)
+     * @param asset Address of the asset to check (must be base asset)
      */
-    function withdrawBaseAssetToUser(address recipient, uint256 amount) external onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        IERC20 asset = baseAsset();
-        uint256 balance = asset.balanceOf(address(this));
+    function _getWithdrawableBalance(address asset) internal view returns (uint256) {
+        if (asset != address(baseAsset())) revert InvalidAsset();
+        uint256 balance = baseAsset().balanceOf(address(this));
         uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-        if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
-        asset.safeTransfer(recipient, amount);
-        emit WithdrewTokenToUser(owner(), recipient, address(asset), amount);
-    }
-
-    /**
-     * @notice User withdraws all base asset from agent wallet
-     * @param recipient Address to send the base asset to
-     */
-    function withdrawAllBaseAssetToUser(address recipient) external onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        IERC20 asset = baseAsset();
-        uint256 balance = asset.balanceOf(address(this));
-        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
-        asset.safeTransfer(recipient, withdrawable);
-        emit WithdrewTokenToUser(owner(), recipient, address(asset), withdrawable);
+        return balance > feesOwed ? balance - feesOwed : 0;
     }
 
     /**
@@ -157,18 +138,9 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external override onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset != address(baseAsset())) revert InvalidAsset();
-
-        IERC20 token = IERC20(asset);
-        uint256 balance = token.balanceOf(address(this));
-        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-        uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+        uint256 withdrawable = _getWithdrawableBalance(asset);
         if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
-
-        token.safeTransfer(recipient, amount);
-        emit WithdrewTokenToUser(owner(), recipient, asset, amount);
+        _withdrawAsset(recipient, asset, amount);
     }
 
     /**
@@ -179,16 +151,7 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
      *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
     function withdrawAllAssetToUser(address recipient, address asset) external override onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset != address(baseAsset())) revert InvalidAsset();
-
-        IERC20 token = IERC20(asset);
-        uint256 balance = token.balanceOf(address(this));
-        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
-        uint256 amount = balance > feesOwed ? balance - feesOwed : 0;
-
-        token.safeTransfer(recipient, amount);
-        emit WithdrewTokenToUser(owner(), recipient, asset, amount);
+        uint256 withdrawable = _getWithdrawableBalance(asset);
+        _withdrawAsset(recipient, asset, withdrawable);
     }
 }

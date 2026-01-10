@@ -22,10 +22,14 @@ contract ReenterExecuteAdapter is IAWKAdapter {
 }
 
 contract ReenterWithdrawAdapter is IAWKAdapter {
+    address public immutable usdcAddress;
+    constructor(address _usdc) {
+        usdcAddress = _usdc;
+    }
     function execute(address target, bytes calldata) external payable returns (bytes memory) {
         // Attempt to withdraw during adapter call; should revert due to onlyOwner
         AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));
-        wallet.withdrawBaseAssetToUser(target, 1);
+        wallet.withdrawAssetToUser(target, usdcAddress, 1);
         return "";
     }
 }
@@ -72,7 +76,7 @@ contract ReentrancySecurityTest is Test {
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
 
         reenterExecute = new ReenterExecuteAdapter();
-        reenterWithdraw = new ReenterWithdrawAdapter();
+        reenterWithdraw = new ReenterWithdrawAdapter(address(usdc));
         registry.registerAdapter(address(reenterExecute));
         registry.registerAdapter(address(reenterWithdraw));
         registry.setTargetAdapter(address(reenterExecute), address(reenterExecute));

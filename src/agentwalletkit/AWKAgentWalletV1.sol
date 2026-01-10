@@ -376,11 +376,6 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      * @param amount Amount to withdraw
      */
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        IERC20 token = IERC20(asset);
-        uint256 balance = token.balanceOf(address(this));
-        if (balance < amount) revert AWKErrors.InsufficientBalance();
         _withdrawAsset(recipient, asset, amount);
     }
 
@@ -390,8 +385,6 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      * @param asset Address of the ERC20 token to withdraw
      */
     function withdrawAllAssetToUser(address recipient, address asset) external virtual onlyOwner {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
         _withdrawAsset(recipient, asset, balance);
@@ -404,6 +397,8 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      * @param amount Amount to withdraw
      */
     function _withdrawAsset(address recipient, address asset, uint256 amount) internal {
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
         IERC20 token = IERC20(asset);
         token.safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, asset, amount);
@@ -415,8 +410,6 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
      * @param amount Amount of ETH to withdraw
      */
     function withdrawEthToUser(address recipient, uint256 amount) external onlyOwner {
-        uint256 balance = address(this).balance;
-        if (balance < amount) revert AWKErrors.InsufficientBalance();
         _withdrawEth(recipient, amount);
     }
 

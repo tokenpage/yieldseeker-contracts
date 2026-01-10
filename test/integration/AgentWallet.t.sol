@@ -726,7 +726,7 @@ contract AgentWalletIntegrationTest is Test {
 
         // Withdraw tokens to user
         vm.prank(user);
-        wallet.withdrawBaseAssetToUser(user, 50e6);
+        wallet.withdrawAssetToUser(user, address(usdc), 50e6);
 
         uint256 balanceAfter = usdc.balanceOf(user);
         assertEq(balanceAfter - balanceBefore, 50e6);
@@ -1283,9 +1283,9 @@ contract AgentWalletIntegrationTest is Test {
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
         wallet.withdrawAssetToUser(address(0), address(usdc), 100e6);
 
-        // Should revert on zero asset
+        // Should revert on zero asset (InvalidAsset because address(0) != baseAsset)
         vm.prank(user);
-        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        vm.expectRevert(InvalidAsset.selector);
         wallet.withdrawAssetToUser(user, address(0), 100e6);
     }
 
