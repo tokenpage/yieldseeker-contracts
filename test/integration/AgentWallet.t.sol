@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
@@ -1262,7 +1262,7 @@ contract AgentWalletIntegrationTest is Test {
         // User tries to recover USDC but it's not the baseAsset, so it reverts
         address recipient = makeAddr("recipient");
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidAsset.selector));
+        vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector));
         wallet.withdrawAssetToUser(recipient, address(usdc), 1000e6);
 
         // USDC remains in wallet (recovery requires different mechanism)

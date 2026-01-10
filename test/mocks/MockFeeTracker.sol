@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {InvalidFeeRate} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
@@ -31,7 +31,7 @@ contract MockFeeTracker is AccessControl {
             revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
-            revert YieldSeekerErrors.InvalidFeeRate();
+            revert InvalidFeeRate();
         }
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -46,7 +46,7 @@ contract MockFeeTracker is AccessControl {
             revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
-            revert YieldSeekerErrors.InvalidFeeRate();
+            revert InvalidFeeRate();
         }
 
         _feeRate = feeRate;

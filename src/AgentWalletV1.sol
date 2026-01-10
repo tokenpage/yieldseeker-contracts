@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "./Errors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -9,6 +8,9 @@ import {AWKAgentWalletV1} from "./agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+error InvalidAsset();
+error InvalidFeeTracker();
 
 /**
  * @title YieldSeekerStorageV1
@@ -87,8 +89,8 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
         YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
 
         FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
-        if (address(newTracker) == address(0)) revert YieldSeekerErrors.InvalidFeeTracker();
-        if (address(newTracker).code.length == 0) revert YieldSeekerErrors.InvalidFeeTracker();
+        if (address(newTracker) == address(0)) revert InvalidFeeTracker();
+        if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
         ys.feeTracker = newTracker;
 
         emit SyncedFromFactory(address(adapterRegistry()), address(newTracker));
@@ -157,7 +159,7 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external override onlyOwner {
         if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset != address(baseAsset())) revert YieldSeekerErrors.InvalidAsset();
+        if (asset != address(baseAsset())) revert InvalidAsset();
 
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));
@@ -179,7 +181,7 @@ contract YieldSeekerAgentWalletV1 is AWKAgentWalletV1, IAgentWallet {
     function withdrawAllAssetToUser(address recipient, address asset) external override onlyOwner {
         if (recipient == address(0)) revert AWKErrors.ZeroAddress();
         if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset != address(baseAsset())) revert YieldSeekerErrors.InvalidAsset();
+        if (asset != address(baseAsset())) revert InvalidAsset();
 
         IERC20 token = IERC20(asset);
         uint256 balance = token.balanceOf(address(this));

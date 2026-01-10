@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../../src/Errors.sol";
+import {AWKZeroXAdapter} from "../../../src/agentwalletkit/adapters/AWKZeroXAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
@@ -88,7 +88,7 @@ contract ZeroXAdapterTest is Test {
             abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(100e18), uint256(150e6)),
             uint256(0)
         );
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InsufficientOutput.selector, uint256(100e6), uint256(150e6)));
+        vm.expectRevert(abi.encodeWithSelector(AWKZeroXAdapter.InsufficientOutput.selector, uint256(100e6), uint256(150e6)));
         wallet.executeAdapter(address(adapter), address(target), data);
     }
 

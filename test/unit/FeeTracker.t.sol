@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerErrors} from "../../src/Errors.sol";
+import {InvalidFeeRate} from "../../src/FeeTracker.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
@@ -63,7 +63,7 @@ contract FeeTrackerTest is Test {
 
     function test_SetFeeConfig_MaxFeeRate() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(YieldSeekerErrors.InvalidFeeRate.selector));
+        vm.expectRevert(abi.encodeWithSelector(InvalidFeeRate.selector));
         feeTracker.setFeeConfig(BASIS_POINTS + 1, collector); // Over 100%
     }
 
