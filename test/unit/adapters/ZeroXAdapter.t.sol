@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {AWKZeroXAdapter, InsufficientOutput} from "../../../src/agentwalletkit/adapters/AWKZeroXAdapter.sol";
+import {InsufficientOutput} from "../../../src/agentwalletkit/adapters/AWKZeroXAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";

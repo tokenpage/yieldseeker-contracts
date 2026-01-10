@@ -22,14 +22,14 @@ contract ReenterExecuteAdapter is IAWKAdapter {
 }
 
 contract ReenterWithdrawAdapter is IAWKAdapter {
-    address public immutable usdcAddress;
+    address public immutable USDC_ADDRESS;
     constructor(address _usdc) {
-        usdcAddress = _usdc;
+        USDC_ADDRESS = _usdc;
     }
     function execute(address target, bytes calldata) external payable returns (bytes memory) {
         // Attempt to withdraw during adapter call; should revert due to onlyOwner
         AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));
-        wallet.withdrawAssetToUser(target, usdcAddress, 1);
+        wallet.withdrawAssetToUser(target, USDC_ADDRESS, 1);
         return "";
     }
 }
