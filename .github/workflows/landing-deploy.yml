@@ -1,0 +1,31 @@
+name: Deploy Landing Page
+on:
+  pull_request:
+    branches:
+      - main
+env:
+  DOMAIN_NAME: 'agentwalletkit.tokenpage.xyz'
+  DIST_DIR: './landing-page'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.SITE_DEPLOYER_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SITE_DEPLOYER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.SITE_DEPLOYER_AWS_REGION }}
+      - name: Sync to S3
+        run: |
+          aws s3 sync \
+            --delete \
+            ${{ env.DIST_DIR }} \
+            s3://${{ secrets.SITE_DEPLOYMENT_S3_BUCKET_NAME }}/${{ env.DOMAIN_NAME }}/
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.SITE_DEPLOYMENT_CLOUDFRONT_ID }} \
+            --paths "/${{ env.DOMAIN_NAME }}/*"
