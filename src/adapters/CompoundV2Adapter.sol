@@ -76,7 +76,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         }
         uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 redeemResult = IYSCToken(vault).redeem(cTokensToRedeem);
-        require(redeemResult == 0, "YSCompoundV2Adapter: redeem failed");
+        require(redeemResult == 0, "YieldSeekerCompoundV2Adapter: redeem failed");
         uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
         assets = balanceAfter - balanceBefore;
         emit Withdrawn(address(this), vault, virtualShares, assets);
