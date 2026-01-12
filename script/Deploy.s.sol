@@ -6,6 +6,9 @@ import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.so
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
+import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
+import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../src/adapters/CompoundV2Adapter.sol";
+import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
 import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
@@ -68,6 +71,9 @@ contract DeployScript is Script {
         address erc4626Adapter;
         address merklAdapter;
         address zeroXAdapter;
+        address aaveV3Adapter;
+        address compoundV3Adapter;
+        address compoundV2Adapter;
     }
 
     /**
@@ -108,7 +114,10 @@ contract DeployScript is Script {
                 feeTracker: safeReadAddress(deployJson, ".feeTracker"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
                 merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
-                zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter")
+                zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter"),
+                aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
+                compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
+                compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter")
             });
         }
 
@@ -196,6 +205,33 @@ contract DeployScript is Script {
             console2.log("   allowanceTarget:", ZeroXAdapter(deployments.zeroXAdapter).ALLOWANCE_TARGET());
         }
 
+        // Deploy or reuse Aave V3 Adapter
+        if (deployments.aaveV3Adapter == address(0)) {
+            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter{salt: bytes32(SALT)}();
+            deployments.aaveV3Adapter = address(aaveV3Adapter);
+            console2.log("-> AaveV3Adapter deployed at:", address(aaveV3Adapter));
+        } else {
+            console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
+        }
+
+        // Deploy or reuse Compound V3 Adapter
+        if (deployments.compoundV3Adapter == address(0)) {
+            CompoundV3Adapter compoundV3Adapter = new CompoundV3Adapter{salt: bytes32(SALT)}();
+            deployments.compoundV3Adapter = address(compoundV3Adapter);
+            console2.log("-> CompoundV3Adapter deployed at:", address(compoundV3Adapter));
+        } else {
+            console2.log("-> Using existing compoundV3Adapter:", deployments.compoundV3Adapter);
+        }
+
+        // Deploy or reuse Compound V2 Adapter (for Moonwell and other Compound V2 forks)
+        if (deployments.compoundV2Adapter == address(0)) {
+            CompoundV2Adapter compoundV2Adapter = new CompoundV2Adapter{salt: bytes32(SALT)}();
+            deployments.compoundV2Adapter = address(compoundV2Adapter);
+            console2.log("-> CompoundV2Adapter deployed at:", address(compoundV2Adapter));
+        } else {
+            console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
+        }
+
         // Export deployments to JSON
         string memory json = "json";
         vm.serializeAddress(json, "adminTimelock", deployments.adminTimelock);
@@ -205,7 +241,10 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
-        string memory finalJson = vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
+        vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
+        vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
+        vm.serializeAddress(json, "compoundV3Adapter", deployments.compoundV3Adapter);
+        string memory finalJson = vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
 
@@ -220,8 +259,8 @@ contract DeployScript is Script {
         uint256 timelockDelay = adminTimelock.getMinDelay();
 
         // Collect all operations to batch
-        address[] memory targets = new address[](7);
-        bytes[] memory datas = new bytes[](7);
+        address[] memory targets = new address[](10);
+        bytes[] memory datas = new bytes[](10);
         uint256 operationCount = 0;
 
         // 1. Configure Factory
@@ -256,6 +295,21 @@ contract DeployScript is Script {
         if (!adapterRegistry.isRegisteredAdapter(deployments.zeroXAdapter)) {
             targets[operationCount] = deployments.adapterRegistry;
             datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.zeroXAdapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aaveV3Adapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.compoundV3Adapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.compoundV3Adapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.compoundV2Adapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.compoundV2Adapter));
             operationCount++;
         }
         // 3. Set Agent Operator
