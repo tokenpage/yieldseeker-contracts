@@ -359,6 +359,71 @@ For claiming Merkl rewards.
 
 ---
 
+#### AaveV3Adapter (`src/adapters/AaveV3Adapter.sol`)
+
+For Aave V3 lending pools. Handles deposits/withdrawals to Aave pools where the underlying asset is supplied to earn yield via aTokens.
+
+**Functions:**
+- `deposit(pool, assetAmount)` - Supply base asset to Aave pool, receive aTokens
+- `depositPercentage(pool, percentageBps)` - Deposit percentage of wallet balance
+- `withdraw(pool, assetAmount)` - Withdraw underlying from Aave pool by burning aTokens
+
+**Validation:**
+- Enforces that the pool's underlying asset matches the wallet's `baseAsset`
+- Calls FeeTracker to record deposits/withdrawals for fee calculation
+- Uses aToken balance to track shares (1:1 rebasing with underlying + yield)
+
+**Technical Notes:**
+- Aave V3 uses rebasing aTokens where balance increases automatically with accrued yield
+- The adapter queries the aToken address from the pool's reserve data
+- Withdrawals burn aTokens and return the underlying asset plus accrued interest
+
+---
+
+#### CompoundV3Adapter (`src/adapters/CompoundV3Adapter.sol`)
+
+For Compound V3 (Comet) markets. Handles deposits/withdrawals to Compound V3 markets where the base asset earns supply APY.
+
+**Functions:**
+- `deposit(comet, assetAmount)` - Supply base asset to Comet market
+- `depositPercentage(comet, percentageBps)` - Deposit percentage of wallet balance
+- `withdraw(comet, assetAmount)` - Withdraw assets from Comet market
+
+**Validation:**
+- Enforces that the Comet's base token matches the wallet's `baseAsset`
+- Calls FeeTracker to record deposits/withdrawals for fee calculation
+- Uses Comet balance as shares (rebasing model)
+
+**Technical Notes:**
+- Compound V3 uses a rebasing balance model where `balanceOf()` returns principal + accrued interest
+- Unlike Compound V2, there are no cTokens; the Comet contract itself tracks balances
+- The adapter uses the wallet's Comet balance change to determine shares received
+
+---
+
+#### CompoundV2Adapter (`src/adapters/CompoundV2Adapter.sol`)
+
+For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdrawals via cToken/mToken mint and redeem operations.
+
+**Functions:**
+- `deposit(cToken, assetAmount)` - Mint cTokens by supplying underlying asset
+- `depositPercentage(cToken, percentageBps)` - Deposit percentage of wallet balance
+- `withdraw(cToken, assetAmount)` - Redeem underlying by burning cTokens
+
+**Validation:**
+- Enforces that the cToken's underlying matches the wallet's `baseAsset`
+- Calls FeeTracker to record deposits/withdrawals for fee calculation
+- Uses cToken balance to track shares
+
+**Technical Notes:**
+- Compound V2 uses an exchange rate model where cTokens appreciate over time
+- `mint(amount)` supplies underlying and mints cTokens at the current exchange rate
+- `redeemUnderlying(amount)` redeems a specific amount of underlying, burning the required cTokens
+- Exchange rate = (totalCash + totalBorrows - reserves) / totalSupply
+- Works with Moonwell (mTokens), Venus (vTokens), and other Compound V2 forks
+
+---
+
 ## Security Model
 
 ### Actors
@@ -816,6 +881,121 @@ We have comprehensive tests in `test/`:
 1. Admin calls `factory.setAdapterRegistry(newRegistry)` or `factory.setFeeTracker(newTracker)`
 2. This affects **NEW wallets only**
 3. Existing wallets must call `syncFromFactory()` to get updated references
+
+---
+
+### FeeTracker Migration Guide
+
+**IMPORTANT**: FeeTracker stores per-wallet fee accounting state. Changing the FeeTracker requires careful migration to prevent fee loss.
+
+#### The Problem
+
+When `factory.setFeeTracker(newTracker)` is called and wallets subsequently call `syncFromFactory()`:
+- The wallet's `feeTracker` reference switches to the new contract
+- All historical fee data remains **orphaned** in the old FeeTracker:
+  - `agentFeesCharged[wallet]` - total fees charged
+  - `agentFeesPaid[wallet]` - total fees paid
+  - `agentVaultCostBasis[wallet][vault]` - cost basis for profit calculations
+  - `agentVaultShares[wallet][vault]` - tracked vault shares
+  - `agentYieldTokenFeesOwed[wallet][token]` - pending yield token fees
+- New FeeTracker has **zero state** for existing wallets
+- `newTracker.getFeesOwed(wallet)` returns **0** instead of the actual debt
+- Users could withdraw all funds without paying accrued fees
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  DANGEROUS: FeeTracker Switch Without Migration                      │
+│                                                                      │
+│  Day 1:  Wallet → FeeTrackerA (feesCharged: 1000 USDC)             │
+│  Day 30: Admin sets Factory.feeTracker = FeeTrackerB                │
+│  Day 31: Wallet.syncFromFactory() → points to FeeTrackerB           │
+│          FeeTrackerB.getFeesOwed(wallet) = 0  ← FEES LOST!         │
+│  Day 32: User withdraws all funds, platform never collects fees     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Required Migration Pattern
+
+The new FeeTracker should store a reference to the previous tracker and aggregate fee queries:
+
+```solidity
+contract YieldSeekerFeeTrackerV2 is AccessControl {
+    // Reference to the previous FeeTracker for migration
+    YieldSeekerFeeTracker public immutable LEGACY_TRACKER;
+
+    // Track which wallets have been migrated
+    mapping(address wallet => bool) public migrated;
+
+    constructor(address admin, address legacyTracker) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        LEGACY_TRACKER = YieldSeekerFeeTracker(legacyTracker);
+    }
+
+    /**
+     * @notice Get fees owed, checking both legacy and current tracker
+     * @dev For unmigrated wallets, this returns the sum of:
+     *      - Legacy tracker fees (historical debt)
+     *      - Current tracker fees (new activity)
+     */
+    function getFeesOwed(address wallet) external view returns (uint256) {
+        uint256 currentOwed = _getCurrentFeesOwed(wallet);
+
+        // If not migrated, also include legacy fees
+        if (!migrated[wallet] && address(LEGACY_TRACKER) != address(0)) {
+            uint256 legacyOwed = LEGACY_TRACKER.getFeesOwed(wallet);
+            return currentOwed + legacyOwed;
+        }
+
+        return currentOwed;
+    }
+
+    /**
+     * @notice Migrate a wallet's fee state from legacy tracker
+     * @dev Called once per wallet to snapshot legacy state into new tracker
+     *      Can only be called by the wallet itself (msg.sender pattern)
+     */
+    function migrateFromLegacy() external {
+        address wallet = msg.sender;
+        require(!migrated[wallet], "Already migrated");
+        require(address(LEGACY_TRACKER) != address(0), "No legacy tracker");
+
+        // Copy fee accounting state
+        (uint256 charged, uint256 paid, ) = LEGACY_TRACKER.getWalletStats(wallet);
+        agentFeesCharged[wallet] = charged;
+        agentFeesPaid[wallet] = paid;
+
+        // Note: Vault positions (cost basis, shares) should also be migrated
+        // if the new tracker needs to continue tracking existing positions
+
+        migrated[wallet] = true;
+        emit WalletMigrated(wallet, charged, paid);
+    }
+}
+```
+
+#### State That Must Be Migrated
+
+| State Variable | Purpose | Migration Notes |
+|----------------|---------|-----------------|
+| `agentFeesCharged[wallet]` | Total fees charged to wallet | Direct copy |
+| `agentFeesPaid[wallet]` | Total fees paid by wallet | Direct copy |
+| `agentVaultCostBasis[wallet][vault]` | Cost basis for profit calculation | Requires knowing all vaults used by wallet |
+| `agentVaultShares[wallet][vault]` | Tracked shares for profit calculation | Requires knowing all vaults used by wallet |
+| `agentYieldTokenFeesOwed[wallet][token]` | Pending fees in yield tokens | Requires knowing all yield tokens received |
+
+**Note**: For vault positions (`costBasis`, `shares`) and yield token fees, you need to either:
+1. Track which vaults/tokens each wallet has interacted with (off-chain indexing)
+2. Have wallets self-report their positions during migration
+3. Accept that only `feesCharged` and `feesPaid` matter for fee enforcement (positions only affect future fee calculations)
+
+#### Why This Matters
+
+The FeeTracker is different from other factory configurations:
+- `AdapterRegistry`: Stateless - new registry just needs same adapters registered
+- `AgentOperators`: Cached locally but no critical accounting state
+- `FeeTracker`: **Stateful** - contains critical per-wallet accounting data
+
+Failing to migrate FeeTracker state allows users to avoid paying accrued platform fees, directly impacting revenue.
 
 ---
 

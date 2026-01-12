@@ -48,8 +48,14 @@ contract RegisterVaultScript is Script {
             adapterAddress = json.readAddress(".zeroXAdapter");
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("merkl"))) {
             adapterAddress = json.readAddress(".merklAdapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("aave")) || keccak256(bytes(adapterName)) == keccak256(bytes("aavev3"))) {
+            adapterAddress = json.readAddress(".aaveV3Adapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("compound")) || keccak256(bytes(adapterName)) == keccak256(bytes("compoundv3"))) {
+            adapterAddress = json.readAddress(".compoundV3Adapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("compoundv2")) || keccak256(bytes(adapterName)) == keccak256(bytes("moonwell"))) {
+            adapterAddress = json.readAddress(".compoundV2Adapter");
         } else {
-            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'zerox', or 'merkl'"));
+            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'zerox', 'merkl', 'aave', 'compound', 'compoundv2', or 'moonwell'"));
         }
 
         console2.log("=================================================");
