@@ -108,6 +108,14 @@ contract AaveV3AdapterTest is Test {
         assertEq(shares, 1_000e6, "Shares should be reduced");
     }
 
+    function test_FullWithdraw_ClearsCostBasis() public {
+        wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
+        wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(costBasis, 0, "Cost basis should be zero after full withdrawal");
+        assertEq(shares, 0, "Shares should be zero after full withdrawal");
+    }
+
     function test_VirtualShares_YieldAccrual_FeeCharged() public {
         uint256 depositAmount = 1_000e6;
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
