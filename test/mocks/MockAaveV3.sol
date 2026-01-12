@@ -35,9 +35,9 @@ contract MockAaveV3Pool {
 /// @title MockAToken
 /// @notice Mock Aave aToken for testing - rebasing token where balance = underlying value
 contract MockAToken is IERC20 {
-    string public constant name = "Mock aToken";
-    string public constant symbol = "aToken";
-    uint8 public constant decimals = 6;
+    string public constant NAME = "Mock aToken";
+    string public constant SYMBOL = "aToken";
+    uint8 public constant DECIMALS = 6;
 
     address public immutable UNDERLYING_ASSET_ADDRESS;
     address public immutable POOL;
@@ -100,7 +100,7 @@ contract MockAToken is IERC20 {
 
     function transferUnderlying(address to, uint256 amount) external {
         require(msg.sender == POOL, "Only pool can transfer underlying");
-        IERC20(UNDERLYING_ASSET_ADDRESS).transfer(to, amount);
+        require(IERC20(UNDERLYING_ASSET_ADDRESS).transfer(to, amount), "Transfer failed");
     }
 
     /// @notice Simulate yield by minting extra aTokens
