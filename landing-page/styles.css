@@ -65,9 +65,9 @@ h1, h2, h3, h4, h5, h6 {
     gap: 8px;
 }
 
-.logo-shield {
-    font-size: 24px;
-    line-height: 1;
+.logo-icon {
+    width: 32px;
+    height: 32px;
 }
 
 .logo-text {
