@@ -67,15 +67,20 @@ library AgentWalletStorageV1 {
 
 /**
  * @title AWKAgentWalletV1
- * @notice ERC-4337 v0.6 smart wallet for yield-seeking agents.
+ * @notice Abstract ERC-4337 v0.6 smart wallet for yield-seeking agents.
  * @dev Implements:
  *      - ERC-4337 v0.6 Account (BaseAccount)
  *      - Single owner ECDSA validation
  *      - UUPS Upgradeability
  *      - ERC-7201 namespaced storage
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
+ *
+ *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
+ *      1. Override withdrawal functions to enforce fee collection (see YieldSeekerAgentWalletV1)
+ *      2. Add any protocol-specific storage and logic
+ *      3. Ensure the paired Factory calls initialize() atomically during deployment
  */
-contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
+abstract contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
@@ -119,6 +124,16 @@ contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUp
 
     // ============ Initializers ============
 
+    /**
+     * @notice Initialize the wallet with owner and index
+     * @param _owner The owner address for the wallet
+     * @param _ownerAgentIndex Index of this agent for the owner
+     * @dev SECURITY: This function is intentionally public without caller restrictions because:
+     *      1. The `initializer` modifier prevents re-initialization after first call
+     *      2. Factory subclasses MUST call initialize() atomically in the same transaction as deployment
+     *      3. See YieldSeekerAgentWalletFactory.createAgentWallet() for the correct pattern
+     *      Factories that expose deployment without atomic initialization would create a vulnerability.
+     */
     function initialize(address _owner, uint256 _ownerAgentIndex) public virtual initializer {
         _initializeV1(_owner, _ownerAgentIndex);
     }

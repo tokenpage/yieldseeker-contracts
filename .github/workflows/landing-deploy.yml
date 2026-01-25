@@ -1,6 +1,6 @@
 name: Deploy Landing Page
 on:
-  pull_request:
+  push:
     branches:
       - main
 env:
