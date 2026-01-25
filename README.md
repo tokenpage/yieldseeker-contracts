@@ -788,7 +788,9 @@ sequenceDiagram
 Required environment variables:
 - `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
 - `SERVER_ADDRESS`: Backend server address
+- `ADMIN_ADDRESS`: The admin address for the contract
 - `RPC_NODE_URL_8453`: Base network RPC endpoint
+- `ETHERSCAN_API_KEY`:  For contract verification (optional)
 
 
 ### Deploy

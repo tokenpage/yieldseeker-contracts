@@ -38,12 +38,17 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
 
 /**
  * @title AWKAgentWalletFactory
- * @notice Factory for deploying AgentWallet proxies using CREATE2
+ * @notice Abstract factory for deploying AgentWallet proxies using CREATE2
  * @dev Each agent wallet is tied to a specific base asset (e.g., USDC)
  *      Users can create multiple agents with different ownerAgentIndex values
  *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
+ *
+ *      IMPORTANT: This contract is abstract and must be inherited. Subclasses must:
+ *      1. Implement a public deployment function (e.g., createAgentWallet)
+ *      2. Call _deployWallet() followed by initialize() ATOMICALLY in the same transaction
+ *      3. See YieldSeekerAgentWalletFactory for the correct implementation pattern
  */
-contract AWKAgentWalletFactory is AccessControlEnumerable {
+abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
     uint256 public constant MAX_OPERATORS = 10;
 
