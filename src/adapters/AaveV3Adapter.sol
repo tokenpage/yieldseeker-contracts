@@ -35,17 +35,17 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         shares = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: amount});
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
     }
 
     /**
      * @notice Internal withdraw implementation with fee tracking
      */
-    function _withdrawInternal(address vault, uint256 amount) internal override returns (uint256 assets) {
+    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         uint256 totalVaultBalanceBefore = IAaveAToken(vault).balanceOf(address(this));
-        assets = super._withdrawInternal(vault, amount);
+        assets = super._withdrawInternal(vault, shares);
         _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore});
     }
 }
