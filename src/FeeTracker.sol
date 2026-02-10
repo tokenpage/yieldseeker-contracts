@@ -202,7 +202,11 @@ contract YieldSeekerFeeTracker is AccessControl {
                 feeTokenSettled = (vaultTokenFeesOwed * assetsReceived) / totalVaultBalanceBefore;
             }
             agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSettled;
-            feeInBaseAsset = feeTokenSettled;
+            if (totalShares > 0) {
+                feeInBaseAsset = (feeTokenSettled * totalVaultBalanceBefore) / totalShares;
+            } else {
+                feeInBaseAsset = feeTokenSettled;
+            }
             agentFeesCharged[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
         }

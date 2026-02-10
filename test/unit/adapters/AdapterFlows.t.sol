@@ -162,16 +162,19 @@ contract AdapterFlowsTest is Test {
         uint256 totalBalance = aToken.balanceOf(address(wallet));
         assertEq(totalBalance, 110e6);
         _withdraw(7e6);
-        // vaultTokenFee settlement: 7/110 of 1e6 fee owed
+        // vaultTokenFee settlement: 7/110 of 1e6 fee owed (in vault token units)
         uint256 totalBalanceBefore = 110e6;
+        uint256 totalShares = 100e6;
         uint256 feeTokenSettled = (1e6 * 7e6) / totalBalanceBefore;
+        // Convert vault token fee to base asset using exchange rate (totalVaultBalance / totalShares)
+        uint256 feeInBaseAsset = (feeTokenSettled * totalBalanceBefore) / totalShares;
         // proportionalCost = (100e6 * 7e6) / 110e6
         uint256 proportionalCost = (100e6 * 7e6) / totalBalanceBefore;
-        // netAssets = 7e6 - feeTokenSettled, profit = netAssets - proportionalCost
-        uint256 netAssets = 7e6 - feeTokenSettled;
+        // netAssets = 7e6 - feeInBaseAsset, profit = netAssets - proportionalCost
+        uint256 netAssets = 7e6 - feeInBaseAsset;
         uint256 profit = netAssets > proportionalCost ? netAssets - proportionalCost : 0;
         uint256 profitFee = (profit * 1000) / 10_000;
-        uint256 totalExpectedFees = feeTokenSettled + profitFee;
+        uint256 totalExpectedFees = feeInBaseAsset + profitFee;
         assertEq(feeTracker.agentFeesCharged(address(wallet)), totalExpectedFees, "Correct fees with deposit + reward");
     }
 
