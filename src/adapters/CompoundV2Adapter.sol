@@ -27,7 +27,6 @@ import {YieldSeekerAdapter} from "./Adapter.sol";
  *      Fee computation uses actual underlying balance proportion for cost basis.
  */
 contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapter {
-
     /**
      * @notice Internal deposit implementation with validation and fee tracking
      */

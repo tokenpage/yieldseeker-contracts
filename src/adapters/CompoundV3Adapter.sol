@@ -27,7 +27,6 @@ import {YieldSeekerAdapter} from "./Adapter.sol";
  *      Fee computation uses actual vault balance proportion for cost basis.
  */
 contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapter {
-
     /**
      * @notice Internal deposit implementation with validation and fee tracking
      */

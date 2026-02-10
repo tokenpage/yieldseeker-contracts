@@ -3,7 +3,11 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
+import {YieldSeekerCompoundV2Adapter} from "../../../src/adapters/CompoundV2Adapter.sol";
+import {YieldSeekerCompoundV3Adapter} from "../../../src/adapters/CompoundV3Adapter.sol";
 import {MockAToken, MockAaveV3Pool} from "../../mocks/MockAaveV3.sol";
+import {MockCToken} from "../../mocks/MockCompoundV2.sol";
+import {MockCompoundV3Comet} from "../../mocks/MockCompoundV3.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
@@ -284,5 +288,62 @@ contract AdapterFlowsTest is Test {
         (uint256 cbFinal, uint256 sharesFinal) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
         assertApproxEqAbs(cbFinal, 0, 10, "Cost basis ~0 after full withdrawal");
         assertApproxEqAbs(sharesFinal, 0, 10, "Shares ~0 after full withdrawal");
+    }
+
+    // ============ Flow 4: Untracked positions (tokens arriving outside deposit flow) ============
+
+    /// @notice CompoundV2: cTokens transferred directly to wallet. Withdrawing a specific
+    ///         amount only redeems that amount, not the entire balance.
+    function test_Flow4a_CompoundV2_UntrackedCTokens_PartialWithdraw() public {
+        YieldSeekerCompoundV2Adapter cAdapter = new YieldSeekerCompoundV2Adapter();
+        MockCToken cToken = new MockCToken(address(baseAsset), "Mock cUSDC", "mcUSDC");
+        address externalDepositor = address(0xDEAD);
+        uint256 untrackedAmount = 50_000e6;
+        baseAsset.mint(externalDepositor, untrackedAmount);
+        vm.startPrank(externalDepositor);
+        baseAsset.approve(address(cToken), untrackedAmount);
+        cToken.mint(untrackedAmount);
+        require(cToken.transfer(address(wallet), cToken.balanceOf(externalDepositor)));
+        vm.stopPrank();
+        uint256 cTokenBalanceBefore = cToken.balanceOf(address(wallet));
+        assertGt(cTokenBalanceBefore, 0, "Wallet should hold cTokens");
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(cToken));
+        assertEq(costBasis, 0, "No tracked cost basis");
+        assertEq(shares, 0, "No tracked shares");
+        uint256 withdrawRequest = 1_000e6;
+        uint256 walletBalanceBefore = baseAsset.balanceOf(address(wallet));
+        wallet.executeAdapter(address(cAdapter), address(cToken), abi.encodeWithSelector(cAdapter.withdraw.selector, withdrawRequest));
+        uint256 assetsReceived = baseAsset.balanceOf(address(wallet)) - walletBalanceBefore;
+        assertEq(assetsReceived, withdrawRequest, "Should receive exactly the requested amount");
+        assertGt(cToken.balanceOf(address(wallet)), 0, "Remaining cTokens preserved, not liquidated");
+        uint256 expectedFee = (withdrawRequest * 1000) / 10_000;
+        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Fees charged on untracked tokens as profit");
+    }
+
+    /// @notice CompoundV3: untracked tokens arrive, then a tracked deposit on top.
+    ///         Proportional cost basis correctly treats untracked remainder as profit.
+    function test_Flow4b_CompoundV3_UntrackedThenTrackedDeposit() public {
+        YieldSeekerCompoundV3Adapter cAdapter = new YieldSeekerCompoundV3Adapter();
+        MockCompoundV3Comet comet = new MockCompoundV3Comet(address(baseAsset));
+        uint256 untrackedAmount = 500e6;
+        comet.addYield(address(wallet), untrackedAmount);
+        baseAsset.mint(address(comet), untrackedAmount);
+        uint256 firstWithdraw = 250e6;
+        wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.withdraw.selector, firstWithdraw));
+        uint256 firstFee = (firstWithdraw * 1000) / 10_000;
+        assertEq(feeTracker.agentFeesCharged(address(wallet)), firstFee, "Fee on untracked withdrawal");
+        uint256 trackedDeposit = 1_000e6;
+        wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.deposit.selector, trackedDeposit));
+        uint256 totalBalance = comet.balanceOf(address(wallet));
+        assertEq(totalBalance, 1_250e6, "250 untracked + 1000 deposit");
+        (uint256 cb,) = feeTracker.getAgentVaultPosition(address(wallet), address(comet));
+        assertEq(cb, trackedDeposit, "Cost basis equals tracked deposit only");
+        wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.withdraw.selector, totalBalance));
+        uint256 secondFee = (250e6 * 1000) / 10_000;
+        uint256 totalExpectedFees = firstFee + secondFee;
+        assertEq(feeTracker.agentFeesCharged(address(wallet)), totalExpectedFees, "Total fees account for all untracked tokens");
+        (uint256 finalCb, uint256 finalShares) = feeTracker.getAgentVaultPosition(address(wallet), address(comet));
+        assertEq(finalCb, 0, "Position fully cleared");
+        assertEq(finalShares, 0, "Shares fully cleared");
     }
 }
