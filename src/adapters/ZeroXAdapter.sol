@@ -25,7 +25,7 @@ import {YieldSeekerAdapter} from "./Adapter.sol";
  * @dev Extends the generic AWKZeroXAdapter and implements hooks for base asset validation and fee tracking.
  */
 contract YieldSeekerZeroXAdapter is AWKZeroXAdapter, YieldSeekerAdapter {
-    constructor(address allowanceTarget_) AWKZeroXAdapter(allowanceTarget_) {}
+    constructor(address allowanceTarget_, address admin_, address emergencyAdmin_, bool allowAllTokens_) AWKZeroXAdapter(allowanceTarget_, admin_, emergencyAdmin_, allowAllTokens_) {}
 
     /**
      * @notice Internal swap implementation with validation and fee tracking

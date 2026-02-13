@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerZeroXAdapter} from "../../../src/adapters/ZeroXAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {InsufficientOutput} from "../../../src/agentwalletkit/adapters/AWKZeroXAdapter.sol";
+import {InsufficientOutput, SellTokenNotAllowed} from "../../../src/agentwalletkit/adapters/AWKZeroXAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
@@ -53,7 +53,8 @@ contract ZeroXAdapterTest is Test {
         feeTracker = new YieldSeekerFeeTracker(address(this));
         feeTracker.setFeeConfig(1000, address(0xBEEF));
         target = new MockZeroXTarget();
-        adapter = new YieldSeekerZeroXAdapter(address(target));
+        adapter = new YieldSeekerZeroXAdapter(address(target), address(this), address(this), false);
+        adapter.addSellToken(address(sellToken));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         baseAsset.mint(address(target), 1_000_000e6);
         sellToken.mint(address(wallet), 1_000e18);
@@ -131,5 +132,127 @@ contract ZeroXAdapterTest is Test {
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 200e6);
         assertEq(target.lastValue(), 1 ether);
+    }
+
+    // ============ Sell Token Allowlist ============
+
+    function test_Swap_RevertsOnNonAllowedSellToken() public {
+        MockERC20 disallowedToken = new MockERC20("Vault Shares", "vUSDC");
+        disallowedToken.mint(address(wallet), 1000e18);
+        target.setBuyAmount(500e6);
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            address(disallowedToken),
+            address(baseAsset),
+            uint256(100e18),
+            uint256(400e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(disallowedToken), address(baseAsset), uint256(100e18), uint256(400e6)),
+            uint256(0)
+        );
+        vm.expectRevert(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(disallowedToken)));
+        wallet.executeAdapter(address(adapter), address(target), data);
+    }
+
+    function test_Swap_AllowedTokenSucceeds() public {
+        target.setBuyAmount(500e6);
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            address(sellToken),
+            address(baseAsset),
+            uint256(100e18),
+            uint256(400e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(100e18), uint256(400e6)),
+            uint256(0)
+        );
+        wallet.executeAdapter(address(adapter), address(target), data);
+        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+    }
+
+    function test_Swap_RemovedTokenReverts() public {
+        adapter.removeSellToken(address(sellToken));
+        target.setBuyAmount(500e6);
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            address(sellToken),
+            address(baseAsset),
+            uint256(100e18),
+            uint256(400e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(sellToken), address(baseAsset), uint256(100e18), uint256(400e6)),
+            uint256(0)
+        );
+        vm.expectRevert(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(sellToken)));
+        wallet.executeAdapter(address(adapter), address(target), data);
+    }
+
+    function test_Swap_NativeETH_SkipsAllowlistCheck() public {
+        target.setBuyAmount(200e6);
+        vm.deal(address(wallet), 2 ether);
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            NATIVE_TOKEN,
+            address(baseAsset),
+            uint256(1 ether),
+            uint256(100e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, NATIVE_TOKEN, address(baseAsset), uint256(1 ether), uint256(100e6)),
+            uint256(0)
+        );
+        wallet.executeAdapter(address(adapter), address(target), data);
+        assertEq(baseAsset.balanceOf(address(wallet)), 200e6);
+    }
+
+    // ============ Allow All Tokens Flag ============
+
+    function test_Swap_AllowAllTokens_BypassesAllowlist() public {
+        MockERC20 randomToken = new MockERC20("Random", "RND");
+        randomToken.mint(address(wallet), 1000e18);
+        target.setBuyAmount(500e6);
+
+        // First verify it reverts without allowAllTokens
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            address(randomToken),
+            address(baseAsset),
+            uint256(100e18),
+            uint256(400e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(randomToken), address(baseAsset), uint256(100e18), uint256(400e6)),
+            uint256(0)
+        );
+        vm.expectRevert(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(randomToken)));
+        wallet.executeAdapter(address(adapter), address(target), data);
+
+        // Enable allowAllTokens and verify it succeeds
+        adapter.setAllowAllTokens(true);
+        wallet.executeAdapter(address(adapter), address(target), data);
+        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+    }
+
+    function test_Swap_AllowAllTokens_DisableReenablesAllowlist() public {
+        MockERC20 randomToken = new MockERC20("Random", "RND");
+        randomToken.mint(address(wallet), 1000e18);
+        target.setBuyAmount(500e6);
+
+        adapter.setAllowAllTokens(true);
+        bytes memory data = abi.encodeWithSelector(
+            adapter.swap.selector,
+            address(randomToken),
+            address(baseAsset),
+            uint256(100e18),
+            uint256(400e6),
+            abi.encodeWithSelector(MockZeroXTarget.swap.selector, address(randomToken), address(baseAsset), uint256(100e18), uint256(400e6)),
+            uint256(0)
+        );
+        wallet.executeAdapter(address(adapter), address(target), data);
+
+        // Disable allowAllTokens - should revert again for non-allowlisted token
+        adapter.setAllowAllTokens(false);
+        vm.expectRevert(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(randomToken)));
+        wallet.executeAdapter(address(adapter), address(target), data);
+    }
+
+    function test_SetAllowAllTokens_OnlyAdmin() public {
+        address nonAdmin = address(0xDEAD);
+        vm.prank(nonAdmin);
+        vm.expectRevert();
+        adapter.setAllowAllTokens(true);
     }
 }

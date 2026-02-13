@@ -196,7 +196,7 @@ contract DeployScript is Script {
         // Deploy or reuse ZeroX Adapter
         address zeroXAllowanceTarget = getZeroXAllowanceTarget(block.chainid);
         if (deployments.zeroXAdapter == address(0)) {
-            ZeroXAdapter zeroXAdapter = new ZeroXAdapter{salt: bytes32(SALT)}(zeroXAllowanceTarget);
+            ZeroXAdapter zeroXAdapter = new ZeroXAdapter{salt: bytes32(SALT)}(zeroXAllowanceTarget, deployerAddress, deployerAddress, false);
             deployments.zeroXAdapter = address(zeroXAdapter);
             console2.log("-> ZeroXAdapter deployed at:", address(zeroXAdapter));
             console2.log("   allowanceTarget:", zeroXAllowanceTarget);

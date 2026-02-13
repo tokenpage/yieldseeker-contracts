@@ -28,8 +28,9 @@ error UnknownOperation();
  */
 abstract contract AWKAdapter is IAWKAdapter {
     /// @notice The adapter's own address, set at deployment
-    /// @dev Used to detect direct calls vs delegatecalls
-    address private immutable SELF;
+    /// @dev Used to detect direct calls vs delegatecalls. Internal so subclasses
+    ///      can reference the adapter's real address during delegatecall context.
+    address internal immutable SELF;
 
     constructor() {
         SELF = address(this);
