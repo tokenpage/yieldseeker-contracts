@@ -25,13 +25,14 @@ import {YieldSeekerAdapter} from "./Adapter.sol";
  * @dev Extends the generic AWKZeroXAdapter and implements hooks for base asset validation and fee tracking.
  */
 contract YieldSeekerZeroXAdapter is AWKZeroXAdapter, YieldSeekerAdapter {
-    constructor(address allowanceTarget_, address admin_, address emergencyAdmin_, bool allowAllTokens_) AWKZeroXAdapter(allowanceTarget_, admin_, emergencyAdmin_, allowAllTokens_) {}
+    constructor(address allowanceTarget, address admin, address emergencyAdmin, bool initialAllowSellingAllTokens) AWKZeroXAdapter(allowanceTarget, admin, emergencyAdmin, initialAllowSellingAllTokens) {}
 
     /**
      * @notice Internal swap implementation with validation and fee tracking
      * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal override returns (uint256 buyAmount, uint256 soldAmount) {
+        _requireNotBaseAsset(sellToken);
         _requireBaseAsset(buyToken);
         (buyAmount, soldAmount) = super._swapInternal(target, sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value);
         _feeTracker().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);

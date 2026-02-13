@@ -17,9 +17,9 @@ pragma solidity 0.8.28;
 import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 error InvalidAllowanceTarget();
 error InsufficientEth(uint256 balance, uint256 required);
@@ -32,8 +32,8 @@ error SellTokenNotAllowed(address token);
  * @notice Generic adapter for token swaps via 0x with built-in sell-token allowlist.
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Allowlist management functions run via direct calls (admin-only).
- *      When allowAllTokens is false, only tokens explicitly added to the allowlist can be sold.
- *      When allowAllTokens is true, any token can be sold (useful for less restrictive setups).
+ *      When allowSellingAllTokens is false, only tokens explicitly added to the allowlist can be sold.
+ *      When allowSellingAllTokens is true, any token can be sold (useful for less restrictive setups).
  */
 contract AWKZeroXAdapter is AWKAdapter, AccessControl {
     using SafeERC20 for IERC20;
@@ -44,63 +44,59 @@ contract AWKZeroXAdapter is AWKAdapter, AccessControl {
     address public immutable ALLOWANCE_TARGET;
     address internal constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    bool public allowAllTokens;
-    EnumerableSet.AddressSet private _allowedSellTokens;
+    bool public allowSellingAllTokens;
+    EnumerableSet.AddressSet private sellableTokens;
 
-    event SellTokenAdded(address indexed token);
-    event SellTokenRemoved(address indexed token);
-    event AllowAllTokensSet(bool enabled);
+    event SellableTokenAdded(address indexed token);
+    event SellableTokenRemoved(address indexed token);
+    event AllowSellingAllTokensSet(bool enabled);
     event Swapped(address indexed wallet, address indexed target, address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount);
 
-    constructor(address allowanceTarget_, address admin_, address emergencyAdmin_, bool allowAllTokens_) {
-        if (allowanceTarget_ == address(0)) revert InvalidAllowanceTarget();
-        if (admin_ == address(0)) revert AWKErrors.ZeroAddress();
-        if (emergencyAdmin_ == address(0)) revert AWKErrors.ZeroAddress();
-        ALLOWANCE_TARGET = allowanceTarget_;
-        _grantRole(DEFAULT_ADMIN_ROLE, admin_);
-        _grantRole(EMERGENCY_ROLE, emergencyAdmin_);
-        allowAllTokens = allowAllTokens_;
+    constructor(address allowanceTarget, address admin, address emergencyAdmin, bool initialAllowSellingAllTokens) {
+        if (allowanceTarget == address(0)) revert InvalidAllowanceTarget();
+        if (admin == address(0)) revert AWKErrors.ZeroAddress();
+        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
+        ALLOWANCE_TARGET = allowanceTarget;
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(EMERGENCY_ROLE, emergencyAdmin);
+        allowSellingAllTokens = initialAllowSellingAllTokens;
     }
 
     // ============ Allowlist Management (direct calls only) ============
 
-    function setAllowAllTokens(bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        allowAllTokens = enabled;
-        emit AllowAllTokensSet(enabled);
+    function setAllowSellingAllTokens(bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        allowSellingAllTokens = enabled;
+        emit AllowSellingAllTokensSet(enabled);
     }
 
-    function addSellToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addSellableToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (token == address(0)) revert AWKErrors.ZeroAddress();
-        if (_allowedSellTokens.add(token)) {
-            emit SellTokenAdded(token);
+        if (sellableTokens.add(token)) {
+            emit SellableTokenAdded(token);
         }
     }
 
-    function addSellTokens(address[] calldata tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addSellableTokens(address[] calldata tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
         for (uint256 i = 0; i < tokens.length; i++) {
             if (tokens[i] == address(0)) revert AWKErrors.ZeroAddress();
-            if (_allowedSellTokens.add(tokens[i])) {
-                emit SellTokenAdded(tokens[i]);
+            if (sellableTokens.add(tokens[i])) {
+                emit SellableTokenAdded(tokens[i]);
             }
         }
     }
 
-    function removeSellToken(address token) external onlyRole(EMERGENCY_ROLE) {
-        if (_allowedSellTokens.remove(token)) {
-            emit SellTokenRemoved(token);
+    function removeSellableToken(address token) external onlyRole(EMERGENCY_ROLE) {
+        if (sellableTokens.remove(token)) {
+            emit SellableTokenRemoved(token);
         }
     }
 
-    function isAllowedSellToken(address token) external view returns (bool) {
-        return allowAllTokens || _allowedSellTokens.contains(token);
+    function isSellableToken(address token) external view returns (bool) {
+        return allowSellingAllTokens || sellableTokens.contains(token);
     }
 
-    function getAllowedSellTokens() external view returns (address[] memory) {
-        return _allowedSellTokens.values();
-    }
-
-    function allowedSellTokenCount() external view returns (uint256) {
-        return _allowedSellTokens.length();
+    function getSellableTokens() external view returns (address[] memory) {
+        return sellableTokens.values();
     }
 
     // ============ Swap Execution (delegatecall only) ============
@@ -121,7 +117,7 @@ contract AWKZeroXAdapter is AWKAdapter, AccessControl {
 
     function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal virtual returns (uint256 buyAmount, uint256 soldAmount) {
         if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
-        if (sellToken != NATIVE_TOKEN && !AWKZeroXAdapter(SELF).isAllowedSellToken(sellToken)) revert SellTokenNotAllowed(sellToken);
+        if (sellToken != NATIVE_TOKEN && !AWKZeroXAdapter(SELF).isSellableToken(sellToken)) revert SellTokenNotAllowed(sellToken);
 
         uint256 ethToSend;
         if (sellToken == NATIVE_TOKEN) {
@@ -143,5 +139,4 @@ contract AWKZeroXAdapter is AWKAdapter, AccessControl {
 
         emit Swapped(address(this), target, sellToken, buyToken, soldAmount, buyAmount);
     }
-
 }

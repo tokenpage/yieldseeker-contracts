@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
-import {InvalidBaseAsset} from "../../../src/adapters/Adapter.sol";
+import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
@@ -59,7 +59,7 @@ contract ERC4626AdapterTest is Test {
 
     function test_Execute_Deposit_InvalidAsset_Reverts() public {
         MockERC4626 badVault = new MockERC4626(address(altAsset), "Bad", "bALT");
-        vm.expectRevert(abi.encodeWithSelector(InvalidBaseAsset.selector));
+        vm.expectRevert(abi.encodeWithSelector(AssetNotAllowed.selector));
         wallet.executeAdapter(address(adapter), address(badVault), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 
