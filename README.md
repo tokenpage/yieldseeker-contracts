@@ -808,11 +808,19 @@ Deployment addresses saved to `deployments.json`.
 # Register ERC4626 vaults
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
 
+# Register other vaults
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB aave
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xb125E6687d4313864e53df431d5425969c15Eb2F compound
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22 moonwell
+
 # Register 0x swap target
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x0000000000001fF3684f28c67538d4D072C22734 zerox
 
 # Register Merkl
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl
+
+# Add sellable tokens to the 0x adapter (tokens that agents are allowed to swap)
+forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
 ```
 
 (temp) test with:
