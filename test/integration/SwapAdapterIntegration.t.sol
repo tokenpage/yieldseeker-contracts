@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
+import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
+import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
-import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
-import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
-import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {Test} from "forge-std/Test.sol";
 
 error SellTokenNotAllowed(address token);
 
@@ -94,10 +94,10 @@ contract SwapAdapterIntegrationTest is Test {
     YieldSeekerSwapSellPolicy sellPolicy;
     UniswapV3SwapAdapter uniswapAdapter;
     AerodromeV2SwapAdapter aerodromeV2Adapter;
-    AerodromeCLSwapAdapter aerodromeCLAdapter;
+    AerodromeCLSwapAdapter aerodromeClAdapter;
     MockUniswapV3RouterIntegration uniswapRouter;
     MockAerodromeV2RouterIntegration aerodromeV2Router;
-    MockAerodromeCLRouterIntegration aerodromeCLRouter;
+    MockAerodromeCLRouterIntegration aerodromeClRouter;
     MockERC20 baseAsset;
     MockERC20 sellToken;
     MockERC20 otherToken;
@@ -132,7 +132,7 @@ contract SwapAdapterIntegrationTest is Test {
         route.stables[0] = false;
     }
 
-    function _aerodromeCLRoute(address fromToken, address toToken) internal pure returns (AWKAerodromeCLSwapAdapter.SwapRoute memory route) {
+    function _aerodromeClRoute(address fromToken, address toToken) internal pure returns (AWKAerodromeCLSwapAdapter.SwapRoute memory route) {
         route.path = new address[](2);
         route.path[0] = fromToken;
         route.path[1] = toToken;
@@ -146,7 +146,7 @@ contract SwapAdapterIntegrationTest is Test {
         otherToken = new MockERC20("Other", "mOTH");
         uniswapRouter = new MockUniswapV3RouterIntegration();
         aerodromeV2Router = new MockAerodromeV2RouterIntegration();
-        aerodromeCLRouter = new MockAerodromeCLRouterIntegration();
+        aerodromeClRouter = new MockAerodromeCLRouterIntegration();
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin);
@@ -160,20 +160,20 @@ contract SwapAdapterIntegrationTest is Test {
         sellPolicy.addSellableToken(address(sellToken));
         uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter), address(sellPolicy));
         aerodromeV2Adapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE), address(sellPolicy));
-        aerodromeCLAdapter = new AerodromeCLSwapAdapter(address(aerodromeCLRouter), address(sellPolicy));
+        aerodromeClAdapter = new AerodromeCLSwapAdapter(address(aerodromeClRouter), address(sellPolicy));
         registry.registerAdapter(address(uniswapAdapter));
         registry.registerAdapter(address(aerodromeV2Adapter));
-        registry.registerAdapter(address(aerodromeCLAdapter));
+        registry.registerAdapter(address(aerodromeClAdapter));
         registry.setTargetAdapter(address(uniswapRouter), address(uniswapAdapter));
         registry.setTargetAdapter(address(aerodromeV2Router), address(aerodromeV2Adapter));
-        registry.setTargetAdapter(address(aerodromeCLRouter), address(aerodromeCLAdapter));
+        registry.setTargetAdapter(address(aerodromeClRouter), address(aerodromeClAdapter));
         vm.stopPrank();
         baseAsset.mint(address(uniswapRouter), 2_000_000e6);
         baseAsset.mint(address(aerodromeV2Router), 2_000_000e6);
-        baseAsset.mint(address(aerodromeCLRouter), 2_000_000e6);
+        baseAsset.mint(address(aerodromeClRouter), 2_000_000e6);
         otherToken.mint(address(uniswapRouter), 2_000_000e6);
         otherToken.mint(address(aerodromeV2Router), 2_000_000e6);
-        otherToken.mint(address(aerodromeCLRouter), 2_000_000e6);
+        otherToken.mint(address(aerodromeClRouter), 2_000_000e6);
     }
 
     function test_UniswapSwap_ThroughWallet_Succeeds() public {
@@ -206,11 +206,11 @@ contract SwapAdapterIntegrationTest is Test {
     function test_AerodromeCLSwap_ThroughWallet_Succeeds() public {
         AgentWalletV1 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
-        aerodromeCLRouter.setBuyAmount(470e6);
-        AWKAerodromeCLSwapAdapter.SwapRoute memory route = _aerodromeCLRoute(address(sellToken), address(baseAsset));
-        bytes memory data = abi.encodeCall(aerodromeCLAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(300e6)));
+        aerodromeClRouter.setBuyAmount(470e6);
+        AWKAerodromeCLSwapAdapter.SwapRoute memory route = _aerodromeClRoute(address(sellToken), address(baseAsset));
+        bytes memory data = abi.encodeCall(aerodromeClAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(300e6)));
         vm.prank(user);
-        bytes memory result = wallet.executeViaAdapter(address(aerodromeCLAdapter), address(aerodromeCLRouter), data);
+        bytes memory result = wallet.executeViaAdapter(address(aerodromeClAdapter), address(aerodromeClRouter), data);
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 470e6);
         assertEq(baseAsset.balanceOf(address(wallet)), 470e6);
@@ -221,22 +221,22 @@ contract SwapAdapterIntegrationTest is Test {
         sellToken.mint(address(wallet), 1_000e6);
         uniswapRouter.setBuyAmount(120e6);
         aerodromeV2Router.setBuyAmount(130e6);
-        aerodromeCLRouter.setBuyAmount(140e6);
+        aerodromeClRouter.setBuyAmount(140e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory uniRoute = _uniswapRoute(address(sellToken), address(baseAsset));
         AWKAerodromeV2SwapAdapter.SwapRoute memory v2Route = _aerodromeV2Route(address(sellToken), address(baseAsset));
-        AWKAerodromeCLSwapAdapter.SwapRoute memory clRoute = _aerodromeCLRoute(address(sellToken), address(baseAsset));
+        AWKAerodromeCLSwapAdapter.SwapRoute memory clRoute = _aerodromeClRoute(address(sellToken), address(baseAsset));
         address[] memory adapters = new address[](3);
         address[] memory targets = new address[](3);
         bytes[] memory datas = new bytes[](3);
         adapters[0] = address(uniswapAdapter);
         adapters[1] = address(aerodromeV2Adapter);
-        adapters[2] = address(aerodromeCLAdapter);
+        adapters[2] = address(aerodromeClAdapter);
         targets[0] = address(uniswapRouter);
         targets[1] = address(aerodromeV2Router);
-        targets[2] = address(aerodromeCLRouter);
+        targets[2] = address(aerodromeClRouter);
         datas[0] = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), uniRoute, uint256(100e6), uint256(100e6)));
         datas[1] = abi.encodeCall(aerodromeV2Adapter.swap, (address(sellToken), address(baseAsset), v2Route, uint256(100e6), uint256(100e6)));
-        datas[2] = abi.encodeCall(aerodromeCLAdapter.swap, (address(sellToken), address(baseAsset), clRoute, uint256(100e6), uint256(100e6)));
+        datas[2] = abi.encodeCall(aerodromeClAdapter.swap, (address(sellToken), address(baseAsset), clRoute, uint256(100e6), uint256(100e6)));
         vm.prank(user);
         bytes[] memory results = wallet.executeViaAdapterBatch(adapters, targets, datas);
         assertEq(_decodeUint(results[0]), 120e6);
