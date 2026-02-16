@@ -6,13 +6,12 @@ import {AssetNotAllowed, BaseAssetNotAllowed} from "../../../src/adapters/Adapte
 import {YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {SellTokenNotAllowed, YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {InsufficientOutput, InvalidRouteEndpoints} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {InsufficientOutput, InvalidRouteEndpoints, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {
     AWKUniswapV3SwapAdapter,
     IUniswapV3SwapRouter,
     InvalidRouteLength,
     InvalidSwapRoute,
-    InvalidSwapTokenAddress,
     InvalidUniswapV3FeeTier,
     InvalidUniswapV3RouterTarget
 } from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";

@@ -12,10 +12,9 @@ import {
     InvalidAerodromeCLRouterTarget,
     InvalidRouteLength,
     InvalidSwapRoute,
-    InvalidSwapTokenAddress,
     InvalidTickSpacing
 } from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {InsufficientOutput, InvalidRouteEndpoints} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {InsufficientOutput, InvalidRouteEndpoints, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
