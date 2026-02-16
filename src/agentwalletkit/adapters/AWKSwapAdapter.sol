@@ -41,7 +41,8 @@ abstract contract AWKSwapAdapter is AWKAdapter {
     function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal virtual {}
 
     function _beforeSwapInternal(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) internal virtual returns (SwapBalanceSnapshot memory snapshot) {
-        _validateSwapInput(sellToken, buyToken, sellAmount, minBuyAmount);
+        if (sellToken == address(0) || buyToken == address(0) || sellToken == buyToken) revert InvalidSwapTokenAddress(sellToken);
+        if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
         _beforeSwap(sellToken, buyToken);
         snapshot.buyBalanceBefore = IERC20(buyToken).balanceOf(address(this));
         snapshot.sellBalanceBefore = IERC20(sellToken).balanceOf(address(this));
@@ -55,10 +56,5 @@ abstract contract AWKSwapAdapter is AWKAdapter {
         if (buyAmount < minBuyAmount) revert InsufficientOutput(buyAmount, minBuyAmount);
         _afterSwap(sellToken, soldAmount, buyAmount);
         emit Swapped(address(this), router, sellToken, buyToken, soldAmount, buyAmount);
-    }
-
-    function _validateSwapInput(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) internal view {
-        if (sellToken == address(0) || buyToken == address(0) || sellToken == buyToken) revert InvalidSwapTokenAddress(sellToken);
-        if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
     }
 }
