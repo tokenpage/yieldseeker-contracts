@@ -19,6 +19,7 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error InvalidSwapTokenAddress(address token);
+error InvalidRouteEndpoints(address expectedSellToken, address expectedBuyToken);
 error InsufficientOutput(uint256 received, uint256 minimum);
 
 /**
@@ -39,6 +40,10 @@ abstract contract AWKSwapAdapter is AWKAdapter {
     function _beforeSwap(address sellToken, address buyToken) internal view virtual {}
 
     function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal virtual {}
+
+    function _validateRouteEndpoints(address sellToken, address buyToken, address routeStartToken, address routeEndToken) internal pure {
+        if (routeStartToken != sellToken || routeEndToken != buyToken) revert InvalidRouteEndpoints(sellToken, buyToken);
+    }
 
     function _beforeSwapInternal(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) internal virtual returns (SwapBalanceSnapshot memory snapshot) {
         if (sellToken == address(0) || buyToken == address(0) || sellToken == buyToken) revert InvalidSwapTokenAddress(sellToken);

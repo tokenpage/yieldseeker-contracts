@@ -24,7 +24,6 @@ error InvalidAerodromeV2RouterTarget(address target, address expected);
 error InvalidSwapTokenAddress(address token);
 error InvalidSwapRoute();
 error InvalidRouteLength(uint256 length);
-error InvalidRouteEndpoints(address expectedSellToken, address expectedBuyToken);
 
 interface IAerodromeV2Router {
     struct Route {
@@ -110,9 +109,7 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
         uint256 pathLength = route.path.length;
         if (pathLength < 2 || pathLength > MAX_HOPS + 1) revert InvalidRouteLength(pathLength);
         if (route.stables.length != pathLength - 1) revert InvalidSwapRoute();
-        if (route.path[0] != sellToken || route.path[pathLength - 1] != buyToken) {
-            revert InvalidRouteEndpoints(sellToken, buyToken);
-        }
+        _validateRouteEndpoints(sellToken, buyToken, route.path[0], route.path[pathLength - 1]);
         for (uint256 i = 0; i < pathLength; i++) {
             if (route.path[i] == address(0)) revert InvalidSwapTokenAddress(route.path[i]);
         }
