@@ -788,9 +788,12 @@ sequenceDiagram
 Required environment variables:
 - `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
 - `SERVER_ADDRESS`: Backend server address
-- `ADMIN_ADDRESS`: The admin address for the contract
 - `RPC_NODE_URL_8453`: Base network RPC endpoint
 - `ETHERSCAN_API_KEY`:  For contract verification (optional)
+
+Notes:
+- `Deploy.s.sol` currently has swap router/factory addresses hardcoded for Base mainnet (`chainId == 8453`)
+- `Deploy.s.sol` is selective and only deploys contracts with missing/zero addresses in `deployments.json`
 
 
 ### Deploy
@@ -813,13 +816,16 @@ forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xb125E6687d4313864e53df431d5425969c15Eb2F compound
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22 moonwell
 
-# Register 0x swap target
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x0000000000001fF3684f28c67538d4D072C22734 zerox
-
+# Rgister UniswapV3 router
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x2626664c2603336E57B271c5C0b26F421741e481 uniswapv3
+# Rgister AerodromeV2 router
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 aerodromev2
+# Rgister AerodromeCL router
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5 aerodromecl
 # Register Merkl
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl
 
-# Add sellable tokens to the 0x adapter (tokens that agents are allowed to swap)
+# Add sellable tokens to the swap sell policy (tokens that agents are allowed to swap)
 forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
 ```
 
