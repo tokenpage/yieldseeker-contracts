@@ -28,6 +28,8 @@ contract DeployScript is Script {
     using stdJson for string;
     // Canonical ERC-4337 v0.6 EntryPoint
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
+
+    // Deployment Salt for deterministic addresses
     uint256 constant SALT = 0x7;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
