@@ -64,14 +64,42 @@ contract DeployScript is Script {
         }
     }
 
+    function getUniswapV3Router(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0x2626664c2603336E57B271c5C0b26F421741e481;
+        }
+        revert(string.concat("Unsupported chain id for Uniswap V3 router: ", vm.toString(chainId)));
+    }
+
+    function getAerodromeV2Router(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome V2 router: ", vm.toString(chainId)));
+    }
+
+    function getAerodromeV2Factory(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome V2 factory: ", vm.toString(chainId)));
+    }
+
+    function getAerodromeClRouter(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome CL router: ", vm.toString(chainId)));
+    }
+
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployerAddress = vm.addr(deployerPrivateKey);
-        address uniswapV3Router = vm.envAddress("UNISWAP_V3_ROUTER");
-        address aerodromeV2Router = vm.envAddress("AERODROME_V2_ROUTER");
-        address aerodromeV2Factory = vm.envAddress("AERODROME_V2_FACTORY");
-        address aerodromeClRouter = vm.envAddress("AERODROME_CL_ROUTER");
+        address uniswapV3Router = getUniswapV3Router(block.chainid);
+        address aerodromeV2Router = getAerodromeV2Router(block.chainid);
+        address aerodromeV2Factory = getAerodromeV2Factory(block.chainid);
+        address aerodromeClRouter = getAerodromeClRouter(block.chainid);
 
         console2.log("=================================================");
         console2.log("YIELDSEEKER DEPLOYMENT SCRIPT");
