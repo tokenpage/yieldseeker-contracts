@@ -6,8 +6,8 @@ import {AssetNotAllowed, BaseAssetNotAllowed} from "../../../src/adapters/Adapte
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {InsufficientOutput, InvalidRouteEndpoints, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
-import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidRouteLength, InvalidSwapRoute, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";

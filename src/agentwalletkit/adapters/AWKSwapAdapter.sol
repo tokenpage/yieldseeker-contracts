@@ -19,6 +19,8 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error InvalidSwapTokenAddress(address token);
+error InvalidSwapRoute();
+error InvalidRouteLength(uint256 length);
 error InvalidRouteEndpoints(address expectedSellToken, address expectedBuyToken);
 error InsufficientOutput(uint256 received, uint256 minimum);
 

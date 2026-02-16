@@ -8,7 +8,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
-import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
+import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
@@ -18,8 +18,6 @@ import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAd
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {Test} from "forge-std/Test.sol";
-
-error SellTokenNotAllowed(address token);
 
 contract MockUniswapV3RouterIntegration {
     uint256 public configuredBuyAmount;

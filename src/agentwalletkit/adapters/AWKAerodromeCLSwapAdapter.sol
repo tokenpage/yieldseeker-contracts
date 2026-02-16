@@ -16,14 +16,12 @@ pragma solidity 0.8.28;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter, InvalidSwapTokenAddress} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error InvalidAerodromeCLRouterTarget(address target, address expected);
 error InvalidTickSpacing(int24 tickSpacing);
-error InvalidSwapRoute();
-error InvalidRouteLength(uint256 length);
 
 interface IAerodromeCLSwapRouter {
     struct ExactInputSingleParams {
