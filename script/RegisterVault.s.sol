@@ -44,8 +44,12 @@ contract RegisterVaultScript is Script {
         address adapterAddress;
         if (keccak256(bytes(adapterName)) == keccak256(bytes("erc4626"))) {
             adapterAddress = json.readAddress(".erc4626Adapter");
-        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("zerox")) || keccak256(bytes(adapterName)) == keccak256(bytes("0x"))) {
-            adapterAddress = json.readAddress(".zeroXAdapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("uniswap")) || keccak256(bytes(adapterName)) == keccak256(bytes("uniswapv3"))) {
+            adapterAddress = json.readAddress(".uniswapV3SwapAdapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("aerodromev2")) || keccak256(bytes(adapterName)) == keccak256(bytes("aerov2"))) {
+            adapterAddress = json.readAddress(".aerodromeV2SwapAdapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("aerodromecl")) || keccak256(bytes(adapterName)) == keccak256(bytes("aerocl"))) {
+            adapterAddress = json.readAddress(".aerodromeCLSwapAdapter");
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("merkl"))) {
             adapterAddress = json.readAddress(".merklAdapter");
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("aave")) || keccak256(bytes(adapterName)) == keccak256(bytes("aavev3"))) {
@@ -55,7 +59,7 @@ contract RegisterVaultScript is Script {
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("compoundv2")) || keccak256(bytes(adapterName)) == keccak256(bytes("moonwell"))) {
             adapterAddress = json.readAddress(".compoundV2Adapter");
         } else {
-            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'zerox', 'merkl', 'aave', 'compound', 'compoundv2', or 'moonwell'"));
+            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'uniswapv3', 'aerodromev2', 'aerodromecl', 'merkl', 'aave', 'compound', 'compoundv2', or 'moonwell'"));
         }
 
         console2.log("=================================================");

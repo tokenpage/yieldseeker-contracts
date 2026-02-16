@@ -11,7 +11,10 @@ import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../src/adapters
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
-import {YieldSeekerZeroXAdapter as ZeroXAdapter} from "../src/adapters/ZeroXAdapter.sol";
+import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
+import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
+import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../src/adapters/AerodromeV2SwapAdapter.sol";
+import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../src/adapters/AerodromeCLSwapAdapter.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -20,46 +23,17 @@ import {console2} from "forge-std/console2.sol";
  * @title DeployScript
  * @notice Deploys the YieldSeeker AgentWallet system with selective contract deployment.
  * @dev Usage: forge script script/Deploy.s.sol:DeployScript --rpc-url <RPC> --broadcast
- *
- * SELECTIVE DEPLOYMENT:
- * This script reads from deployments.json and only deploys contracts with address(0) entries.
- * To redeploy a specific contract, set its address to 0x0000000000000000000000000000000000000000 in deployments.json, then re-run.
- *
- * Example deployments.json:
- * {
- *   "adminTimelock": "0x0000000000000000000000000000000000000000",
- *   "agentWalletFactory": "0x0000000000000000000000000000000000000000",
- *   "adapterRegistry": "0x0000000000000000000000000000000000000000",
- *   "agentWalletImplementation": "0x0000000000000000000000000000000000000000",
- *   "feeTracker": "0x0000000000000000000000000000000000000000",
- *   "erc4626Adapter": "0x0000000000000000000000000000000000000000",
- *   "zeroXAdapter": "0x0000000000000000000000000000000000000000"
- * }
- *
- * In this example, only the Factory and Implementation would be redeployed.
  */
 contract DeployScript is Script {
     using stdJson for string;
     // Canonical ERC-4337 v0.6 EntryPoint
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
-
-    // Deployment Salt for deterministic addresses
     uint256 constant SALT = 0x7;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 72-hour delay)
     bool constant TESTING_MODE = true;
 
-    /**
-     * @notice Get 0x AllowanceHolder address for a given chain
-     * @dev See https://github.com/0xProject/0x-settler/blob/master/README.md#allowanceholder-addresses
-     * AllowanceHolder serves as BOTH the allowance target and entry point for swaps.
-     */
-    function getZeroXAllowanceTarget(uint256 chainId) internal pure returns (address) {
-        if (chainId == 8453) return 0x0000000000001fF3684f28c67538d4D072C22734; // Base
-        if (chainId == 84532) return 0x0000000000001fF3684f28c67538d4D072C22734; // Base Sepolia
-        revert("Unsupported chain for 0x");
-    }
 
     // State tracking
     struct Deployments {
@@ -70,7 +44,10 @@ contract DeployScript is Script {
         address feeTracker;
         address erc4626Adapter;
         address merklAdapter;
-        address zeroXAdapter;
+        address swapSellPolicy;
+        address uniswapV3SwapAdapter;
+        address aerodromeV2SwapAdapter;
+        address aerodromeClSwapAdapter;
         address aaveV3Adapter;
         address compoundV3Adapter;
         address compoundV2Adapter;
@@ -91,6 +68,10 @@ contract DeployScript is Script {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployerAddress = vm.addr(deployerPrivateKey);
+        address uniswapV3Router = vm.envAddress("UNISWAP_V3_ROUTER");
+        address aerodromeV2Router = vm.envAddress("AERODROME_V2_ROUTER");
+        address aerodromeV2Factory = vm.envAddress("AERODROME_V2_FACTORY");
+        address aerodromeClRouter = vm.envAddress("AERODROME_CL_ROUTER");
 
         console2.log("=================================================");
         console2.log("YIELDSEEKER DEPLOYMENT SCRIPT");
@@ -114,7 +95,10 @@ contract DeployScript is Script {
                 feeTracker: safeReadAddress(deployJson, ".feeTracker"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
                 merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
-                zeroXAdapter: safeReadAddress(deployJson, ".zeroXAdapter"),
+                swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
+                uniswapV3SwapAdapter: safeReadAddress(deployJson, ".uniswapV3SwapAdapter"),
+                aerodromeV2SwapAdapter: safeReadAddress(deployJson, ".aerodromeV2SwapAdapter"),
+                aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
                 aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
                 compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
                 compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter")
@@ -193,16 +177,36 @@ contract DeployScript is Script {
             console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
         }
 
-        // Deploy or reuse ZeroX Adapter
-        address zeroXAllowanceTarget = getZeroXAllowanceTarget(block.chainid);
-        if (deployments.zeroXAdapter == address(0)) {
-            ZeroXAdapter zeroXAdapter = new ZeroXAdapter{salt: bytes32(SALT)}(zeroXAllowanceTarget, deployments.adminTimelock, deployerAddress, false);
-            deployments.zeroXAdapter = address(zeroXAdapter);
-            console2.log("-> ZeroXAdapter deployed at:", address(zeroXAdapter));
-            console2.log("   allowanceTarget:", zeroXAllowanceTarget);
+        if (deployments.swapSellPolicy == address(0)) {
+            SwapSellPolicy swapSellPolicy = new SwapSellPolicy{salt: bytes32(SALT)}(deployments.adminTimelock, deployerAddress, false);
+            deployments.swapSellPolicy = address(swapSellPolicy);
+            console2.log("-> SwapSellPolicy deployed at:", address(swapSellPolicy));
         } else {
-            console2.log("-> Using existing zeroXAdapter:", deployments.zeroXAdapter);
-            console2.log("   allowanceTarget:", ZeroXAdapter(deployments.zeroXAdapter).ALLOWANCE_TARGET());
+            console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
+        }
+
+        if (deployments.uniswapV3SwapAdapter == address(0)) {
+            UniswapV3SwapAdapter uniswapV3SwapAdapter = new UniswapV3SwapAdapter{salt: bytes32(SALT)}(uniswapV3Router, deployments.swapSellPolicy);
+            deployments.uniswapV3SwapAdapter = address(uniswapV3SwapAdapter);
+            console2.log("-> UniswapV3SwapAdapter deployed at:", address(uniswapV3SwapAdapter));
+        } else {
+            console2.log("-> Using existing uniswapV3SwapAdapter:", deployments.uniswapV3SwapAdapter);
+        }
+
+        if (deployments.aerodromeV2SwapAdapter == address(0)) {
+            AerodromeV2SwapAdapter aerodromeV2SwapAdapter = new AerodromeV2SwapAdapter{salt: bytes32(SALT)}(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy);
+            deployments.aerodromeV2SwapAdapter = address(aerodromeV2SwapAdapter);
+            console2.log("-> AerodromeV2SwapAdapter deployed at:", address(aerodromeV2SwapAdapter));
+        } else {
+            console2.log("-> Using existing aerodromeV2SwapAdapter:", deployments.aerodromeV2SwapAdapter);
+        }
+
+        if (deployments.aerodromeClSwapAdapter == address(0)) {
+            AerodromeCLSwapAdapter aerodromeClSwapAdapter = new AerodromeCLSwapAdapter{salt: bytes32(SALT)}(aerodromeClRouter, deployments.swapSellPolicy);
+            deployments.aerodromeClSwapAdapter = address(aerodromeClSwapAdapter);
+            console2.log("-> AerodromeCLSwapAdapter deployed at:", address(aerodromeClSwapAdapter));
+        } else {
+            console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
         }
 
         // Deploy or reuse Aave V3 Adapter
@@ -241,7 +245,10 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
-        vm.serializeAddress(json, "zeroXAdapter", deployments.zeroXAdapter);
+        vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
+        vm.serializeAddress(json, "uniswapV3SwapAdapter", deployments.uniswapV3SwapAdapter);
+        vm.serializeAddress(json, "aerodromeV2SwapAdapter", deployments.aerodromeV2SwapAdapter);
+        vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
         vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
         vm.serializeAddress(json, "compoundV3Adapter", deployments.compoundV3Adapter);
         string memory finalJson = vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
@@ -258,9 +265,8 @@ contract DeployScript is Script {
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
 
-        // Collect all operations to batch
-        address[] memory targets = new address[](10);
-        bytes[] memory datas = new bytes[](10);
+        address[] memory targets = new address[](13);
+        bytes[] memory datas = new bytes[](13);
         uint256 operationCount = 0;
 
         // 1. Configure Factory
@@ -292,9 +298,19 @@ contract DeployScript is Script {
             datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.merklAdapter));
             operationCount++;
         }
-        if (!adapterRegistry.isRegisteredAdapter(deployments.zeroXAdapter)) {
+        if (!adapterRegistry.isRegisteredAdapter(deployments.uniswapV3SwapAdapter)) {
             targets[operationCount] = deployments.adapterRegistry;
-            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.zeroXAdapter));
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.uniswapV3SwapAdapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.aerodromeV2SwapAdapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aerodromeV2SwapAdapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.aerodromeClSwapAdapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.aerodromeClSwapAdapter));
             operationCount++;
         }
         if (!adapterRegistry.isRegisteredAdapter(deployments.aaveV3Adapter)) {
