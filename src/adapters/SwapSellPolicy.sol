@@ -20,8 +20,11 @@ import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
+error SellTokenNotAllowed(address token);
+
 interface IYieldSeekerSwapSellPolicy {
     function isSellableToken(address token) external view returns (bool);
+    function validateSellableToken(address token) external view;
 }
 
 contract YieldSeekerSwapSellPolicy is AccessControl, IYieldSeekerSwapSellPolicy {
@@ -73,6 +76,10 @@ contract YieldSeekerSwapSellPolicy is AccessControl, IYieldSeekerSwapSellPolicy 
 
     function isSellableToken(address token) external view returns (bool) {
         return allowSellingAllTokens || sellableTokens.contains(token);
+    }
+
+    function validateSellableToken(address token) external view {
+        if (!allowSellingAllTokens && !sellableTokens.contains(token)) revert SellTokenNotAllowed(token);
     }
 
     function getSellableTokens() external view returns (address[] memory) {

@@ -21,8 +21,6 @@ import {AWKUniswapV3SwapAdapter} from "../agentwalletkit/adapters/AWKUniswapV3Sw
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IYieldSeekerSwapSellPolicy} from "./SwapSellPolicy.sol";
 
-error SellTokenNotAllowed(address token);
-
 contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapter, YieldSeekerAdapter {
     address public immutable SELL_POLICY;
 
@@ -32,7 +30,7 @@ contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapter, YieldSeeker
     }
 
     function _beforeSwap(address sellToken, address buyToken) internal view override {
-        if (!IYieldSeekerSwapSellPolicy(SELL_POLICY).isSellableToken(sellToken)) revert SellTokenNotAllowed(sellToken);
+        IYieldSeekerSwapSellPolicy(SELL_POLICY).validateSellableToken(sellToken);
         _requireNotBaseAsset(sellToken);
         _requireBaseAsset(buyToken);
     }
