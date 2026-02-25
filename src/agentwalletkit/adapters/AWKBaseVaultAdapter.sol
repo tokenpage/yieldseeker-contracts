@@ -34,9 +34,10 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @notice Deposit assets into a vault (public interface, should not be called directly)
      * @param amount The amount of assets to deposit
      * @return shares The amount of vault shares received
+     * @return assetsDeposited The actual amount of base asset deposited
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositInternal()
      */
-    function deposit(uint256 amount) external pure returns (uint256 shares) {
+    function deposit(uint256 amount) external pure returns (uint256 shares, uint256 assetsDeposited) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -44,9 +45,10 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @notice Deposit a percentage of base asset balance into a vault (public interface, should not be called directly)
      * @param percentageBps The percentage in basis points (10000 = 100%)
      * @return shares The amount of vault shares received
+     * @return assetsDeposited The actual amount of base asset deposited
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositPercentageInternal()
      */
-    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares) {
+    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares, uint256 assetsDeposited) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -78,8 +80,8 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
-            (uint256 shares,) = _depositInternal(target, amount);
-            return abi.encode(shares);
+            (uint256 shares, uint256 assetsDeposited) = _depositInternal(target, amount);
+            return abi.encode(shares, assetsDeposited);
         }
         if (selector == this.depositPercentage.selector) {
             uint256 percentageBps = abi.decode(data[4:], (uint256));
