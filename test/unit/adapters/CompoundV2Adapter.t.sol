@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
-import {InvalidBaseAsset} from "../../../src/adapters/Adapter.sol";
+import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerCompoundV2Adapter} from "../../../src/adapters/CompoundV2Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockCToken} from "../../mocks/MockCompoundV2.sol";
@@ -59,7 +59,7 @@ contract CompoundV2AdapterTest is Test {
 
     function test_Execute_Deposit_InvalidAsset_Reverts() public {
         MockCToken badCToken = new MockCToken(address(altAsset), "Bad", "BAD");
-        vm.expectRevert(abi.encodeWithSelector(InvalidBaseAsset.selector));
+        vm.expectRevert(abi.encodeWithSelector(AssetNotAllowed.selector));
         wallet.executeAdapter(address(adapter), address(badCToken), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 

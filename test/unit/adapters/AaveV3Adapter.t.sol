@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
-import {InvalidBaseAsset} from "../../../src/adapters/Adapter.sol";
+import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockAToken, MockAaveV3Pool} from "../../mocks/MockAaveV3.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
@@ -62,7 +62,7 @@ contract AaveV3AdapterTest is Test {
     function test_Execute_Deposit_InvalidAsset_Reverts() public {
         MockAaveV3Pool badPool = new MockAaveV3Pool(address(altAsset));
         MockAToken badAToken = MockAToken(badPool.aToken());
-        vm.expectRevert(abi.encodeWithSelector(InvalidBaseAsset.selector));
+        vm.expectRevert(abi.encodeWithSelector(AssetNotAllowed.selector));
         wallet.executeAdapter(address(adapter), address(badAToken), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 

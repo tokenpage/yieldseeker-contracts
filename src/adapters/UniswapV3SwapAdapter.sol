@@ -16,24 +16,26 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKZeroXAdapter} from "../agentwalletkit/adapters/AWKZeroXAdapter.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {AWKUniswapV3SwapAdapter} from "../agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
+import {IYieldSeekerSwapSellPolicy} from "./SwapSellPolicy.sol";
 
-/**
- * @title YieldSeekerZeroXAdapter
- * @notice YieldSeeker-specific 0x adapter with fee tracking
- * @dev Extends the generic AWKZeroXAdapter and implements hooks for base asset validation and fee tracking.
- */
-contract YieldSeekerZeroXAdapter is AWKZeroXAdapter, YieldSeekerAdapter {
-    constructor(address allowanceTarget_) AWKZeroXAdapter(allowanceTarget_) {}
+contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapter, YieldSeekerAdapter {
+    address public immutable SELL_POLICY;
 
-    /**
-     * @notice Internal swap implementation with validation and fee tracking
-     * @dev Overrides AWK logic to add pre-check and post-fee-tracking
-     */
-    function _swapInternal(address target, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory swapCallData, uint256 value) internal override returns (uint256 buyAmount, uint256 soldAmount) {
+    constructor(address uniswapV3Router, address sellPolicy) AWKUniswapV3SwapAdapter(uniswapV3Router) {
+        if (sellPolicy == address(0)) revert AWKErrors.ZeroAddress();
+        SELL_POLICY = sellPolicy;
+    }
+
+    function _beforeSwap(address sellToken, address buyToken) internal view override {
+        IYieldSeekerSwapSellPolicy(SELL_POLICY).validateSellableToken(sellToken);
+        _requireNotBaseAsset(sellToken);
         _requireBaseAsset(buyToken);
-        (buyAmount, soldAmount) = super._swapInternal(target, sellToken, buyToken, sellAmount, minBuyAmount, swapCallData, value);
+    }
+
+    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal override {
         _feeTracker().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);
     }
 }

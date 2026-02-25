@@ -290,16 +290,12 @@ abstract contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializabl
     function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address signer = hash.recover(userOp.signature);
-
-        // Allow either the owner or the centralized AWKServer to sign
         if (signer == owner()) {
             return 0;
         }
-
         if (isAgentOperator(signer)) {
             return 0;
         }
-
         return SIG_VALIDATION_FAILED;
     }
 
