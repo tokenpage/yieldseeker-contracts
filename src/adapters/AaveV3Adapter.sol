@@ -45,6 +45,6 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
         _requireBaseAsset(asset);
         uint256 totalVaultBalanceBefore = IAaveAToken(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: REBASING_EXCHANGE_RATE});
+        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: _feeTracker().REBASING_EXCHANGE_RATE()});
     }
 }

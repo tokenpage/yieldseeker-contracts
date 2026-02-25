@@ -783,8 +783,9 @@ contract YieldSeekerFeeTrackerTest is Test {
         // Withdraw 200 USDC from a vault with totalBalance = 1050
         // Without the cap, the old buggy formula would compute a fee > 200 and underflow
         // With the fix, the fee is capped and this should not revert
+        uint256 rebasingRate = feeTracker.REBASING_EXCHANGE_RATE();
         vm.prank(agent1);
-        feeTracker.recordAgentVaultAssetWithdraw(vault, 200e6, 1050e6, feeTracker.EXCHANGE_RATE_PRECISION());
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 200e6, 1050e6, rebasingRate);
         // Verify fee was capped at assetsReceived (200e6)
         uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
         assertTrue(feesCharged <= 200e6, "Fee should be capped at assets received");
@@ -798,8 +799,9 @@ contract YieldSeekerFeeTrackerTest is Test {
         vm.prank(agent1);
         feeTracker.recordAgentYieldTokenEarned(vault, 10e6);
         // Withdraw 50 from totalVaultBalance=110, rate=1e18 (rebasing)
+        uint256 rebasingRate = feeTracker.REBASING_EXCHANGE_RATE();
         vm.prank(agent1);
-        feeTracker.recordAgentVaultAssetWithdraw(vault, 50e6, 110e6, feeTracker.EXCHANGE_RATE_PRECISION());
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 50e6, 110e6, rebasingRate);
         uint256 expectedFeeTokenSettled = uint256(1e6) * uint256(50e6) / uint256(110e6);
         // With 1e18 rate, feeInBaseAsset = feeTokenSettled (1:1)
         uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
@@ -820,8 +822,9 @@ contract YieldSeekerFeeTrackerTest is Test {
         assertEq(feeOwed, 10e6);
         // Exchange rate = 1.1e18 (10% appreciation)
         // Withdraw 550 USDC from total 1100 USDC balance
+        uint256 exchangeRate = 1.1e18;
         vm.prank(agent1);
-        feeTracker.recordAgentVaultAssetWithdraw(vault, 550e6, 1100e6, 1.1e18);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 550e6, 1100e6, exchangeRate);
         // feeTokenSettled = (10e6 * 550e6) / 1100e6 = 5e6
         // feeInBaseAsset = (5e6 * 1.1e18) / 1e18 = 5.5e6
         uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
