@@ -7,8 +7,9 @@ import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.so
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
-import {Test} from "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 
 contract ERC4626AdapterTest is Test {
     YieldSeekerERC4626Adapter adapter;
@@ -101,5 +102,61 @@ contract ERC4626AdapterTest is Test {
         bytes memory result = wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
         uint256 assets = _decodeUint(result);
         assertGt(assets, 1_000e6);
+    }
+
+    function test_DepositGasOverhead() public {
+        MockERC4626 directVault = new MockERC4626(address(baseAsset), "Direct", "dUSDC");
+        address directUser = address(0xDEAD);
+        baseAsset.mint(directUser, 1_000_000e6);
+        vm.prank(directUser);
+        baseAsset.approve(address(directVault), type(uint256).max);
+        uint256 depositAmount = 10_000e6;
+        // 1) Direct vault deposit (baseline)
+        vm.prank(directUser);
+        uint256 g0 = gasleft();
+        directVault.deposit(depositAmount, directUser);
+        uint256 directGas = g0 - gasleft();
+        // 2) Full adapter path
+        uint256 g1 = gasleft();
+        wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        uint256 adapterGas = g1 - gasleft();
+        // 3) Delegatecall overhead (empty call)
+        uint256 g2 = gasleft();
+        (bool ok,) = address(adapter).delegatecall(abi.encodeWithSignature("nonexistent()"));
+        uint256 delegatecallGas = g2 - gasleft();
+        ok; // silence warning
+        // 4) _getVaultAsset (vault.asset())
+        uint256 g3 = gasleft();
+        vault.asset();
+        uint256 getAssetGas = g3 - gasleft();
+        // 5) _requireBaseAsset (reads baseAsset from wallet then compares)
+        uint256 g4 = gasleft();
+        wallet.baseAsset();
+        uint256 readBaseAssetGas = g4 - gasleft();
+        // 6) Balance-delta: 2x balanceOf on base asset
+        uint256 g5 = gasleft();
+        baseAsset.balanceOf(address(wallet));
+        baseAsset.balanceOf(address(wallet));
+        uint256 twoBalanceOfGas = g5 - gasleft();
+        // 7) forceApprove (IERC20.approve)
+        uint256 g6 = gasleft();
+        baseAsset.approve(address(vault), depositAmount);
+        uint256 approveGas = g6 - gasleft();
+        // 8) FeeTracker.recordAgentVaultShareDeposit (2 SSTORE)
+        uint256 g7 = gasleft();
+        feeTracker.recordAgentVaultShareDeposit(address(vault), depositAmount, depositAmount);
+        uint256 feeTrackerGas = g7 - gasleft();
+        // Summary
+        console.log("=== ERC4626 Deposit Gas Breakdown ===");
+        console.log("Direct vault deposit (baseline): ", directGas);
+        console.log("Full adapter path:               ", adapterGas);
+        console.log("Overhead:                        ", adapterGas - directGas);
+        console.log("--- Component costs ---");
+        console.log("Delegatecall dispatch:           ", delegatecallGas);
+        console.log("vault.asset():                   ", getAssetGas);
+        console.log("Read wallet.baseAsset():         ", readBaseAssetGas);
+        console.log("2x balanceOf (balance-delta):    ", twoBalanceOfGas);
+        console.log("ERC20 approve:                   ", approveGas);
+        console.log("FeeTracker record deposit:       ", feeTrackerGas);
     }
 }
