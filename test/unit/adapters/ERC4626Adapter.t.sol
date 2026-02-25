@@ -7,8 +7,8 @@ import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.so
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 
 contract ERC4626AdapterTest is Test {
