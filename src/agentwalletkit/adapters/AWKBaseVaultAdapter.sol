@@ -78,7 +78,7 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
-            uint256 shares = _depositInternal(target, amount);
+            (uint256 shares,) = _depositInternal(target, amount);
             return abi.encode(shares);
         }
         if (selector == this.depositPercentage.selector) {
@@ -104,7 +104,7 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @return shares The amount of vault shares received
      * @dev Must be implemented by concrete vault adapters. Hooks are called automatically.
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual returns (uint256 shares);
+    function _depositInternal(address vault, uint256 amount) internal virtual returns (uint256 shares, uint256 actualAmount);
 
     /**
      * @notice Internal deposit percentage implementation
@@ -118,7 +118,8 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
         uint256 balance = baseAsset.balanceOf(address(this));
         uint256 amount = (balance * percentageBps) / 1e4;
-        return _depositInternal(vault, amount);
+        (shares,) = _depositInternal(vault, amount);
+        return shares;
     }
 
     /**

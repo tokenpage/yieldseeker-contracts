@@ -60,16 +60,18 @@ abstract contract AWKAaveV3Adapter is AWKBaseVaultAdapter {
      * @dev Runs in wallet context via delegatecall. The amount parameter is the underlying asset amount.
      *      For Aave, shares received equals amount deposited (1:1 rebasing).
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 actualAmount) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = IAaveAToken(vault).UNDERLYING_ASSET_ADDRESS();
         address pool = IAaveAToken(vault).POOL();
+        uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = IAaveAToken(vault).balanceOf(address(this));
         IERC20(asset).forceApprove(pool, amount);
         IAaveV3Pool(pool).supply({asset: asset, amount: amount, onBehalfOf: address(this), referralCode: 0});
         uint256 balanceAfter = IAaveAToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
-        emit Deposited(address(this), vault, amount, shares);
+        actualAmount = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
+        emit Deposited(address(this), vault, actualAmount, shares);
     }
 
     /**
