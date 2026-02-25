@@ -54,7 +54,7 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
      * @dev Runs in wallet context via delegatecall. The amount parameter is the underlying asset amount.
      *      Returns the cTokens received as shares.
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 actualAmount) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = ICToken(vault).underlying();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
@@ -64,8 +64,8 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
         require(mintResult == 0, "AWKCompoundV2Adapter: mint failed");
         uint256 balanceAfter = ICToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
-        actualAmount = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, actualAmount, shares);
+        assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
+        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
     /**
