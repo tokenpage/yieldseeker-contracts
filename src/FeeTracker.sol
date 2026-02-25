@@ -30,7 +30,6 @@ error InvalidFeeRate();
 contract YieldSeekerFeeTracker is AccessControl {
     uint256 public constant MAX_FEE_RATE_BPS = 5000;
     uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
-    uint256 public constant REBASING_EXCHANGE_RATE = 1e18;
 
     uint256 public feeRateBps;
     address public feeCollector;

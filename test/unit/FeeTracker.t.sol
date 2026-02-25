@@ -783,7 +783,7 @@ contract YieldSeekerFeeTrackerTest is Test {
         // Withdraw 200 USDC from a vault with totalBalance = 1050
         // Without the cap, the old buggy formula would compute a fee > 200 and underflow
         // With the fix, the fee is capped and this should not revert
-        uint256 rebasingRate = feeTracker.REBASING_EXCHANGE_RATE();
+        uint256 rebasingRate = feeTracker.EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);
         feeTracker.recordAgentVaultAssetWithdraw(vault, 200e6, 1050e6, rebasingRate);
         // Verify fee was capped at assetsReceived (200e6)
@@ -799,7 +799,7 @@ contract YieldSeekerFeeTrackerTest is Test {
         vm.prank(agent1);
         feeTracker.recordAgentYieldTokenEarned(vault, 10e6);
         // Withdraw 50 from totalVaultBalance=110, rate=1e18 (rebasing)
-        uint256 rebasingRate = feeTracker.REBASING_EXCHANGE_RATE();
+        uint256 rebasingRate = feeTracker.EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);
         feeTracker.recordAgentVaultAssetWithdraw(vault, 50e6, 110e6, rebasingRate);
         uint256 expectedFeeTokenSettled = uint256(1e6) * uint256(50e6) / uint256(110e6);
