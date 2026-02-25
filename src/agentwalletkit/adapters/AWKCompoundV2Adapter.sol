@@ -29,6 +29,7 @@ interface ICToken {
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function exchangeRateStored() external view returns (uint256);
+    function exchangeRateCurrent() external returns (uint256);
 }
 
 /**

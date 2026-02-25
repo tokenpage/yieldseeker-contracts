@@ -34,7 +34,7 @@ contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         shares = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: shares, sharesReceived: shares});
     }
 
     /**
@@ -45,6 +45,6 @@ contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapte
         _requireBaseAsset(asset);
         uint256 totalVaultBalanceBefore = ICompoundV3Comet(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore});
+        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: 1e18});
     }
 }

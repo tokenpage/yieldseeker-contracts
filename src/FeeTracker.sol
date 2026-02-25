@@ -183,11 +183,11 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @param vault The vault address
      * @param assetsReceived The amount of base assets received from the withdrawal
      * @param totalVaultBalanceBefore The total vault balance (in base asset terms) before withdrawal
-     * @dev Uses actual vault balance to compute proportional cost basis, avoiding virtual share conversion.
-     *      For rebasing tokens (Aave, CompoundV3), totalVaultBalanceBefore is the token balance.
-     *      For exchange-rate tokens (CompoundV2), totalVaultBalanceBefore is the underlying value.
+     * @param vaultTokenToBaseAssetRate The exchange rate from vault tokens to base asset (18-decimal fixed point).
+     *        For rebasing tokens (Aave, CompoundV3), this should be 1e18 (1:1 with underlying).
+     *        For exchange-rate tokens (CompoundV2), this should be the cToken exchange rate.
      */
-    function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore) external {
+    function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore, uint256 vaultTokenToBaseAssetRate) external {
         if (assetsReceived == 0 || totalVaultBalanceBefore == 0) return;
         address wallet = msg.sender;
         uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
@@ -202,10 +202,9 @@ contract YieldSeekerFeeTracker is AccessControl {
                 feeTokenSettled = (vaultTokenFeesOwed * assetsReceived) / totalVaultBalanceBefore;
             }
             agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSettled;
-            if (totalShares > 0) {
-                feeInBaseAsset = (feeTokenSettled * totalVaultBalanceBefore) / totalShares;
-            } else {
-                feeInBaseAsset = feeTokenSettled;
+            feeInBaseAsset = (feeTokenSettled * vaultTokenToBaseAssetRate) / 1e18;
+            if (feeInBaseAsset > assetsReceived) {
+                feeInBaseAsset = assetsReceived;
             }
             agentFeesCharged[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);

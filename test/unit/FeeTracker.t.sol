@@ -767,4 +767,64 @@ contract YieldSeekerFeeTrackerTest is Test {
 
         assertApproxEqAbs(totalFees, expectedTotal, 1e3, "Total fees should match calculation");
     }
+
+    // ============ Audit Fix: Safety cap on feeInBaseAsset (Issue 2) ============
+
+    function test_VaultAssetWithdraw_FeeInBaseAsset_CappedAtAssetsReceived() public {
+        address vault = makeAddr("vault");
+        // Deposit 50 USDC → 50 shares
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 50e6, 50e6);
+        // Record massive reward: 1000 tokens → 100 token fee owed
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 1000e6);
+        uint256 feeOwed = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
+        assertEq(feeOwed, 100e6, "Should owe 100 tokens in fees");
+        // Withdraw 200 USDC from a vault with totalBalance = 1050
+        // Without the cap, the old buggy formula would compute a fee > 200 and underflow
+        // With the fix, the fee is capped and this should not revert
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 200e6, 1050e6, 1e18);
+        // Verify fee was capped at assetsReceived (200e6)
+        uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
+        assertTrue(feesCharged <= 200e6, "Fee should be capped at assets received");
+        assertTrue(feesCharged > 0, "Fee should be non-zero");
+    }
+
+    function test_VaultAssetWithdraw_RebasingRate_CorrectFee() public {
+        address vault = makeAddr("vault");
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 100e6, 100e6);
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 10e6);
+        // Withdraw 50 from totalVaultBalance=110, rate=1e18 (rebasing)
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 50e6, 110e6, 1e18);
+        uint256 expectedFeeTokenSettled = uint256(1e6) * uint256(50e6) / uint256(110e6);
+        // With 1e18 rate, feeInBaseAsset = feeTokenSettled (1:1)
+        uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
+        // The vaultToken fee portion should be exactly feeTokenSettled
+        // Plus potential profit fee on the remaining netAssets
+        assertTrue(feesCharged >= expectedFeeTokenSettled, "Fee should include at least the token fee portion");
+    }
+
+    function test_VaultAssetWithdraw_ExchangeRate_CorrectConversion() public {
+        address vault = makeAddr("vault");
+        // Simulate CompoundV2: deposit 1000 USDC → 1000 cTokens at 1e18 rate
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
+        // Record token fee: 10 cTokens owed
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
+        uint256 feeOwed = feeTracker.getAgentYieldTokenFeesOwed(agent1, vault);
+        assertEq(feeOwed, 10e6);
+        // Exchange rate = 1.1e18 (10% appreciation)
+        // Withdraw 550 USDC from total 1100 USDC balance
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 550e6, 1100e6, 1.1e18);
+        // feeTokenSettled = (10e6 * 550e6) / 1100e6 = 5e6
+        // feeInBaseAsset = (5e6 * 1.1e18) / 1e18 = 5.5e6
+        uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
+        assertTrue(feesCharged >= 5.5e6, "Should apply exchange rate for non-rebasing tokens");
+    }
 }
