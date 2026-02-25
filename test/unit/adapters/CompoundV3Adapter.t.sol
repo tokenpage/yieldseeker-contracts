@@ -176,7 +176,7 @@ contract CompoundV3AdapterTest is Test {
 
     // ============ Audit Fix: Deposit records actual amount, not type(uint256).max (Issue 4) ============
 
-    function test_DepositRecordsActualAmount() public {
+    function test_DepositRecordsAssetsDeposited() public {
         uint256 depositAmount = 500e6;
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
         (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(comet));

@@ -49,14 +49,14 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
      * @notice Internal deposit implementation
      * @dev Runs in wallet context via delegatecall
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 actualAmount) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = IERC4626(vault).asset();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
-        actualAmount = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, actualAmount, shares);
+        assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
+        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
     /**

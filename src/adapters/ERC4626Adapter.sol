@@ -31,11 +31,11 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
      * @notice Internal deposit implementation with validation and fee tracking
      * @dev Overrides AWK logic to add pre-check and post-fee-tracking
      */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 actualAmount) {
+    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
-        (shares, actualAmount) = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: actualAmount, sharesReceived: shares});
+        (shares, assetsDeposited) = super._depositInternal(vault, amount);
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
     }
 
     /**
