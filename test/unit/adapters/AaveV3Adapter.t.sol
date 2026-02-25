@@ -126,9 +126,9 @@ contract AaveV3AdapterTest is Test {
         aToken.addYield(address(wallet), yieldAmount);
         baseAsset.mint(address(aToken), yieldAmount);
         assertEq(aToken.balanceOf(address(wallet)), depositAmount + yieldAmount, "aToken balance should include yield");
-        wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, depositAmount));
-        uint256 expectedAssets = depositAmount + yieldAmount;
-        uint256 profit = expectedAssets - depositAmount;
+        uint256 fullBalance = depositAmount + yieldAmount;
+        wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, fullBalance));
+        uint256 profit = fullBalance - depositAmount;
         uint256 expectedFee = (profit * 1000) / 10_000;
         assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
         (uint256 costBasisAfter, uint256 sharesAfter) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
@@ -142,17 +142,17 @@ contract AaveV3AdapterTest is Test {
         uint256 yieldAmount = 100e6;
         aToken.addYield(address(wallet), yieldAmount);
         baseAsset.mint(address(aToken), yieldAmount);
-        uint256 withdrawVirtualShares = 500e6;
-        bytes memory result = wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, withdrawVirtualShares));
+        uint256 totalBalance = depositAmount + yieldAmount;
+        uint256 withdrawAmount = 550e6;
+        bytes memory result = wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, withdrawAmount));
         uint256 assetsReceived = _decodeUint(result);
-        uint256 expectedAssets = ((depositAmount + yieldAmount) * withdrawVirtualShares) / depositAmount;
-        assertEq(assetsReceived, expectedAssets, "Should receive proportional assets including yield");
-        uint256 proportionalCost = (depositAmount * withdrawVirtualShares) / depositAmount;
+        assertEq(assetsReceived, withdrawAmount, "Should receive requested amount");
+        uint256 proportionalCost = (depositAmount * withdrawAmount) / totalBalance;
         uint256 profit = assetsReceived - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
         assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Should charge correct fee");
         (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
-        assertEq(shares, depositAmount - withdrawVirtualShares, "Shares should be reduced by withdrawn amount");
+        assertEq(shares, depositAmount - proportionalCost, "Shares should be reduced proportionally");
     }
 }

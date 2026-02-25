@@ -179,6 +179,56 @@ contract YieldSeekerFeeTracker is AccessControl {
     }
 
     /**
+     * @notice Record a vault asset withdrawal and calculate yield using actual vault balance
+     * @param vault The vault address
+     * @param assetsReceived The amount of base assets received from the withdrawal
+     * @param totalVaultBalanceBefore The total vault balance (in base asset terms) before withdrawal
+     * @dev Uses actual vault balance to compute proportional cost basis, avoiding virtual share conversion.
+     *      For rebasing tokens (Aave, CompoundV3), totalVaultBalanceBefore is the token balance.
+     *      For exchange-rate tokens (CompoundV2), totalVaultBalanceBefore is the underlying value.
+     */
+    function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore) external {
+        if (assetsReceived == 0 || totalVaultBalanceBefore == 0) return;
+        address wallet = msg.sender;
+        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
+        uint256 totalShares = agentVaultShares[wallet][vault];
+        uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
+        uint256 feeInBaseAsset = 0;
+        if (vaultTokenFeesOwed > 0) {
+            uint256 feeTokenSettled;
+            if (assetsReceived >= totalVaultBalanceBefore) {
+                feeTokenSettled = vaultTokenFeesOwed;
+            } else {
+                feeTokenSettled = (vaultTokenFeesOwed * assetsReceived) / totalVaultBalanceBefore;
+            }
+            agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSettled;
+            if (totalShares > 0) {
+                feeInBaseAsset = (feeTokenSettled * totalVaultBalanceBefore) / totalShares;
+            } else {
+                feeInBaseAsset = feeTokenSettled;
+            }
+            agentFeesCharged[wallet] += feeInBaseAsset;
+            emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
+        }
+        uint256 proportionalCost;
+        uint256 proportionalShares;
+        if (assetsReceived >= totalVaultBalanceBefore) {
+            proportionalCost = totalCostBasis;
+            proportionalShares = totalShares;
+        } else {
+            proportionalCost = (totalCostBasis * assetsReceived) / totalVaultBalanceBefore;
+            proportionalShares = (totalShares * assetsReceived) / totalVaultBalanceBefore;
+        }
+        uint256 netAssets = assetsReceived - feeInBaseAsset;
+        if (netAssets > proportionalCost) {
+            uint256 profit = netAssets - proportionalCost;
+            _chargeFeesOnProfit(wallet, profit);
+        }
+        agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
+        agentVaultShares[wallet][vault] = totalShares - proportionalShares;
+    }
+
+    /**
      * @notice Record yield earned in base asset
      * @param amount The amount of yield earned in base asset
      */
