@@ -15,4 +15,4 @@ out/
 .DS_Store
 
 # Git worktrees
-**/.worktrees/
+*.worktrees/
