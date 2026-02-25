@@ -679,5 +679,4 @@ contract AdapterRegistryTest is Test {
 /// @dev Simple mock adapter contract for testing
 contract MockAdapter {
     // Empty contract that has code (not EOA)
-
-    }
+}
