@@ -29,6 +29,7 @@ error InvalidFeeRate();
  */
 contract YieldSeekerFeeTracker is AccessControl {
     uint256 public constant MAX_FEE_RATE_BPS = 5000;
+    uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
 
     uint256 public feeRateBps;
     address public feeCollector;
@@ -202,7 +203,7 @@ contract YieldSeekerFeeTracker is AccessControl {
                 feeTokenSettled = (vaultTokenFeesOwed * assetsReceived) / totalVaultBalanceBefore;
             }
             agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSettled;
-            feeInBaseAsset = (feeTokenSettled * vaultTokenToBaseAssetRate) / 1e18;
+            feeInBaseAsset = (feeTokenSettled * vaultTokenToBaseAssetRate) / EXCHANGE_RATE_PRECISION;
             if (feeInBaseAsset > assetsReceived) {
                 feeInBaseAsset = assetsReceived;
             }

@@ -164,10 +164,9 @@ contract AdapterFlowsTest is Test {
         _withdraw(7e6);
         // vaultTokenFee settlement: 7/110 of 1e6 fee owed (in vault token units)
         uint256 totalBalanceBefore = 110e6;
-        uint256 totalShares = 100e6;
         uint256 feeTokenSettled = (1e6 * 7e6) / totalBalanceBefore;
-        // Convert vault token fee to base asset using exchange rate (totalVaultBalance / totalShares)
-        uint256 feeInBaseAsset = (feeTokenSettled * totalBalanceBefore) / totalShares;
+        // For rebasing tokens (Aave), 1 vault token = 1 underlying, so rate = 1e18
+        uint256 feeInBaseAsset = feeTokenSettled;
         // proportionalCost = (100e6 * 7e6) / 110e6
         uint256 proportionalCost = (100e6 * 7e6) / totalBalanceBefore;
         // netAssets = 7e6 - feeInBaseAsset, profit = netAssets - proportionalCost

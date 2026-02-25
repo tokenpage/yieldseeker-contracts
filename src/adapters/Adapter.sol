@@ -30,6 +30,7 @@ error BaseAssetNotAllowed();
  * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset and feeTracker
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
+    uint256 internal constant REBASING_EXCHANGE_RATE = 1e18;
     // Helper to get the wallet as IAgentWallet instead of IAWKAgentWallet
     function _ysAgentWallet() internal view returns (IAgentWallet) {
         return IAgentWallet(address(this));

@@ -45,7 +45,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         _requireBaseAsset(asset);
         uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
         uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
-        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / 1e18;
+        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / _feeTracker().EXCHANGE_RATE_PRECISION();
         assets = super._withdrawInternal(vault, shares);
         _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: exchangeRate});
     }
