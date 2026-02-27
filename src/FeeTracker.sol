@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 error InvalidFeeRate();
 
@@ -28,6 +29,8 @@ error InvalidFeeRate();
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
 contract YieldSeekerFeeTracker is AccessControl {
+    using SafeCast for uint256;
+
     uint256 public constant MAX_FEE_RATE_BPS = 5000;
     uint256 public constant ASSET_EXCHANGE_RATE_PRECISION = 1e18;
 
@@ -137,8 +140,8 @@ contract YieldSeekerFeeTracker is AccessControl {
      */
     function recordAgentVaultShareDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) external {
         VaultPosition storage pos = _agentVaultPositions[msg.sender][vault];
-        pos.costBasis += uint128(assetsDeposited);
-        pos.shares += uint128(sharesReceived);
+        pos.costBasis = (uint256(pos.costBasis) + assetsDeposited).toUint128();
+        pos.shares = (uint256(pos.shares) + sharesReceived).toUint128();
     }
 
     function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
@@ -189,8 +192,8 @@ contract YieldSeekerFeeTracker is AccessControl {
                 uint256 profit = netAssets - proportionalCost;
                 _chargeFeesOnProfit(wallet, profit);
             }
-            pos.costBasis = uint128(totalCostBasis - proportionalCost);
-            pos.shares = uint128(totalShares - sharesSpent);
+            pos.costBasis = (totalCostBasis - proportionalCost).toUint128();
+            pos.shares = (totalShares - sharesSpent).toUint128();
         }
     }
 
@@ -240,8 +243,8 @@ contract YieldSeekerFeeTracker is AccessControl {
             uint256 profit = netAssets - proportionalCost;
             _chargeFeesOnProfit(wallet, profit);
         }
-        pos.costBasis = uint128(totalCostBasis - proportionalCost);
-        pos.shares = uint128(totalShares - proportionalShares);
+        pos.costBasis = (totalCostBasis - proportionalCost).toUint128();
+        pos.shares = (totalShares - proportionalShares).toUint128();
     }
 
     /**

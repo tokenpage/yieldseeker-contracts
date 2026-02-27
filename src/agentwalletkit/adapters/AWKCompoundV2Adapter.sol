@@ -25,6 +25,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  */
 interface ICToken {
     function underlying() external view returns (address);
+    function decimals() external view returns (uint8);
     function mint(uint256 mintAmount) external returns (uint256);
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
