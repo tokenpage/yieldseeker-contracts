@@ -47,7 +47,9 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
         uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
         uint256 compoundExchangeRateScale = 10 ** (18 + uint256(IERC20Metadata(asset).decimals()) - uint256(ICToken(vault).decimals()));
+        // cTokens don't rebase, so convert cToken balance to base asset terms via exchange rate
         uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / compoundExchangeRateScale;
+        // Normalize exchange rate from Compound's scale to FeeTracker's 1e18 precision
         uint256 normalizedRate = (_feeTracker().ASSET_EXCHANGE_RATE_PRECISION() * exchangeRate) / compoundExchangeRateScale;
         assets = super._withdrawInternal(vault, shares);
         _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: normalizedRate});
