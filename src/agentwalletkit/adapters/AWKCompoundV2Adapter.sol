@@ -25,10 +25,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  */
 interface ICToken {
     function underlying() external view returns (address);
+    function decimals() external view returns (uint8);
     function mint(uint256 mintAmount) external returns (uint256);
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function exchangeRateStored() external view returns (uint256);
+    function exchangeRateCurrent() external returns (uint256);
 }
 
 /**
@@ -53,16 +55,18 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
      * @dev Runs in wallet context via delegatecall. The amount parameter is the underlying asset amount.
      *      Returns the cTokens received as shares.
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = ICToken(vault).underlying();
+        uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = ICToken(vault).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         uint256 mintResult = ICToken(vault).mint(amount);
         require(mintResult == 0, "AWKCompoundV2Adapter: mint failed");
         uint256 balanceAfter = ICToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
-        emit Deposited(address(this), vault, amount, shares);
+        assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
+        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
     /**

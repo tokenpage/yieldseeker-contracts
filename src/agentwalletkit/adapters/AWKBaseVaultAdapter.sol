@@ -34,9 +34,10 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @notice Deposit assets into a vault (public interface, should not be called directly)
      * @param amount The amount of assets to deposit
      * @return shares The amount of vault shares received
+     * @return assetsDeposited The actual amount of base asset deposited
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositInternal()
      */
-    function deposit(uint256 amount) external pure returns (uint256 shares) {
+    function deposit(uint256 amount) external pure returns (uint256 shares, uint256 assetsDeposited) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -44,9 +45,10 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @notice Deposit a percentage of base asset balance into a vault (public interface, should not be called directly)
      * @param percentageBps The percentage in basis points (10000 = 100%)
      * @return shares The amount of vault shares received
+     * @return assetsDeposited The actual amount of base asset deposited
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _depositPercentageInternal()
      */
-    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares) {
+    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares, uint256 assetsDeposited) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -78,14 +80,14 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.deposit.selector) {
             uint256 amount = abi.decode(data[4:], (uint256));
-            uint256 shares = _depositInternal(target, amount);
-            return abi.encode(shares);
+            (uint256 shares, uint256 assetsDeposited) = _depositInternal(target, amount);
+            return abi.encode(shares, assetsDeposited);
         }
         if (selector == this.depositPercentage.selector) {
             uint256 percentageBps = abi.decode(data[4:], (uint256));
             address asset = _getVaultAsset(target);
-            uint256 shares = _depositPercentageInternal(target, percentageBps, IERC20(asset));
-            return abi.encode(shares);
+            (uint256 shares, uint256 assetsDeposited) = _depositPercentageInternal(target, percentageBps, IERC20(asset));
+            return abi.encode(shares, assetsDeposited);
         }
         if (selector == this.withdraw.selector) {
             uint256 shares = abi.decode(data[4:], (uint256));
@@ -104,7 +106,7 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @return shares The amount of vault shares received
      * @dev Must be implemented by concrete vault adapters. Hooks are called automatically.
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual returns (uint256 shares);
+    function _depositInternal(address vault, uint256 amount) internal virtual returns (uint256 shares, uint256 assetsDeposited);
 
     /**
      * @notice Internal deposit percentage implementation
@@ -112,13 +114,14 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
      * @param percentageBps The percentage in basis points (10000 = 100%)
      * @param baseAsset The base asset token
      * @return shares The amount of vault shares received
+     * @return assetsDeposited The actual amount of base asset deposited
      * @dev Calculates amount based on balance and calls _depositInternal
      */
-    function _depositPercentageInternal(address vault, uint256 percentageBps, IERC20 baseAsset) internal returns (uint256 shares) {
+    function _depositPercentageInternal(address vault, uint256 percentageBps, IERC20 baseAsset) internal returns (uint256 shares, uint256 assetsDeposited) {
         if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
         uint256 balance = baseAsset.balanceOf(address(this));
         uint256 amount = (balance * percentageBps) / 1e4;
-        return _depositInternal(vault, amount);
+        (shares, assetsDeposited) = _depositInternal(vault, amount);
     }
 
     /**

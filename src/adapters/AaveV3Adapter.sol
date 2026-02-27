@@ -30,11 +30,11 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
     /**
      * @notice Internal deposit implementation with validation and fee tracking
      */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
-        shares = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
+        (shares, assetsDeposited) = super._depositInternal(vault, amount);
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
     }
 
     /**
@@ -43,8 +43,9 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
+        // aTokens rebase 1:1 with underlying, so balanceOf is already in base asset terms
         uint256 totalVaultBalanceBefore = IAaveAToken(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore});
+        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: _feeTracker().ASSET_EXCHANGE_RATE_PRECISION()});
     }
 }

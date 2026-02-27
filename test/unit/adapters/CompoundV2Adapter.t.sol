@@ -160,4 +160,31 @@ contract CompoundV2AdapterTest is Test {
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
         assertEq(shares, depositAmount - proportionalCost, "Shares should be reduced proportionally");
     }
+
+    // ============ Audit Fix: Uses exchangeRateCurrent (Issue 3) ============
+
+    function test_ExchangeRateCurrent_CorrectFees() public {
+        uint256 depositAmount = 1_000e6;
+        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        cToken.addYield(1000);
+        baseAsset.mint(address(cToken), 100e6);
+        uint256 fullBalance = (depositAmount * 11000) / 10000;
+        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.withdraw.selector, fullBalance));
+        uint256 profit = fullBalance - depositAmount;
+        uint256 expectedFee = (profit * 1000) / 10_000;
+        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Should charge correct fee with current exchange rate");
+    }
+
+    function test_CompoundV2_WithVaultTokenFees_UsesExchangeRate() public {
+        uint256 depositAmount = 1_000e6;
+        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        cToken.addYield(1000);
+        baseAsset.mint(address(cToken), 100e6);
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldTokenEarned(address(cToken), 50e6);
+        uint256 feesBefore = feeTracker.agentFeesCharged(address(wallet));
+        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(550e6)));
+        uint256 feesAfter = feeTracker.agentFeesCharged(address(wallet));
+        assertTrue(feesAfter > feesBefore, "CompoundV2 should charge fees using the exchange rate");
+    }
 }
