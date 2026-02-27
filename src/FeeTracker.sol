@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 error InvalidFeeRate();
 
@@ -28,8 +29,15 @@ error InvalidFeeRate();
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
 contract YieldSeekerFeeTracker is AccessControl {
+    using SafeCast for uint256;
+
     uint256 public constant MAX_FEE_RATE_BPS = 5000;
     uint256 public constant ASSET_EXCHANGE_RATE_PRECISION = 1e18;
+
+    struct VaultPosition {
+        uint128 costBasis;
+        uint128 shares;
+    }
 
     uint256 public feeRateBps;
     address public feeCollector;
@@ -37,9 +45,8 @@ contract YieldSeekerFeeTracker is AccessControl {
     mapping(address wallet => uint256) public agentFeesCharged;
     mapping(address wallet => uint256) public agentFeesPaid;
 
-    // Position tracking
-    mapping(address wallet => mapping(address vault => uint256)) public agentVaultCostBasis;
-    mapping(address wallet => mapping(address vault => uint256)) public agentVaultShares;
+    // Position tracking (packed into single slot per wallet+vault)
+    mapping(address wallet => mapping(address vault => VaultPosition)) internal _agentVaultPositions;
     mapping(address wallet => mapping(address token => uint256)) public agentYieldTokenFeesOwed;
 
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
@@ -100,8 +107,17 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @return shares The vault shares held
      */
     function getAgentVaultPosition(address wallet, address vault) external view returns (uint256 costBasis, uint256 shares) {
-        costBasis = agentVaultCostBasis[wallet][vault];
-        shares = agentVaultShares[wallet][vault];
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        costBasis = pos.costBasis;
+        shares = pos.shares;
+    }
+
+    function agentVaultCostBasis(address wallet, address vault) external view returns (uint256) {
+        return _agentVaultPositions[wallet][vault].costBasis;
+    }
+
+    function agentVaultShares(address wallet, address vault) external view returns (uint256) {
+        return _agentVaultPositions[wallet][vault].shares;
     }
 
     /**
@@ -123,8 +139,9 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @param sharesReceived The amount of shares received
      */
     function recordAgentVaultShareDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) external {
-        agentVaultCostBasis[msg.sender][vault] += assetsDeposited;
-        agentVaultShares[msg.sender][vault] += sharesReceived;
+        VaultPosition storage pos = _agentVaultPositions[msg.sender][vault];
+        pos.costBasis = (uint256(pos.costBasis) + assetsDeposited).toUint128();
+        pos.shares = (uint256(pos.shares) + sharesReceived).toUint128();
     }
 
     function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
@@ -142,8 +159,9 @@ contract YieldSeekerFeeTracker is AccessControl {
     function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
         if (sharesSpent == 0) return;
         address wallet = msg.sender;
-        uint256 totalShares = agentVaultShares[wallet][vault];
-        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        uint256 totalShares = pos.shares;
+        uint256 totalCostBasis = pos.costBasis;
         uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
         uint256 feeInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
@@ -163,8 +181,8 @@ contract YieldSeekerFeeTracker is AccessControl {
                     _chargeFeesOnProfit(wallet, profit);
                 }
             }
-            agentVaultCostBasis[wallet][vault] = 0;
-            agentVaultShares[wallet][vault] = 0;
+            pos.costBasis = 0;
+            pos.shares = 0;
             return;
         } else if (totalShares > 0) {
             // Normal withdrawal within tracked deposits
@@ -174,8 +192,8 @@ contract YieldSeekerFeeTracker is AccessControl {
                 uint256 profit = netAssets - proportionalCost;
                 _chargeFeesOnProfit(wallet, profit);
             }
-            agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
-            agentVaultShares[wallet][vault] = totalShares - sharesSpent;
+            pos.costBasis = (totalCostBasis - proportionalCost).toUint128();
+            pos.shares = (totalShares - sharesSpent).toUint128();
         }
     }
 
@@ -191,8 +209,9 @@ contract YieldSeekerFeeTracker is AccessControl {
     function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore, uint256 vaultTokenToBaseAssetRate) external {
         if (assetsReceived == 0 || totalVaultBalanceBefore == 0) return;
         address wallet = msg.sender;
-        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
-        uint256 totalShares = agentVaultShares[wallet][vault];
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        uint256 totalCostBasis = pos.costBasis;
+        uint256 totalShares = pos.shares;
         uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
         uint256 feeInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
@@ -224,8 +243,8 @@ contract YieldSeekerFeeTracker is AccessControl {
             uint256 profit = netAssets - proportionalCost;
             _chargeFeesOnProfit(wallet, profit);
         }
-        agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
-        agentVaultShares[wallet][vault] = totalShares - proportionalShares;
+        pos.costBasis = (totalCostBasis - proportionalCost).toUint128();
+        pos.shares = (totalShares - proportionalShares).toUint128();
     }
 
     /**
