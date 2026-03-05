@@ -172,10 +172,11 @@ contract YieldSeekerFeeTracker is AccessControl {
             agentFeesCharged[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
         }
+        uint256 netAssets = assetsReceived - feeInBaseAsset;
         if (sharesSpent > totalShares) {
             // Withdrawing more shares than deposits tracked - treat as full withdrawal
             if (totalCostBasis > 0 && totalShares > 0) {
-                uint256 depositSharesValue = (assetsReceived * totalShares) / sharesSpent;
+                uint256 depositSharesValue = (netAssets * totalShares) / sharesSpent;
                 if (depositSharesValue > totalCostBasis) {
                     uint256 profit = depositSharesValue - totalCostBasis;
                     _chargeFeesOnProfit(wallet, profit);
@@ -183,11 +184,9 @@ contract YieldSeekerFeeTracker is AccessControl {
             }
             pos.costBasis = 0;
             pos.shares = 0;
-            return;
         } else if (totalShares > 0) {
             // Normal withdrawal within tracked deposits
             uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
-            uint256 netAssets = assetsReceived - feeInBaseAsset;
             if (netAssets > proportionalCost) {
                 uint256 profit = netAssets - proportionalCost;
                 _chargeFeesOnProfit(wallet, profit);

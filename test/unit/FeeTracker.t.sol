@@ -757,15 +757,78 @@ contract YieldSeekerFeeTrackerTest is Test {
         uint256 feesAfter = feeTracker.getFeesOwed(agent1);
         uint256 totalFees = feesAfter - feesBefore;
 
-        // New calculation: only charge profit on deposit shares portion
         // feeInBaseAsset = (13.2 * 0.2) / 12 = 0.22 USDC (fee on yield token)
-        // depositSharesValue = (13.2 * 10) / 12 = 11.0 USDC
-        // profit on deposit = 11.0 - 10.0 = 1.0 USDC
-        // profit fee = 1.0 * 10% = 0.1 USDC
-        // Total = 0.22 + 0.1 = 0.32 USDC
-        uint256 expectedTotal = 0.32e6;
+        // depositSharesValue = ((13.2 - 0.22) * 10) / 12 = 10.8166... USDC
+        // profit on deposit = 10.8166 - 10.0 = 0.8166 USDC
+        // profit fee = 0.8166 * 10% = 0.08166 USDC
+        // Total = 0.22 + 0.08166 = 0.30166 USDC
+        uint256 expectedTotal = 0.30166e6;
 
         assertApproxEqAbs(totalFees, expectedTotal, 1e3, "Total fees should match calculation");
+    }
+
+    // ============ Audit: Over-withdrawal branch double-counts vault token fees ============
+
+    function test_VaultShareWithdraw_OverWithdrawalBranch_DoubleCounts_VaultTokenFee() public {
+        // This test demonstrates the double-counting bug in the over-withdrawal branch
+        // of recordAgentVaultShareWithdraw (sharesSpent > totalShares).
+        //
+        // Setup:
+        // - Deposit: 1000 USDC -> 1000 shares (cost basis = 1000 USDC)
+        // - Yield token earned: 200 shares -> 20 shares fee owed (10%)
+        // - Withdraw: 1200 shares (> 1000 tracked) for 1320 USDC (10% appreciation)
+        //
+        // Over-withdrawal branch triggers because 1200 > 1000 tracked shares.
+        //
+        // Step 1 (vault token fee conversion):
+        //   feeTokenSwapped = min(1200, 20) = 20
+        //   feeInBaseAsset = (1320 * 20) / 1200 = 22 USDC
+        //   agentFeesCharged += 22
+        //
+        // Step 2 (profit fee - THE BUG):
+        //   BUGGY:   depositSharesValue = (1320 * 1000) / 1200 = 1100
+        //   CORRECT: depositSharesValue = ((1320 - 22) * 1000) / 1200 = 1081.666...
+        //
+        //   BUGGY profit   = 1100 - 1000 = 100 -> fee = 10
+        //   CORRECT profit = 1081 - 1000 = 81  -> fee = 8 (approximately)
+        //
+        // The buggy path charges ~32 USDC total, correct path charges ~30 USDC.
+        // The difference (~2 USDC) is the double-counted portion.
+
+        address vault = makeAddr("vault");
+
+        // Deposit 1000 USDC -> 1000 shares
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e18);
+
+        // Earn 200 shares of yield -> 20 shares fee owed at 10%
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 200e18);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 20e18);
+
+        uint256 feesBefore = feeTracker.getFeesOwed(agent1);
+
+        // Withdraw all 1200 shares for 1320 USDC (triggers over-withdrawal branch)
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareWithdraw(vault, 1200e18, 1320e6);
+
+        uint256 totalFeesCharged = feeTracker.getFeesOwed(agent1) - feesBefore;
+
+        // Calculate what the CORRECT fees should be:
+        // Block 1: vault token fee = (1320e6 * 20e18) / 1200e18 = 22e6
+        uint256 feeInBaseAsset = (1320e6 * 20e18) / 1200e18;
+        assertEq(feeInBaseAsset, 22e6, "vault token fee should be 22 USDC");
+
+        // Block 2 (correct): depositSharesValue using net assets
+        uint256 correctDepositSharesValue = ((1320e6 - feeInBaseAsset) * 1000e18) / 1200e18;
+        uint256 correctProfit = correctDepositSharesValue - 1000e6; // ~81.666e6
+        uint256 correctProfitFee = (correctProfit * 1000) / 10000;
+        uint256 correctTotalFees = feeInBaseAsset + correctProfitFee;
+
+        // The contract should charge the CORRECT fees, not the inflated buggy amount.
+        // This assertion will FAIL until the bug is fixed (line 178 in FeeTracker.sol
+        // should use `assetsReceived - feeInBaseAsset` instead of `assetsReceived`).
+        assertEq(totalFeesCharged, correctTotalFees, "Fees should not double-count vault token fee in over-withdrawal branch");
     }
 
     // ============ Audit Fix: Safety cap on feeInBaseAsset (Issue 2) ============
