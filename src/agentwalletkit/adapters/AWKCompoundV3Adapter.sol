@@ -54,15 +54,17 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
      * @dev Runs in wallet context via delegatecall. The amount parameter is the base token amount.
      *      Returns the change in balance as shares (though Compound V3 uses rebasing, not actual shares).
      */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = ICompoundV3Comet(vault).baseToken();
+        uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = ICompoundV3Comet(vault).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         ICompoundV3Comet(vault).supply({asset: asset, amount: amount});
         uint256 balanceAfter = ICompoundV3Comet(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
-        emit Deposited(address(this), vault, amount, shares);
+        assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
+        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
     /**

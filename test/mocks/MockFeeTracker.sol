@@ -4,10 +4,13 @@ pragma solidity 0.8.28;
 import {InvalidFeeRate} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title MockFeeTracker
 /// @notice Mock implementation of FeeTracker for isolated unit testing
 contract MockFeeTracker is AccessControl {
+    using SafeCast for uint256;
+
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
     uint256 public constant BASIS_POINTS = 10000;
@@ -18,9 +21,13 @@ contract MockFeeTracker is AccessControl {
 
     mapping(address => uint256) private _feesOwed;
 
+    struct VaultPosition {
+        uint128 costBasis;
+        uint128 shares;
+    }
+
     // Position tracking
-    mapping(address wallet => mapping(address vault => uint256)) public agentVaultCostBasis;
-    mapping(address wallet => mapping(address vault => uint256)) public agentVaultShares;
+    mapping(address wallet => mapping(address vault => VaultPosition)) internal _agentVaultPositions;
     mapping(address wallet => mapping(address token => uint256)) public agentYieldTokenFeesOwed;
 
     event FeeConfigUpdated(uint256 indexed feeRate, address indexed collector);
@@ -79,32 +86,39 @@ contract MockFeeTracker is AccessControl {
     // ============ Position Tracking ============
 
     function recordAgentVaultShareDeposit(address wallet, address vault, uint256 assetsDeposited, uint256 sharesReceived) external onlyRole(ADMIN_ROLE) {
-        agentVaultCostBasis[wallet][vault] += assetsDeposited;
-        agentVaultShares[wallet][vault] += sharesReceived;
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        pos.costBasis = (uint256(pos.costBasis) + assetsDeposited).toUint128();
+        pos.shares = (uint256(pos.shares) + sharesReceived).toUint128();
     }
 
     function recordAgentVaultShareWithdraw(address wallet, address vault, uint256 sharesSpent, uint256 assetsReceived) external onlyRole(ADMIN_ROLE) {
-        uint256 totalShares = agentVaultShares[wallet][vault];
-        uint256 totalCostBasis = agentVaultCostBasis[wallet][vault];
-
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        uint256 totalShares = pos.shares;
+        uint256 totalCostBasis = pos.costBasis;
         if (totalShares == 0) return;
-
         uint256 proportionalCost = (totalCostBasis * sharesSpent) / totalShares;
-
         if (assetsReceived > proportionalCost) {
             uint256 profit = assetsReceived - proportionalCost;
             uint256 fee = (profit * _feeRate) / BASIS_POINTS;
             _feesOwed[wallet] += fee;
             emit YieldRecorded(wallet, profit, fee);
         }
-
-        agentVaultCostBasis[wallet][vault] = totalCostBasis - proportionalCost;
-        agentVaultShares[wallet][vault] = totalShares - sharesSpent;
+        pos.costBasis = (totalCostBasis - proportionalCost).toUint128();
+        pos.shares = (totalShares - sharesSpent).toUint128();
     }
 
     function getAgentVaultPosition(address wallet, address vault) external view returns (uint256 costBasis, uint256 shares) {
-        costBasis = agentVaultCostBasis[wallet][vault];
-        shares = agentVaultShares[wallet][vault];
+        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+        costBasis = pos.costBasis;
+        shares = pos.shares;
+    }
+
+    function agentVaultCostBasis(address wallet, address vault) external view returns (uint256) {
+        return _agentVaultPositions[wallet][vault].costBasis;
+    }
+
+    function agentVaultShares(address wallet, address vault) external view returns (uint256) {
+        return _agentVaultPositions[wallet][vault].shares;
     }
 
     function recordAgentYieldTokenEarned(address wallet, address token, uint256 amount) external onlyRole(ADMIN_ROLE) {

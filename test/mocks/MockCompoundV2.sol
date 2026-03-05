@@ -10,10 +10,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract MockCToken is ERC20 {
     IERC20 private immutable _UNDERLYING;
     uint256 private _exchangeRateStored;
-    uint256 private constant EXCHANGE_RATE_SCALE = 1e18;
+    uint256 private immutable EXCHANGE_RATE_SCALE;
 
     constructor(address underlying_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
         _UNDERLYING = IERC20(underlying_);
+        uint8 underlyingDecimals = ERC20(underlying_).decimals();
+        EXCHANGE_RATE_SCALE = 10 ** (18 + uint256(underlyingDecimals) - 8);
         _exchangeRateStored = EXCHANGE_RATE_SCALE; // 1:1 initially
     }
 

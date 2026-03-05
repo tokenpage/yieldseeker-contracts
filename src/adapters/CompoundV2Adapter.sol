@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @title YieldSeekerCompoundV2Adapter
@@ -30,11 +31,11 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
     /**
      * @notice Internal deposit implementation with validation and fee tracking
      */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares) {
+    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
-        shares = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: amount, sharesReceived: shares});
+        (shares, assetsDeposited) = super._depositInternal(vault, amount);
+        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
     }
 
     /**
@@ -44,9 +45,13 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
-        uint256 exchangeRate = ICToken(vault).exchangeRateStored();
-        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / 1e18;
+        uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
+        uint256 compoundExchangeRateScale = 10 ** (18 + uint256(IERC20Metadata(asset).decimals()) - uint256(ICToken(vault).decimals()));
+        // cTokens don't rebase, so convert cToken balance to base asset terms via exchange rate
+        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / compoundExchangeRateScale;
+        // Normalize exchange rate from Compound's scale to FeeTracker's 1e18 precision
+        uint256 normalizedRate = (_feeTracker().ASSET_EXCHANGE_RATE_PRECISION() * exchangeRate) / compoundExchangeRateScale;
         assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore});
+        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: normalizedRate});
     }
 }
