@@ -30,11 +30,11 @@ contract DeployScript is Script {
     address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     // Deployment Salt for deterministic addresses
-    uint256 constant SALT = 0x7;
+    uint256 constant SALT = 0x711;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
-    // Set to false for production (uses 72-hour delay)
-    bool constant TESTING_MODE = true;
+    // Set to false for production (uses 4-day delay)
+    bool constant TESTING_MODE = false;
 
     // State tracking
     struct Deployments {
@@ -97,6 +97,13 @@ contract DeployScript is Script {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployerAddress = vm.addr(deployerPrivateKey);
+        address configuredMultisigAdminAddress = vm.envAddress("MULTISIG_ADMIN_ADDRESS");
+        address multisigAdminAddress = TESTING_MODE ? deployerAddress : configuredMultisigAdminAddress;
+        address timelockProposerAddress = deployerAddress;
+        address timelockExecutorAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
+        address timelockAdminAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
+        address emergencyAdminAddress = deployerAddress;
+        uint256 adminTimelockDelay = TESTING_MODE ? 0 : 4 days;
         address uniswapV3Router = getUniswapV3Router(block.chainid);
         address aerodromeV2Router = getAerodromeV2Router(block.chainid);
         address aerodromeV2Factory = getAerodromeV2Factory(block.chainid);
@@ -106,8 +113,14 @@ contract DeployScript is Script {
         console2.log("YIELDSEEKER DEPLOYMENT SCRIPT");
         console2.log("=================================================");
         console2.log("Deployer:", deployerAddress);
+        console2.log("Multisig Admin:", multisigAdminAddress);
         console2.log("Server:", serverAddress);
-        console2.log("Testing Mode:", TESTING_MODE ? "YES (0-delay)" : "NO (72-hour delay)");
+        console2.log("Timelock Proposer:", timelockProposerAddress);
+        console2.log("Timelock Executor:", timelockExecutorAddress);
+        console2.log("Timelock Admin:", timelockAdminAddress);
+        console2.log("Emergency Admin:", emergencyAdminAddress);
+        console2.log("Timelock Delay:", adminTimelockDelay);
+        console2.log("Testing Mode:", TESTING_MODE);
         console2.log("");
 
         // Load existing deployments from JSON
@@ -139,14 +152,13 @@ contract DeployScript is Script {
         // Deploy or reuse AdminTimelock
         if (deployments.adminTimelock == address(0)) {
             address[] memory proposers = new address[](1);
-            proposers[0] = deployerAddress;
+            proposers[0] = timelockProposerAddress;
             address[] memory executors = new address[](1);
-            executors[0] = deployerAddress;
-            uint256 delay = TESTING_MODE ? 0 : 72 hours;
-            AdminTimelock newAdminTimelock = new AdminTimelock{salt: bytes32(SALT)}(delay, proposers, executors, address(0));
+            executors[0] = timelockExecutorAddress;
+            AdminTimelock newAdminTimelock = new AdminTimelock{salt: bytes32(SALT)}(adminTimelockDelay, proposers, executors, timelockAdminAddress);
             deployments.adminTimelock = address(newAdminTimelock);
             console2.log("-> AdminTimelock deployed at:", address(newAdminTimelock));
-            console2.log("   delay (seconds):", delay);
+            console2.log("   delay (seconds):", adminTimelockDelay);
         } else {
             console2.log("-> Using existing adminTimelock:", deployments.adminTimelock);
         }
@@ -172,7 +184,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse AdapterRegistry
         if (deployments.adapterRegistry == address(0)) {
-            AdapterRegistry newAdapterRegistry = new AdapterRegistry{salt: bytes32(SALT)}(deployments.adminTimelock, deployerAddress);
+            AdapterRegistry newAdapterRegistry = new AdapterRegistry{salt: bytes32(SALT)}(deployments.adminTimelock, emergencyAdminAddress);
             deployments.adapterRegistry = address(newAdapterRegistry);
             console2.log("-> AdapterRegistry deployed at:", address(newAdapterRegistry));
         } else {
@@ -207,7 +219,7 @@ contract DeployScript is Script {
         }
 
         if (deployments.swapSellPolicy == address(0)) {
-            SwapSellPolicy swapSellPolicy = new SwapSellPolicy{salt: bytes32(SALT)}(deployments.adminTimelock, deployerAddress, false);
+            SwapSellPolicy swapSellPolicy = new SwapSellPolicy{salt: bytes32(SALT)}(deployments.adminTimelock, emergencyAdminAddress, false);
             deployments.swapSellPolicy = address(swapSellPolicy);
             console2.log("-> SwapSellPolicy deployed at:", address(swapSellPolicy));
         } else {

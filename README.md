@@ -829,20 +829,6 @@ forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_
 forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
 ```
 
-(temp) test with:
-```bash
-py scripts/agent_wallet_create_from_factory.py -u krishan-test -i 1
-
-export WALLET=<output from above>
-
-py scripts/agent_wallet_vault_deposit_withdraw.py -w $WALLET -v 0xE74c499fA461AF1844fCa84204490877787cED56 -m direct
-py scripts/agent_wallet_vault_deposit_withdraw.py -w $WALLET -v 0xE74c499fA461AF1844fCa84204490877787cED56 -m paymaster
-
-py scripts/agent_wallet_swap.py -w $WALLET -t 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE -m direct
-py scripts/agent_wallet_swap.py -w $WALLET -t 0x4200000000000000000000000000000000000006 -m paymaster
-
-py scripts/agent_wallet_merkl_claim.py -w $WALLET -m paymaster
-```
 
 ### Selective Redeployment
 
