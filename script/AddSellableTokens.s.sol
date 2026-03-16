@@ -17,6 +17,14 @@ import {console2} from "forge-std/console2.sol";
  *     --sig "run(address[])" \
  *     "[<TOKEN_1>,<TOKEN_2>,...]"
  *
+ *   # With predecessor dependency (recommended when config batch is still pending):
+ *   forge script script/AddSellableTokens.s.sol:AddSellableTokensScript \
+ *     --rpc-url $RPC_NODE_URL_8453 \
+ *     --broadcast \
+ *     --sig "run(address[],bytes32)" \
+ *     "[<TOKEN_1>,<TOKEN_2>,...]" \
+ *     <PREDECESSOR_OPERATION_ID>
+ *
  * Example (single token):
  *   forge script script/AddSellableTokens.s.sol:AddSellableTokensScript \
  *     --rpc-url $RPC_NODE_URL_8453 \
@@ -35,6 +43,10 @@ contract AddSellableTokensScript is Script {
     using stdJson for string;
 
     function run(address[] memory tokens) public {
+        run(tokens, bytes32(0));
+    }
+
+    function run(address[] memory tokens, bytes32 predecessor) public {
         require(tokens.length > 0, "No tokens provided");
 
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -68,15 +80,16 @@ contract AddSellableTokensScript is Script {
         console2.log("");
         vm.startBroadcast(deployerPrivateKey);
         console2.log("-> Scheduling addSellableTokens via timelock...");
-        timelock.schedule(sellPolicyAddress, 0, data, bytes32(0), salt, delay);
+        timelock.schedule(sellPolicyAddress, 0, data, predecessor, salt, delay);
 
         if (delay == 0) {
             console2.log("-> Executing immediately (testing mode)...");
-            timelock.execute(sellPolicyAddress, 0, data, bytes32(0), salt);
+            timelock.execute(sellPolicyAddress, 0, data, predecessor, salt);
             console2.log("-> Sellable tokens added successfully!");
         } else {
             console2.log("-> Scheduled successfully!");
             console2.log("-> Delay:", delay, "seconds");
+            console2.log("-> Predecessor:", vm.toString(predecessor));
             console2.log("-> Execute after delay with:");
             console2.log("");
             console2.log("cast send", timelockAddress);
@@ -84,7 +97,7 @@ contract AddSellableTokensScript is Script {
             console2.log("  ", sellPolicyAddress);
             console2.log("   0");
             console2.log("  ", vm.toString(data));
-            console2.log("   0x0000000000000000000000000000000000000000000000000000000000000000");
+            console2.log("  ", vm.toString(predecessor));
             console2.log("  ", vm.toString(salt));
             console2.log("   --rpc-url $RPC_NODE_URL_8453 \\");
             console2.log("   --private-key $DEPLOYER_PRIVATE_KEY");

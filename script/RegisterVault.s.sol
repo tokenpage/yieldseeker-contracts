@@ -18,6 +18,15 @@ import {console2} from "forge-std/console2.sol";
  *     <VAULT_ADDRESS> \
  *     <ADAPTER_NAME>
  *
+ *   # With predecessor dependency (recommended when config batch is still pending):
+ *   forge script script/RegisterVault.s.sol:RegisterVaultScript \
+ *     --rpc-url $RPC_NODE_URL_8453 \
+ *     --broadcast \
+ *     --sig "run(address,string,bytes32)" \
+ *     <VAULT_ADDRESS> \
+ *     <ADAPTER_NAME> \
+ *     <PREDECESSOR_OPERATION_ID>
+ *
  * Example:
  *   forge script script/RegisterVault.s.sol:RegisterVaultScript \
  *     --rpc-url $RPC_NODE_URL_8453 \
@@ -30,6 +39,10 @@ contract RegisterVaultScript is Script {
     using stdJson for string;
 
     function run(address vaultAddress, string memory adapterName) public {
+        run(vaultAddress, adapterName, bytes32(0));
+    }
+
+    function run(address vaultAddress, string memory adapterName, bytes32 predecessor) public {
         require(vaultAddress != address(0), "Invalid vault address");
 
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -78,7 +91,12 @@ contract RegisterVaultScript is Script {
 
         bool adapterIsRegistered = registry.isRegisteredAdapter(adapterAddress);
         console2.log("Adapter registered:", adapterIsRegistered);
-        require(adapterIsRegistered, "Adapter not registered in registry");
+        if (!adapterIsRegistered && predecessor == bytes32(0)) {
+            revert("Adapter not registered in registry");
+        }
+        if (!adapterIsRegistered) {
+            console2.log("Adapter not currently registered, relying on predecessor dependency");
+        }
 
         address currentAdapter = registry.getTargetAdapter(vaultAddress);
         console2.log("Current adapter for vault:", currentAdapter);
@@ -92,17 +110,18 @@ contract RegisterVaultScript is Script {
         bytes memory data = abi.encodeCall(registry.setTargetAdapter, (vaultAddress, adapterAddress));
         vm.startBroadcast(deployerPrivateKey);
         console2.log("-> Scheduling target adapter set...");
-        timelock.schedule(registryAddress, 0, data, bytes32(0), salt, delay);
+        timelock.schedule(registryAddress, 0, data, predecessor, salt, delay);
 
         if (delay == 0) {
             // Testing mode: execute immediately
             console2.log("-> Executing immediately (testing mode)...");
-            timelock.execute(registryAddress, 0, data, bytes32(0), salt);
+            timelock.execute(registryAddress, 0, data, predecessor, salt);
             console2.log("-> Target adapter set successfully!");
         } else {
             // Production mode: just schedule
             console2.log("-> Scheduled successfully!");
             console2.log("-> Delay:", delay, "seconds");
+            console2.log("-> Predecessor:", vm.toString(predecessor));
             console2.log("-> Execute after delay with:");
             console2.log("");
             console2.log("cast send", timelockAddress);
@@ -110,7 +129,7 @@ contract RegisterVaultScript is Script {
             console2.log("  ", registryAddress);
             console2.log("   0");
             console2.log("  ", vm.toString(data));
-            console2.log("   0x0000000000000000000000000000000000000000000000000000000000000000");
+            console2.log("  ", vm.toString(predecessor));
             console2.log("  ", vm.toString(salt));
             console2.log("   --rpc-url $RPC_NODE_URL_8453 \\");
             console2.log("   --private-key $DEPLOYER_PRIVATE_KEY");
