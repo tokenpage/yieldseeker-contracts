@@ -829,6 +829,20 @@ forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_
 forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
 ```
 
+### Execute From Multisig
+
+When `TESTING_MODE=false`, scripts schedule timelock operations and do not execute them immediately.
+
+1. Wait until the timelock delay has passed.
+2. In Safe UI (Base), create a transaction to `adminTimelock` with `value=0`.
+3. Use:
+   - `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` for the deploy config batch.
+   - `execute(address,uint256,bytes,bytes32,bytes32)` for single operations (vault registration, sellable tokens).
+4. Copy arguments exactly from the script output / `contracts/broadcast/.../run-latest.json` (`targets`, `values`, `datas`, `predecessor`, `salt`).
+5. Collect multisig approvals and execute.
+
+NOTE: f you scheduled operations with a `predecessor`, execute the predecessor operation first.
+
 
 ### Selective Redeployment
 
