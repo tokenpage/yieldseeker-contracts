@@ -143,19 +143,37 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
 
     echo "🟢 $OP_ID"
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
-    echo ""
-    echo "  To execute:"
-    echo "  1. Go to app.safe.global → open Safe $SAFE on Base"
-    echo "  2. New transaction → Transaction Builder"
-    echo "  3. Add transaction with these values:"
-    echo "       To:          $TIMELOCK"
-    echo "       Method:      execute(address,uint256,bytes,bytes32,bytes32)"
-    echo "       target:      $TARGET"
-    echo "       value:       $VALUE"
-    echo "       payload:     $DATA"
-    echo "       predecessor: $PREDECESSOR"
-    echo "       salt:        $SALT"
-    echo "  4. Get both signers to sign and execute"
+
+    jq -n \
+      --arg to "$TIMELOCK" \
+      --arg target "$TARGET" \
+      --arg value "$VALUE" \
+      --arg payload "$DATA" \
+      --arg predecessor "$PREDECESSOR" \
+      --arg salt "$SALT" \
+      '{
+        to: $to,
+        value: "0",
+        data: null,
+        contractMethod: {
+          inputs: [
+            {internalType: "address", name: "target", type: "address"},
+            {internalType: "uint256", name: "value", type: "uint256"},
+            {internalType: "bytes", name: "payload", type: "bytes"},
+            {internalType: "bytes32", name: "predecessor", type: "bytes32"},
+            {internalType: "bytes32", name: "salt", type: "bytes32"}
+          ],
+          name: "execute",
+          payable: false
+        },
+        contractInputsValues: {
+          target: $target,
+          value: $value,
+          payload: $payload,
+          predecessor: $predecessor,
+          salt: $salt
+        }
+      }' > "$WORK/$OP_ID.tx.json"
     echo ""
   fi
 done < "$SORT_FILE"
@@ -166,3 +184,28 @@ if [ "$WARN_COUNT" -gt 0 ]; then
   echo "!! WARNING: $WARN_COUNT operation(s) from UNKNOWN proposer(s) !!"
 fi
 echo "================================================="
+
+if [ "$READY_COUNT" -gt 0 ]; then
+  OUTPUT_JSON="timelock-execute-$(date +%Y%m%d-%H%M%S).json"
+  TX_ARRAY=$(ls "$WORK"/*.tx.json 2>/dev/null | xargs cat | jq -s '.')
+  jq -n \
+    --argjson transactions "$TX_ARRAY" \
+    --argjson createdAt "$(( $(date +%s) * 1000 ))" \
+    --arg safe "$SAFE" \
+    '{
+      version: "1.0",
+      chainId: "8453",
+      createdAt: $createdAt,
+      meta: {
+        name: "Execute Timelock Operations",
+        description: "",
+        txBuilderVersion: "1.16.5",
+        createdFromSafeAddress: $safe,
+        createdFromOwnerAddress: ""
+      },
+      transactions: $transactions
+    }' > "$OUTPUT_JSON"
+  echo ""
+  echo "Safe Transaction Builder JSON: $OUTPUT_JSON"
+  echo "Upload at: app.safe.global → New transaction → Transaction Builder"
+fi
