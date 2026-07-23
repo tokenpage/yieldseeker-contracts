@@ -13,6 +13,7 @@ import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../src/adapters
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
+import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
 import {Script} from "forge-std/Script.sol";
@@ -52,6 +53,7 @@ contract DeployScript is Script {
         address aaveV3Adapter;
         address compoundV3Adapter;
         address compoundV2Adapter;
+        address moonwellRewardAdapter;
     }
 
     /**
@@ -91,6 +93,13 @@ contract DeployScript is Script {
             return 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
         }
         revert(string.concat("Unsupported chain id for Aerodrome CL router: ", vm.toString(chainId)));
+    }
+
+    function getWellToken(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0xA88594D404727625A9437C3f886C7643872296AE;
+        }
+        revert(string.concat("Unsupported chain id for WELL token: ", vm.toString(chainId)));
     }
 
     function run() public {
@@ -143,7 +152,8 @@ contract DeployScript is Script {
                 aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
                 aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
                 compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
-                compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter")
+                compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter"),
+                moonwellRewardAdapter: safeReadAddress(deployJson, ".moonwellRewardAdapter")
             });
         }
 
@@ -276,6 +286,14 @@ contract DeployScript is Script {
         } else {
             console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
         }
+        // Deploy or reuse Moonwell Reward Adapter
+        if (deployments.moonwellRewardAdapter == address(0)) {
+            MoonwellRewardAdapter moonwellRewardAdapter = new MoonwellRewardAdapter{salt: bytes32(SALT)}(getWellToken(block.chainid));
+            deployments.moonwellRewardAdapter = address(moonwellRewardAdapter);
+            console2.log("-> MoonwellRewardAdapter deployed at:", address(moonwellRewardAdapter));
+        } else {
+            console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
+        }
 
         // Export deployments to JSON
         string memory json = "json";
@@ -292,7 +310,8 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
         vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
         vm.serializeAddress(json, "compoundV3Adapter", deployments.compoundV3Adapter);
-        string memory finalJson = vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
+        vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
+        string memory finalJson = vm.serializeAddress(json, "moonwellRewardAdapter", deployments.moonwellRewardAdapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
 
@@ -306,8 +325,8 @@ contract DeployScript is Script {
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
 
-        address[] memory targets = new address[](13);
-        bytes[] memory datas = new bytes[](13);
+        address[] memory targets = new address[](14);
+        bytes[] memory datas = new bytes[](14);
         uint256 operationCount = 0;
 
         // 1. Configure Factory
@@ -367,6 +386,11 @@ contract DeployScript is Script {
         if (!adapterRegistry.isRegisteredAdapter(deployments.compoundV2Adapter)) {
             targets[operationCount] = deployments.adapterRegistry;
             datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.compoundV2Adapter));
+            operationCount++;
+        }
+        if (!adapterRegistry.isRegisteredAdapter(deployments.moonwellRewardAdapter)) {
+            targets[operationCount] = deployments.adapterRegistry;
+            datas[operationCount] = abi.encodeCall(adapterRegistry.registerAdapter, (deployments.moonwellRewardAdapter));
             operationCount++;
         }
         // 3. Set Agent Operator
