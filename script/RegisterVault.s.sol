@@ -74,7 +74,7 @@ contract RegisterVaultScript is Script {
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("compoundv2")) || keccak256(bytes(adapterName)) == keccak256(bytes("moonwell"))) {
             adapterAddress = json.readAddress(".compoundV2Adapter");
         } else {
-            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'uniswapv3', 'aerodromev2', 'aerodromecl', 'merkl', 'aave', 'compound', 'compoundv2', 'moonwell', or 'moonwellrewards'"));
+            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'uniswapv3', 'aerodromev2', 'aerodromecl', 'merkl', 'aave', 'compound', 'compoundv2', or 'moonwellrewards'"));
         }
 
         console2.log("=================================================");
