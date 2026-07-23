@@ -603,7 +603,6 @@ contract YieldSeekerFeeTrackerTest is Test {
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
 
     function setUp() public {
-        vm.prank(admin);
         feeTracker = new YieldSeekerFeeTracker(admin);
         vm.prank(admin);
         feeTracker.setFeeConfig(DEFAULT_FEE_RATE, collector);
