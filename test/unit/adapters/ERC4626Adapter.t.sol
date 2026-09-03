@@ -63,6 +63,19 @@ contract ERC4626AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(badVault), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 
+    function test_Execute_Deposit_DonationInflationZeroShares_Reverts() public {
+        // Attacker mints 1 share for 1 wei, then donates a huge amount of raw assets directly
+        // to the vault (bypassing deposit()), inflating the assets-per-share ratio so the
+        // wallet's next deposit rounds down to zero shares for a nonzero amount.
+        baseAsset.mint(address(this), 1 + 1_000_000e6);
+        baseAsset.approve(address(vault), 1);
+        vault.deposit(1, address(this));
+        baseAsset.transfer(address(vault), 1_000_000e6);
+
+        vm.expectRevert(bytes("AWKERC4626Adapter: zero shares minted"));
+        wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, uint256(1_000e6)));
+    }
+
     function test_Execute_Withdraw_Succeeds() public {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
         uint256 walletBalanceBefore = baseAsset.balanceOf(address(wallet));

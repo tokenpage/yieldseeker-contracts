@@ -168,7 +168,11 @@ contract CompoundV3AdapterTest is Test {
         uint256 feesCharged = feesAfter - feesBefore;
         uint256 expectedFeeTokenSettled = uint256(1e6) * uint256(50e6) / uint256(110e6);
         uint256 proportionalCost = (depositAmount * uint256(50e6)) / uint256(110e6);
-        uint256 netAssets = uint256(50e6) - expectedFeeTokenSettled;
+        // The reward's full base-asset value (not just its fee) is already assessed via
+        // recordAgentYieldTokenEarned and must be excluded from the profit comparison below,
+        // otherwise it gets taxed a second time (audit finding: double-charged reward profit).
+        uint256 rewardValueInBaseAsset = (expectedFeeTokenSettled * 10_000) / 1000;
+        uint256 netAssets = uint256(50e6) - rewardValueInBaseAsset;
         uint256 expectedProfitFee = netAssets > proportionalCost ? ((netAssets - proportionalCost) * 1000) / 10_000 : 0;
         uint256 expectedTotalFees = expectedFeeTokenSettled + expectedProfitFee;
         assertEq(feesCharged, expectedTotalFees, "CompoundV3 fees should not be inflated for rebasing tokens");

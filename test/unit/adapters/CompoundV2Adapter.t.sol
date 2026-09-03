@@ -69,6 +69,12 @@ contract CompoundV2AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(badCToken), abi.encodeWithSelector(adapter.deposit.selector, 1e6));
     }
 
+    function test_Execute_Deposit_ZeroSharesMinted_Reverts() public {
+        cToken.addYield(1e18); // inflate exchange rate ~1e13x so a tiny deposit rounds to 0 cTokens
+        vm.expectRevert(bytes("AWKCompoundV2Adapter: zero shares minted"));
+        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.deposit.selector, uint256(1)));
+    }
+
     function test_Execute_Withdraw_Succeeds() public {
         uint256 depositAmount = 2_000e6;
         uint256 withdrawAmount = 1_200e6;
