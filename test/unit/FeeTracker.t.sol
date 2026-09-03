@@ -729,9 +729,13 @@ contract YieldSeekerFeeTrackerTest is Test {
         // Expected:
         // - Yield token fee: 0.2 shares owed (10% of 2)
         // - When withdrawing: 0.2 * (13.2 / 12) = 0.22 USDC charged as fee
-        // - Remaining assets: 13.2 - 0.22 = 12.98
-        // - Profit: 12.98 - 10 = 2.98
-        // - Fee on profit: 2.98 * 10% = 0.298
+        // - The reward's full base-asset value (0.22 / 10% = 2.2 USDC) is excluded from
+        //   the deposit-shares profit comparison below, not just its fee -- otherwise the
+        //   reward's post-fee remainder is taxed a second time as vault-appreciation profit.
+        // - netAssets = 13.2 - 2.2 = 11.0
+        // - depositSharesValue = (11.0 * 10) / 12 = 9.1666... USDC, which is BELOW the 10
+        //   USDC cost basis, so no profit fee is charged on the tracked deposit shares here.
+        // - Total = 0.22 USDC (fee on the reward only)
 
         address vault = makeAddr("vault");
 
@@ -756,12 +760,7 @@ contract YieldSeekerFeeTrackerTest is Test {
         uint256 feesAfter = feeTracker.getFeesOwed(agent1);
         uint256 totalFees = feesAfter - feesBefore;
 
-        // feeInBaseAsset = (13.2 * 0.2) / 12 = 0.22 USDC (fee on yield token)
-        // depositSharesValue = ((13.2 - 0.22) * 10) / 12 = 10.8166... USDC
-        // profit on deposit = 10.8166 - 10.0 = 0.8166 USDC
-        // profit fee = 0.8166 * 10% = 0.08166 USDC
-        // Total = 0.22 + 0.08166 = 0.30166 USDC
-        uint256 expectedTotal = 0.30166e6;
+        uint256 expectedTotal = 0.22e6;
 
         assertApproxEqAbs(totalFees, expectedTotal, 1e3, "Total fees should match calculation");
     }
@@ -769,9 +768,6 @@ contract YieldSeekerFeeTrackerTest is Test {
     // ============ Audit: Over-withdrawal branch double-counts vault token fees ============
 
     function test_VaultShareWithdraw_OverWithdrawalBranch_DoubleCounts_VaultTokenFee() public {
-        // This test demonstrates the double-counting bug in the over-withdrawal branch
-        // of recordAgentVaultShareWithdraw (sharesSpent > totalShares).
-        //
         // Setup:
         // - Deposit: 1000 USDC -> 1000 shares (cost basis = 1000 USDC)
         // - Yield token earned: 200 shares -> 20 shares fee owed (10%)
@@ -784,15 +780,13 @@ contract YieldSeekerFeeTrackerTest is Test {
         //   feeInBaseAsset = (1320 * 20) / 1200 = 22 USDC
         //   agentFeesCharged += 22
         //
-        // Step 2 (profit fee - THE BUG):
-        //   BUGGY:   depositSharesValue = (1320 * 1000) / 1200 = 1100
-        //   CORRECT: depositSharesValue = ((1320 - 22) * 1000) / 1200 = 1081.666...
+        // Step 2 (profit fee, with the reward's full value excluded, not just its fee):
+        //   rewardValueInBaseAsset = 22 / 10% = 220 USDC
+        //   netAssets = 1320 - 220 = 1100
+        //   depositSharesValue = (1100 * 1000) / 1200 = 916.666... USDC
+        //   916.666 < 1000 cost basis -> no profit fee on the tracked deposit shares.
         //
-        //   BUGGY profit   = 1100 - 1000 = 100 -> fee = 10
-        //   CORRECT profit = 1081 - 1000 = 81  -> fee = 8 (approximately)
-        //
-        // The buggy path charges ~32 USDC total, correct path charges ~30 USDC.
-        // The difference (~2 USDC) is the double-counted portion.
+        // Total = 22 USDC (fee on the reward only).
 
         address vault = makeAddr("vault");
 
@@ -813,21 +807,16 @@ contract YieldSeekerFeeTrackerTest is Test {
 
         uint256 totalFeesCharged = feeTracker.getFeesOwed(agent1) - feesBefore;
 
-        // Calculate what the CORRECT fees should be:
-        // Block 1: vault token fee = (1320e6 * 20e18) / 1200e18 = 22e6
         uint256 feeInBaseAsset = (1320e6 * 20e18) / 1200e18;
         assertEq(feeInBaseAsset, 22e6, "vault token fee should be 22 USDC");
 
-        // Block 2 (correct): depositSharesValue using net assets
-        uint256 correctDepositSharesValue = ((1320e6 - feeInBaseAsset) * 1000e18) / 1200e18;
-        uint256 correctProfit = correctDepositSharesValue - 1000e6; // ~81.666e6
-        uint256 correctProfitFee = (correctProfit * 1000) / 10000;
+        uint256 rewardValueInBaseAsset = (feeInBaseAsset * 10_000) / 1000;
+        uint256 netAssets = 1320e6 - rewardValueInBaseAsset;
+        uint256 depositSharesValue = (netAssets * 1000e18) / 1200e18;
+        uint256 correctProfitFee = depositSharesValue > 1000e6 ? ((depositSharesValue - 1000e6) * 1000) / 10_000 : 0;
         uint256 correctTotalFees = feeInBaseAsset + correctProfitFee;
 
-        // The contract should charge the CORRECT fees, not the inflated buggy amount.
-        // This assertion will FAIL until the bug is fixed (line 178 in FeeTracker.sol
-        // should use `assetsReceived - feeInBaseAsset` instead of `assetsReceived`).
-        assertEq(totalFeesCharged, correctTotalFees, "Fees should not double-count vault token fee in over-withdrawal branch");
+        assertEq(totalFeesCharged, correctTotalFees, "Fees should not double-count the reward's value in the over-withdrawal branch");
     }
 
     // ============ Audit Fix: Safety cap on feeInBaseAsset (Issue 2) ============
@@ -891,5 +880,127 @@ contract YieldSeekerFeeTrackerTest is Test {
         // feeInBaseAsset = (5e6 * 1.1e18) / 1e18 = 5.5e6
         uint256 feesCharged = feeTracker.agentFeesCharged(agent1);
         assertTrue(feesCharged >= 5.5e6, "Should apply exchange rate for non-rebasing tokens");
+    }
+
+    function test_VaultAssetWithdraw_RewardValueNotDoubleCharged() public {
+        address vault = makeAddr("vault");
+        // Deposit 1000 USDC principal (the vault position itself does not appreciate).
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
+        // Separately receive 100 USDC worth of the vault's own token as an untracked reward
+        // (e.g. bonus shares), which immediately books a 10% fee liability (10 USDC).
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 10e6, "Should owe 10% of the 100 reward");
+
+        // Full withdrawal: 1000 principal + 100 reward = 1100 total, no real appreciation.
+        uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 1100e6, 1100e6, rebasingRate);
+
+        // Only the reward's own fee (10% of 100 = 10) should be charged. The reward's
+        // post-fee remainder (90) must not also be taxed as vault-appreciation profit --
+        // the vault position had zero real appreciation.
+        assertEq(feeTracker.agentFeesCharged(agent1), 10e6, "Reward value must not be double-charged as appreciation profit");
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(agent1, vault);
+        assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
+        assertEq(shares, 0, "Shares should clear after full withdrawal");
+    }
+
+    function test_VaultAssetWithdraw_RewardValueExclusion_RateIncreasedBeforeSettlement() public {
+        // The reward exclusion back-calculates gross reward value from the already-charged
+        // fee using the CURRENT feeRateBps, not the rate in effect when the reward was
+        // recorded. If the rate rises between recording and settlement, the back-calculation
+        // understates the true reward value, so part of the already-assessed reward remains
+        // exposed to the profit comparison and gets taxed again -- an incomplete fix in this
+        // direction, though strictly better than the pre-fix behavior (28e6).
+        address vault = makeAddr("vault");
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
+        // Reward recorded while the fee rate is 10%: 10% of 100 = 10 owed.
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 10e6);
+
+        // Rate rises to 20% before the position is withdrawn.
+        vm.prank(admin);
+        feeTracker.setFeeConfig(2000, collector);
+
+        uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 1100e6, 1100e6, rebasingRate);
+
+        // Ideal total (reward fixed at record-time rate, zero real appreciation): 10e6.
+        // Pre-fix behavior would have charged 28e6 (10 + 20%*(1090-1000-10)... see PR history).
+        // This fix charges 20e6: correct first-charge (10e6) plus an incomplete second-charge
+        // exclusion (implied gross = 10e6*1e4/2000 = 50e6, half the true 100e6 reward, so 50e6
+        // of the already-assessed reward is taxed again at the new 20% rate = 10e6).
+        assertEq(feeTracker.agentFeesCharged(agent1), 20e6, "Rate increase leaves a bounded, quantified residual overcharge");
+    }
+
+    function test_VaultAssetWithdraw_RewardValueExclusion_RateDecreasedBeforeSettlement() public {
+        // Symmetric case: rate falls between recording and settlement. The back-calculation
+        // overstates the true reward value, over-excluding it from the profit comparison.
+        // In this zero-appreciation scenario that over-exclusion happens to net out to the
+        // ideal total exactly, because the excess is absorbed by the "no second charge"
+        // branch rather than producing an undercharge.
+        address vault = makeAddr("vault");
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
+        // Rate is 20% when the reward is recorded: 20% of 100 = 20 owed.
+        vm.prank(admin);
+        feeTracker.setFeeConfig(2000, collector);
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 20e6);
+
+        // Rate falls to 10% before the position is withdrawn.
+        vm.prank(admin);
+        feeTracker.setFeeConfig(1000, collector);
+
+        uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultAssetWithdraw(vault, 1100e6, 1100e6, rebasingRate);
+
+        // Ideal total (reward fixed at record-time rate, zero real appreciation): 20e6.
+        assertEq(feeTracker.agentFeesCharged(agent1), 20e6, "Rate decrease nets to the ideal total in this scenario");
+    }
+
+    function test_VaultShareWithdraw_NormalBranch_RewardValueNotDoubleCharged() public {
+        // The over-withdrawal branch (sharesSpent > totalShares) already excluded the
+        // reward's fee from its ratio-based comparison. This test covers the NORMAL branch
+        // (sharesSpent <= totalShares), which previously excluded nothing but the fee itself
+        // from `netAssets`, so a real-appreciation withdrawal that also settles an unrelated
+        // reward liability would tax the reward's post-fee remainder a second time.
+        //
+        // Setup:
+        // - Deposit: 1000 USDC -> 1000 shares (cost basis = 1000 USDC)
+        // - Yield token earned: 100 shares -> 10 shares fee owed (10%), untracked (not
+        //   added to pos.shares)
+        // - Withdraw: 500 shares (<= 1000 tracked, normal branch) for 550 USDC (10% real
+        //   appreciation on the withdrawn tracked shares)
+        //
+        // feeInBaseAsset = (550 * 10) / 500 = 11 USDC (fee on the reward)
+        // rewardValueInBaseAsset = 11 / 10% = 110 USDC (excluded from the comparison below)
+        // netAssets = 550 - 110 = 440
+        // proportionalCost = (1000 * 500) / 1000 = 500
+        // 440 < 500 -> no additional profit fee is charged.
+        //
+        // Pre-fix behavior would have excluded only the 11 USDC fee (netAssets = 539),
+        // which exceeds the 500 proportional cost, charging an extra ~3.9 USDC of profit
+        // fee on value that was already assessed as part of the reward.
+        address vault = makeAddr("vault");
+
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e18);
+
+        vm.prank(agent1);
+        feeTracker.recordAgentYieldTokenEarned(vault, 100e18);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 10e18);
+
+        vm.prank(agent1);
+        feeTracker.recordAgentVaultShareWithdraw(vault, 500e18, 550e6);
+
+        assertEq(feeTracker.agentFeesCharged(agent1), 11e6, "Reward value must not be double-charged in the normal-withdrawal branch");
     }
 }

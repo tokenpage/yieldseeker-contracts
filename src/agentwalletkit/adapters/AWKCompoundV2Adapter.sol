@@ -65,6 +65,7 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
         require(mintResult == 0, "AWKCompoundV2Adapter: mint failed");
         uint256 balanceAfter = ICToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
+        require(shares > 0, "AWKCompoundV2Adapter: zero shares minted");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
         emit Deposited(address(this), vault, assetsDeposited, shares);
     }

@@ -128,8 +128,9 @@ contract AdapterFlowsTest is Test {
     // in agentYieldTokenFeesOwed. On withdrawal, the fee is settled proportionally.
 
     /// @notice 10 aTokens received as reward (no deposit). Withdraw 7.
-    ///         All 7 are profit (costBasis = 0). Additionally, vaultTokenFeesOwed
-    ///         settles proportionally: 7/10 of the 1-aToken fee owed = 0.7 USDC.
+    ///         vaultTokenFeesOwed settles proportionally: 7/10 of the 1-aToken fee owed = 0.7 USDC.
+    ///         The reward's full value (not just its fee) is excluded from the profit
+    ///         comparison below since costBasis=0 -- otherwise the reward gets taxed twice.
     function test_Flow2_RewardTokensWithdraw() public {
         // Simulate reward: 10 aTokens appear + feeTracker records yield token earned
         _addYield(10e6);
@@ -142,9 +143,11 @@ contract AdapterFlowsTest is Test {
         _withdraw(7e6);
         // Fee settlement: 7/10 of the 1e6 fee = 700000 settled as base asset fee
         uint256 feeSettled = (1e6 * 7e6) / 10e6;
-        // Plus: costBasis = 0, so netAssets = 7e6 - feeSettled = 6300000 is all profit
-        // fee on that profit = 630000
-        uint256 profitFee = ((7e6 - feeSettled) * 1000) / 10_000;
+        // The reward's full value already assessed above (700000 fee / 10% rate = 7000000)
+        // is excluded from the profit comparison, so no additional profit fee is charged.
+        uint256 rewardValueInBaseAsset = (feeSettled * 10_000) / 1000;
+        uint256 netAssets = 7e6 - rewardValueInBaseAsset;
+        uint256 profitFee = netAssets > 0 ? (netAssets * 1000) / 10_000 : 0;
         uint256 totalExpectedFees = feeSettled + profitFee;
         assertEq(feeTracker.agentFeesCharged(address(wallet)), totalExpectedFees, "Fees from reward settlement + profit");
         // Remaining vault token fee: 1e6 - 700000 = 300000
@@ -169,8 +172,10 @@ contract AdapterFlowsTest is Test {
         uint256 feeInBaseAsset = feeTokenSettled;
         // proportionalCost = (100e6 * 7e6) / 110e6
         uint256 proportionalCost = (100e6 * 7e6) / totalBalanceBefore;
-        // netAssets = 7e6 - feeInBaseAsset, profit = netAssets - proportionalCost
-        uint256 netAssets = 7e6 - feeInBaseAsset;
+        // The reward's full base-asset value is excluded from the profit comparison,
+        // not just its fee slice (audit finding: double-charged reward profit).
+        uint256 rewardValueInBaseAsset = (feeInBaseAsset * 10_000) / 1000;
+        uint256 netAssets = 7e6 - rewardValueInBaseAsset;
         uint256 profit = netAssets > proportionalCost ? netAssets - proportionalCost : 0;
         uint256 profitFee = (profit * 1000) / 10_000;
         uint256 totalExpectedFees = feeInBaseAsset + profitFee;

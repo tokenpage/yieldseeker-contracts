@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title MockAaveV3Pool
@@ -37,7 +38,7 @@ contract MockAaveV3Pool {
 contract MockAToken is IERC20 {
     string public constant NAME = "Mock aToken";
     string public constant SYMBOL = "aToken";
-    uint8 public constant DECIMALS = 6;
+    uint8 private immutable _DECIMALS;
 
     address public immutable UNDERLYING_ASSET_ADDRESS;
     address public immutable POOL;
@@ -49,6 +50,7 @@ contract MockAToken is IERC20 {
     constructor(address underlying_, address pool_) {
         UNDERLYING_ASSET_ADDRESS = underlying_;
         POOL = pool_;
+        _DECIMALS = IERC20Metadata(underlying_).decimals();
     }
 
     function totalSupply() external view override returns (uint256) {
@@ -57,6 +59,10 @@ contract MockAToken is IERC20 {
 
     function balanceOf(address account) external view override returns (uint256) {
         return _balances[account];
+    }
+
+    function decimals() external view returns (uint8) {
+        return _DECIMALS;
     }
 
     function transfer(address to, uint256 amount) external override returns (bool) {
