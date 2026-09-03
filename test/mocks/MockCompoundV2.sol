@@ -10,13 +10,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract MockCToken is ERC20 {
     IERC20 private immutable _UNDERLYING;
     uint256 private _exchangeRateStored;
-    uint256 private immutable EXCHANGE_RATE_SCALE;
+
+    uint256 private constant EXCHANGE_RATE_MANTISSA = 1e18;
 
     constructor(address underlying_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
         _UNDERLYING = IERC20(underlying_);
         uint8 underlyingDecimals = ERC20(underlying_).decimals();
-        EXCHANGE_RATE_SCALE = 10 ** (18 + uint256(underlyingDecimals) - 8);
-        _exchangeRateStored = EXCHANGE_RATE_SCALE; // 1:1 initially
+        _exchangeRateStored = 10 ** (18 + uint256(underlyingDecimals) - decimals());
     }
 
     function underlying() external view returns (address) {
@@ -36,7 +36,7 @@ contract MockCToken is ERC20 {
     /// @return 0 on success (Compound V2 error code convention)
     function mint(uint256 mintAmount) external returns (uint256) {
         require(_UNDERLYING.transferFrom(msg.sender, address(this), mintAmount), "Transfer failed");
-        uint256 cTokenAmount = (mintAmount * EXCHANGE_RATE_SCALE) / _exchangeRateStored;
+        uint256 cTokenAmount = (mintAmount * EXCHANGE_RATE_MANTISSA) / _exchangeRateStored;
         _mint(msg.sender, cTokenAmount);
         return 0; // Success
     }
@@ -45,7 +45,7 @@ contract MockCToken is ERC20 {
     /// @param redeemTokens Amount of cTokens to redeem
     /// @return 0 on success (Compound V2 error code convention)
     function redeem(uint256 redeemTokens) external returns (uint256) {
-        uint256 underlyingAmount = (redeemTokens * _exchangeRateStored) / EXCHANGE_RATE_SCALE;
+        uint256 underlyingAmount = (redeemTokens * _exchangeRateStored) / EXCHANGE_RATE_MANTISSA;
         _burn(msg.sender, redeemTokens);
         require(_UNDERLYING.transfer(msg.sender, underlyingAmount), "Transfer failed");
         return 0; // Success
@@ -55,15 +55,14 @@ contract MockCToken is ERC20 {
     /// @param redeemAmount Amount of underlying to redeem
     /// @return 0 on success (Compound V2 error code convention)
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256) {
-        uint256 cTokenAmount = (redeemAmount * EXCHANGE_RATE_SCALE + _exchangeRateStored - 1) / _exchangeRateStored;
+        uint256 cTokenAmount = (redeemAmount * EXCHANGE_RATE_MANTISSA + _exchangeRateStored - 1) / _exchangeRateStored;
         _burn(msg.sender, cTokenAmount);
         require(_UNDERLYING.transfer(msg.sender, redeemAmount), "Transfer failed");
         return 0; // Success
     }
 
-    /// @notice Get underlying balance for an account
     function balanceOfUnderlying(address account) external view returns (uint256) {
-        return (balanceOf(account) * _exchangeRateStored) / EXCHANGE_RATE_SCALE;
+        return (balanceOf(account) * _exchangeRateStored) / EXCHANGE_RATE_MANTISSA;
     }
 
     /// @notice Simulate yield by increasing exchange rate

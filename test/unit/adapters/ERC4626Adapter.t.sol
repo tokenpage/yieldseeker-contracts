@@ -5,7 +5,7 @@ import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {MockERC20} from "../../mocks/MockERC20.sol";
+import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test, console} from "forge-std/Test.sol";
@@ -157,5 +157,34 @@ contract ERC4626AdapterTest is Test {
         console.log("2x balanceOf (balance-delta):    ", twoBalanceOfGas);
         console.log("ERC20 approve:                   ", approveGas);
         console.log("FeeTracker record deposit:       ", feeTrackerGas);
+    }
+
+    function test_DecimalVariant_CbBTC() public {
+        _testDecimalVariant(8, 1e8);
+    }
+
+    function test_DecimalVariant_WETH() public {
+        _testDecimalVariant(18, 1e18);
+    }
+
+    function _testDecimalVariant(uint8 decimals_, uint256 amount) internal {
+        MockERC20WithDecimals asset = new MockERC20WithDecimals("Variant", "VAR", decimals_);
+        MockERC4626 variantVault = new MockERC4626(address(asset), "Variant Vault", "vVAR");
+        AdapterWalletHarness variantWallet = new AdapterWalletHarness(asset, feeTracker);
+        asset.mint(address(variantWallet), amount);
+
+        bytes memory depositResult = variantWallet.executeAdapter(address(adapter), address(variantVault), abi.encodeWithSelector(adapter.deposit.selector, amount));
+        assertEq(_decodeUint(depositResult), amount);
+        assertEq(asset.decimals(), decimals_);
+
+        uint256 yieldAmount = amount / 10;
+        asset.mint(address(variantVault), yieldAmount);
+        bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantVault), abi.encodeWithSelector(adapter.withdraw.selector, amount));
+
+        assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
+        assertEq(feeTracker.agentFeesCharged(address(variantWallet)), yieldAmount / 10);
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantVault));
+        assertEq(costBasis, 0);
+        assertEq(shares, 0);
     }
 }

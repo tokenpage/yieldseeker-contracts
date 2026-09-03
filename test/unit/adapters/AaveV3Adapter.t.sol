@@ -6,7 +6,7 @@ import {YieldSeekerAaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol"
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockAToken, MockAaveV3Pool} from "../../mocks/MockAaveV3.sol";
-import {MockERC20} from "../../mocks/MockERC20.sol";
+import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -232,5 +232,36 @@ contract AaveV3AdapterTest is Test {
         assertEq(costBasis, 0, "Cost basis should be zero after full withdraw");
         assertEq(shares, 0, "Shares should be zero after full withdraw");
         assertEq(feeTracker.getAgentYieldTokenFeesOwed(address(wallet), address(aToken)), 0, "All token fees should be settled");
+    }
+
+    function test_DecimalVariant_CbBTC() public {
+        _testDecimalVariant(8, 1e8);
+    }
+
+    function test_DecimalVariant_WETH() public {
+        _testDecimalVariant(18, 1e18);
+    }
+
+    function _testDecimalVariant(uint8 decimals_, uint256 amount) internal {
+        MockERC20WithDecimals asset = new MockERC20WithDecimals("Variant", "VAR", decimals_);
+        MockAaveV3Pool variantPool = new MockAaveV3Pool(address(asset));
+        MockAToken variantAToken = MockAToken(variantPool.aToken());
+        AdapterWalletHarness variantWallet = new AdapterWalletHarness(asset, feeTracker);
+        asset.mint(address(variantWallet), amount);
+
+        bytes memory depositResult = variantWallet.executeAdapter(address(adapter), address(variantAToken), abi.encodeWithSelector(adapter.deposit.selector, amount));
+        assertEq(_decodeUint(depositResult), amount);
+        assertEq(variantAToken.decimals(), decimals_);
+
+        uint256 yieldAmount = amount / 10;
+        variantAToken.addYield(address(variantWallet), yieldAmount);
+        asset.mint(address(variantAToken), yieldAmount);
+        bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantAToken), abi.encodeWithSelector(adapter.withdraw.selector, amount + yieldAmount));
+
+        assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
+        assertEq(feeTracker.agentFeesCharged(address(variantWallet)), yieldAmount / 10);
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantAToken));
+        assertEq(costBasis, 0);
+        assertEq(shares, 0);
     }
 }

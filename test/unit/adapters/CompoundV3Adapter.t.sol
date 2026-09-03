@@ -6,7 +6,7 @@ import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerCompoundV3Adapter} from "../../../src/adapters/CompoundV3Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MockCompoundV3Comet} from "../../mocks/MockCompoundV3.sol";
-import {MockERC20} from "../../mocks/MockERC20.sol";
+import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -221,5 +221,35 @@ contract CompoundV3AdapterTest is Test {
         uint256 totalFees = feeTracker.agentFeesCharged(address(wallet));
         uint256 expectedFee = (100e6 * 1000) / 10_000;
         assertEq(totalFees, expectedFee, "Total fees should equal 10% of 100 USDC yield");
+    }
+
+    function test_DecimalVariant_CbBTC() public {
+        _testDecimalVariant(8, 1e8);
+    }
+
+    function test_DecimalVariant_WETH() public {
+        _testDecimalVariant(18, 1e18);
+    }
+
+    function _testDecimalVariant(uint8 decimals_, uint256 amount) internal {
+        MockERC20WithDecimals asset = new MockERC20WithDecimals("Variant", "VAR", decimals_);
+        MockCompoundV3Comet variantComet = new MockCompoundV3Comet(address(asset));
+        AdapterWalletHarness variantWallet = new AdapterWalletHarness(asset, feeTracker);
+        asset.mint(address(variantWallet), amount);
+
+        bytes memory depositResult = variantWallet.executeAdapter(address(adapter), address(variantComet), abi.encodeWithSelector(adapter.deposit.selector, amount));
+        assertEq(_decodeUint(depositResult), amount);
+        assertEq(variantComet.decimals(), decimals_);
+
+        uint256 yieldAmount = amount / 10;
+        variantComet.addYield(address(variantWallet), yieldAmount);
+        asset.mint(address(variantComet), yieldAmount);
+        bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantComet), abi.encodeWithSelector(adapter.withdraw.selector, amount + yieldAmount));
+
+        assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
+        assertEq(feeTracker.agentFeesCharged(address(variantWallet)), yieldAmount / 10);
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantComet));
+        assertEq(costBasis, 0);
+        assertEq(shares, 0);
     }
 }

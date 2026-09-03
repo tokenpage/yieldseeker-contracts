@@ -18,7 +18,6 @@ pragma solidity 0.8.28;
 
 import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
  * @title YieldSeekerCompoundV2Adapter
@@ -46,12 +45,10 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         _requireBaseAsset(asset);
         uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
         uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
-        uint256 compoundExchangeRateScale = 10 ** (18 + uint256(IERC20Metadata(asset).decimals()) - uint256(ICToken(vault).decimals()));
-        // cTokens don't rebase, so convert cToken balance to base asset terms via exchange rate
-        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / compoundExchangeRateScale;
-        // Normalize exchange rate from Compound's scale to FeeTracker's 1e18 precision
-        uint256 normalizedRate = (_feeTracker().ASSET_EXCHANGE_RATE_PRECISION() * exchangeRate) / compoundExchangeRateScale;
+        uint256 assetExchangeRatePrecision = _feeTracker().ASSET_EXCHANGE_RATE_PRECISION();
+        // Compound V2 exchange rates are 1e18-scaled and include decimal normalization.
+        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / assetExchangeRatePrecision;
         assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: normalizedRate});
+        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: exchangeRate});
     }
 }
