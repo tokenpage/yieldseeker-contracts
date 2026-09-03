@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {MockWETH} from "./MockWETH.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -80,4 +81,74 @@ contract MockCToken is ERC20 {
     function decimals() public pure override returns (uint8) {
         return 8; // cTokens typically have 8 decimals
     }
+}
+
+/// @title MockCNativeToken
+/// @notice Mock Compound V2 style cToken/mToken whose underlying is WETH but which redeems to
+///         native ETH, mirroring live Base Moonwell mWETH behavior observed on-chain.
+contract MockCNativeToken is ERC20 {
+    IERC20 private immutable _UNDERLYING;
+    MockWETH private immutable _WETH;
+    uint256 private _exchangeRateStored;
+
+    uint256 private constant EXCHANGE_RATE_MANTISSA = 1e18;
+
+    constructor(address payable weth_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
+        _UNDERLYING = IERC20(weth_);
+        _WETH = MockWETH(weth_);
+        _exchangeRateStored = 10 ** (18 + uint256(ERC20(weth_).decimals()) - decimals());
+    }
+
+    function underlying() external view returns (address) {
+        return address(_UNDERLYING);
+    }
+
+    function exchangeRateStored() external view returns (uint256) {
+        return _exchangeRateStored;
+    }
+
+    function exchangeRateCurrent() external view returns (uint256) {
+        return _exchangeRateStored;
+    }
+
+    function mint(uint256 mintAmount) external returns (uint256) {
+        require(_UNDERLYING.transferFrom(msg.sender, address(this), mintAmount), "Transfer failed");
+        uint256 cTokenAmount = (mintAmount * EXCHANGE_RATE_MANTISSA) / _exchangeRateStored;
+        _mint(msg.sender, cTokenAmount);
+        return 0; // Success
+    }
+
+    function redeem(uint256 redeemTokens) external returns (uint256) {
+        uint256 underlyingAmount = (redeemTokens * _exchangeRateStored) / EXCHANGE_RATE_MANTISSA;
+        _burn(msg.sender, redeemTokens);
+        _sendNative(underlyingAmount);
+        return 0; // Success
+    }
+
+    function redeemUnderlying(uint256 redeemAmount) external returns (uint256) {
+        uint256 cTokenAmount = (redeemAmount * EXCHANGE_RATE_MANTISSA + _exchangeRateStored - 1) / _exchangeRateStored;
+        _burn(msg.sender, cTokenAmount);
+        _sendNative(redeemAmount);
+        return 0; // Success
+    }
+
+    function balanceOfUnderlying(address account) external view returns (uint256) {
+        return (balanceOf(account) * _exchangeRateStored) / EXCHANGE_RATE_MANTISSA;
+    }
+
+    function addYield(uint256 yieldBps) external {
+        _exchangeRateStored = (_exchangeRateStored * (10000 + yieldBps)) / 10000;
+    }
+
+    function decimals() public pure override returns (uint8) {
+        return 8;
+    }
+
+    function _sendNative(uint256 amount) internal {
+        _WETH.withdraw(amount);
+        (bool ok,) = msg.sender.call{value: amount}("");
+        require(ok, "ETH send failed");
+    }
+
+    receive() external payable {}
 }

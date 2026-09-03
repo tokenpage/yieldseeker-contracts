@@ -5,8 +5,9 @@ import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerCompoundV2Adapter} from "../../../src/adapters/CompoundV2Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {MockCToken} from "../../mocks/MockCompoundV2.sol";
+import {MockCNativeToken, MockCToken} from "../../mocks/MockCompoundV2.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
+import {MockWETH} from "../../mocks/MockWETH.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -230,5 +231,49 @@ contract CompoundV2AdapterTest is Test {
         (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantCToken));
         assertEq(costBasis, 0);
         assertEq(shares, 0);
+    }
+
+    function test_PartialWithdraw_NativeETHMarket_WrapsToWETH() public {
+        MockWETH weth = new MockWETH();
+        MockCNativeToken nativeCToken = new MockCNativeToken(payable(address(weth)), "Native mWETH", "mWETH");
+        AdapterWalletHarness nativeWallet = new AdapterWalletHarness(weth, feeTracker);
+        vm.deal(address(this), 10e18);
+        weth.deposit{value: 10e18}();
+        require(weth.transfer(address(nativeWallet), 10e18), "Transfer failed");
+
+        uint256 depositAmount = 10e18;
+        uint256 withdrawAmount = 4e18;
+        nativeWallet.executeAdapter(address(adapter), address(nativeCToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        bytes memory withdrawResult = nativeWallet.executeAdapter(address(adapter), address(nativeCToken), abi.encodeWithSelector(adapter.withdraw.selector, withdrawAmount));
+        uint256 assetsReceived = _decodeUint(withdrawResult);
+
+        assertEq(assetsReceived, withdrawAmount, "Should report the requested underlying amount");
+        assertEq(weth.balanceOf(address(nativeWallet)), withdrawAmount, "Native ETH must be wrapped back into WETH");
+        assertEq(address(nativeWallet).balance, 0, "Wallet must not be left holding native ETH");
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(nativeWallet), address(nativeCToken));
+        assertEq(costBasis, depositAmount - withdrawAmount, "Cost basis should be reduced proportionally");
+        assertGt(shares, 0, "Remaining shares should still be tracked after a partial withdrawal");
+    }
+
+    function test_FullWithdraw_NativeETHMarket_WrapsToWETH() public {
+        MockWETH weth = new MockWETH();
+        MockCNativeToken nativeCToken = new MockCNativeToken(payable(address(weth)), "Native mWETH", "mWETH");
+        AdapterWalletHarness nativeWallet = new AdapterWalletHarness(weth, feeTracker);
+        vm.deal(address(this), 5e18);
+        weth.deposit{value: 5e18}();
+        require(weth.transfer(address(nativeWallet), 5e18), "Transfer failed");
+
+        uint256 depositAmount = 5e18;
+        nativeWallet.executeAdapter(address(adapter), address(nativeCToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        bytes memory withdrawResult = nativeWallet.executeAdapter(address(adapter), address(nativeCToken), abi.encodeWithSelector(adapter.withdraw.selector, depositAmount));
+        uint256 assetsReceived = _decodeUint(withdrawResult);
+
+        assertEq(assetsReceived, depositAmount, "Should report the full underlying amount");
+        assertEq(weth.balanceOf(address(nativeWallet)), depositAmount, "Native ETH must be wrapped back into WETH");
+        assertEq(address(nativeWallet).balance, 0, "Wallet must not be left holding native ETH");
+        assertEq(nativeCToken.balanceOf(address(nativeWallet)), 0, "cToken balance should be fully withdrawn");
+        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(nativeWallet), address(nativeCToken));
+        assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
+        assertEq(shares, 0, "Shares should clear after full withdrawal");
     }
 }

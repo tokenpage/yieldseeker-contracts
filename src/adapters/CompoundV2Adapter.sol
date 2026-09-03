@@ -19,6 +19,10 @@ pragma solidity 0.8.28;
 import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
+interface IWETH {
+    function deposit() external payable;
+}
+
 /**
  * @title YieldSeekerCompoundV2Adapter
  * @notice YieldSeeker-specific Compound V2 adapter with fee tracking
@@ -48,7 +52,12 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         uint256 assetExchangeRatePrecision = _feeTracker().ASSET_EXCHANGE_RATE_PRECISION();
         // Compound V2 exchange rates are 1e18-scaled and include decimal normalization.
         uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / assetExchangeRatePrecision;
+        uint256 nativeBalanceBefore = address(this).balance;
         assets = super._withdrawInternal(vault, shares);
+        uint256 nativeAssetsReceived = address(this).balance - nativeBalanceBefore;
+        if (nativeAssetsReceived > 0) {
+            IWETH(asset).deposit{value: nativeAssetsReceived}();
+        }
         _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: exchangeRate});
     }
 }
