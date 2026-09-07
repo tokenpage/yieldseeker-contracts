@@ -120,13 +120,6 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
 
   else
-    DECODED=$(cast calldata-decode "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
-    TARGET=$(echo "$DECODED" | sed -n '1p' | awk '{print $1}')
-    VALUE=$(echo "$DECODED" | sed -n '2p' | awk '{print $1}')
-    DATA=$(echo "$DECODED" | sed -n '3p' | awk '{print $1}')
-    PREDECESSOR=$(echo "$DECODED" | sed -n '4p' | awk '{print $1}')
-    SALT=$(echo "$DECODED" | sed -n '5p' | awk '{print $1}')
-
     READY_COUNT=$(( READY_COUNT + 1 ))
     echo ""
 
@@ -144,36 +137,83 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
     echo "🟢 $OP_ID"
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
 
-    jq -n \
-      --arg to "$TIMELOCK" \
-      --arg target "$TARGET" \
-      --arg value "$VALUE" \
-      --arg payload "$DATA" \
-      --arg predecessor "$PREDECESSOR" \
-      --arg salt "$SALT" \
-      '{
-        to: $to,
-        value: "0",
-        data: null,
-        contractMethod: {
-          inputs: [
-            {internalType: "address", name: "target", type: "address"},
-            {internalType: "uint256", name: "value", type: "uint256"},
-            {internalType: "bytes", name: "payload", type: "bytes"},
-            {internalType: "bytes32", name: "predecessor", type: "bytes32"},
-            {internalType: "bytes32", name: "salt", type: "bytes32"}
-          ],
-          name: "execute",
-          payable: false
-        },
-        contractInputsValues: {
-          target: $target,
-          value: $value,
-          payload: $payload,
-          predecessor: $predecessor,
-          salt: $salt
-        }
-      }' > "$WORK/$OP_ID.tx.json"
+    if [[ "$INPUT" == 0x8f2a0bb0* ]]; then
+      DECODED=$(cast calldata-decode "scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
+      TARGETS=$(echo "$DECODED" | sed -n '1p')
+      VALUES=$(echo "$DECODED" | sed -n '2p')
+      PAYLOADS=$(echo "$DECODED" | sed -n '3p')
+      PREDECESSOR=$(echo "$DECODED" | sed -n '4p' | awk '{print $1}')
+      SALT=$(echo "$DECODED" | sed -n '5p' | awk '{print $1}')
+
+      jq -n \
+        --arg to "$TIMELOCK" \
+        --arg targets "$TARGETS" \
+        --arg values "$VALUES" \
+        --arg payloads "$PAYLOADS" \
+        --arg predecessor "$PREDECESSOR" \
+        --arg salt "$SALT" \
+        '{
+          to: $to,
+          value: "0",
+          data: null,
+          contractMethod: {
+            inputs: [
+              {internalType: "address[]", name: "targets", type: "address[]"},
+              {internalType: "uint256[]", name: "values", type: "uint256[]"},
+              {internalType: "bytes[]", name: "payloads", type: "bytes[]"},
+              {internalType: "bytes32", name: "predecessor", type: "bytes32"},
+              {internalType: "bytes32", name: "salt", type: "bytes32"}
+            ],
+            name: "executeBatch",
+            payable: false
+          },
+          contractInputsValues: {
+            targets: $targets,
+            values: $values,
+            payloads: $payloads,
+            predecessor: $predecessor,
+            salt: $salt
+          }
+        }' > "$WORK/$OP_ID.tx.json"
+    else
+      DECODED=$(cast calldata-decode "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
+      TARGET=$(echo "$DECODED" | sed -n '1p' | awk '{print $1}')
+      VALUE=$(echo "$DECODED" | sed -n '2p' | awk '{print $1}')
+      DATA=$(echo "$DECODED" | sed -n '3p' | awk '{print $1}')
+      PREDECESSOR=$(echo "$DECODED" | sed -n '4p' | awk '{print $1}')
+      SALT=$(echo "$DECODED" | sed -n '5p' | awk '{print $1}')
+
+      jq -n \
+        --arg to "$TIMELOCK" \
+        --arg target "$TARGET" \
+        --arg value "$VALUE" \
+        --arg payload "$DATA" \
+        --arg predecessor "$PREDECESSOR" \
+        --arg salt "$SALT" \
+        '{
+          to: $to,
+          value: "0",
+          data: null,
+          contractMethod: {
+            inputs: [
+              {internalType: "address", name: "target", type: "address"},
+              {internalType: "uint256", name: "value", type: "uint256"},
+              {internalType: "bytes", name: "payload", type: "bytes"},
+              {internalType: "bytes32", name: "predecessor", type: "bytes32"},
+              {internalType: "bytes32", name: "salt", type: "bytes32"}
+            ],
+            name: "execute",
+            payable: false
+          },
+          contractInputsValues: {
+            target: $target,
+            value: $value,
+            payload: $payload,
+            predecessor: $predecessor,
+            salt: $salt
+          }
+        }' > "$WORK/$OP_ID.tx.json"
+    fi
     echo ""
   fi
 done < "$SORT_FILE"
@@ -187,7 +227,7 @@ echo "================================================="
 
 if [ "$READY_COUNT" -gt 0 ]; then
   OUTPUT_JSON="timelock-execute-$(date +%Y%m%d-%H%M%S).json"
-  TX_ARRAY=$(ls "$WORK"/*.tx.json 2>/dev/null | xargs cat | jq -s '.')
+  TX_ARRAY=$(ls "$WORK"/*.tx.json 2>/dev/null | xargs cat | jq -s 'sort_by(if .contractMethod.name == "executeBatch" then 0 else 1 end)')
   jq -n \
     --argjson transactions "$TX_ARRAY" \
     --argjson createdAt "$(( $(date +%s) * 1000 ))" \
