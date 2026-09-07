@@ -65,6 +65,7 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
         require(mintResult == 0, "AWKCompoundV2Adapter: mint failed");
         uint256 balanceAfter = ICToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
+        require(shares > 0, "AWKCompoundV2Adapter: zero shares minted");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
         emit Deposited(address(this), vault, assetsDeposited, shares);
     }
@@ -73,6 +74,7 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
      * @notice Internal withdraw implementation for Compound V2
      * @dev Runs in wallet context via delegatecall. The shares parameter represents the underlying amount to withdraw
      *      (redeemUnderlying takes the underlying amount, not cToken amount).
+     * NOTE(krishan711): we should switch this to use actual shares instead of assets!!
      */
     function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         if (shares == 0) revert AWKErrors.ZeroAmount();

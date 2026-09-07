@@ -55,6 +55,7 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
+        require(shares > 0, "AWKERC4626Adapter: zero shares minted");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
         emit Deposited(address(this), vault, assetsDeposited, shares);
     }

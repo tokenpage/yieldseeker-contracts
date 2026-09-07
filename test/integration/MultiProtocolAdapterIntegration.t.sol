@@ -79,6 +79,10 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         return abi.decode(abi.decode(data, (bytes)), (uint256));
     }
 
+    function _cTokenSharesForAssets(uint256 assets) internal view returns (uint256) {
+        return (assets * 1e18) / cToken.exchangeRateCurrent();
+    }
+
     // ========================================
     // AAVE V3 INTEGRATION
     // ========================================
@@ -129,8 +133,9 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.deposit, (5_000e6)));
         uint256 shares = _decodeUint(result);
-        assertEq(shares, 5_000e6, "Should receive shares at initial rate");
-        assertEq(cToken.balanceOf(address(wallet)), 5_000e6, "Wallet should have cTokens");
+        uint256 expectedShares = _cTokenSharesForAssets(5_000e6);
+        assertEq(shares, expectedShares, "Should receive exchange-rate-adjusted shares");
+        assertEq(cToken.balanceOf(address(wallet)), expectedShares, "Wallet should have cTokens");
         vm.prank(user);
         bytes memory withdrawResult = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.withdraw, (3_000e6)));
         uint256 assetsReceived = _decodeUint(withdrawResult);
@@ -176,7 +181,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         wallet.executeViaAdapterBatch(adapters, targets, calls);
         assertEq(aToken.balanceOf(address(wallet)), 3_000e6, "Should have 3000 in Aave");
         assertEq(comet.balanceOf(address(wallet)), 3_000e6, "Should have 3000 in Compound V3");
-        assertEq(cToken.balanceOf(address(wallet)), 3_000e6, "Should have 3000 in Compound V2");
+        assertEq(cToken.balanceOf(address(wallet)), _cTokenSharesForAssets(3_000e6), "Should have exchange-rate-adjusted shares in Compound V2");
     }
 
     function test_ConsolidateFromAllProtocols() public {

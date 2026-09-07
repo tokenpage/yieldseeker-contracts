@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title MockCompoundV3Comet
@@ -17,6 +18,10 @@ contract MockCompoundV3Comet {
 
     function baseToken() external view returns (address) {
         return address(_BASE_TOKEN);
+    }
+
+    function decimals() external view returns (uint8) {
+        return IERC20Metadata(address(_BASE_TOKEN)).decimals();
     }
 
     function balanceOf(address account) external view returns (uint256) {

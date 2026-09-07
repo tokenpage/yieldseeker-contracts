@@ -164,6 +164,7 @@ contract YieldSeekerFeeTracker is AccessControl {
         uint256 totalCostBasis = pos.costBasis;
         uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
         uint256 feeInBaseAsset = 0;
+        uint256 rewardValueInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
             // Convert fee-owed vault tokens into base asset fees
             uint256 feeTokenSwapped = sharesSpent > vaultTokenFeesOwed ? vaultTokenFeesOwed : sharesSpent;
@@ -171,8 +172,18 @@ contract YieldSeekerFeeTracker is AccessControl {
             feeInBaseAsset = (assetsReceived * feeTokenSwapped) / sharesSpent;
             agentFeesCharged[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
+            // The reward tokens already had their fee assessed above. Exclude their full
+            // (pre-fee) base-asset value from the appreciation comparison below, otherwise
+            // the post-fee remainder is taxed a second time as vault-appreciation profit.
+            if (feeRateBps > 0) {
+                rewardValueInBaseAsset = (feeInBaseAsset * 1e4) / feeRateBps;
+                if (rewardValueInBaseAsset > assetsReceived) {
+                    rewardValueInBaseAsset = assetsReceived;
+                }
+            }
         }
-        uint256 netAssets = assetsReceived - feeInBaseAsset;
+        uint256 excludedRewardValue = rewardValueInBaseAsset > feeInBaseAsset ? rewardValueInBaseAsset : feeInBaseAsset;
+        uint256 netAssets = assetsReceived - excludedRewardValue;
         if (sharesSpent > totalShares) {
             // Withdrawing more shares than deposits tracked - treat as full withdrawal
             if (totalCostBasis > 0 && totalShares > 0) {
@@ -213,6 +224,7 @@ contract YieldSeekerFeeTracker is AccessControl {
         uint256 totalShares = pos.shares;
         uint256 vaultTokenFeesOwed = agentYieldTokenFeesOwed[wallet][vault];
         uint256 feeInBaseAsset = 0;
+        uint256 rewardValueInBaseAsset = 0;
         if (vaultTokenFeesOwed > 0) {
             uint256 feeTokenSettled;
             if (assetsReceived >= totalVaultBalanceBefore) {
@@ -227,6 +239,15 @@ contract YieldSeekerFeeTracker is AccessControl {
             }
             agentFeesCharged[wallet] += feeInBaseAsset;
             emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
+            // The reward tokens already had their fee assessed above. Exclude their full
+            // (pre-fee) base-asset value from the appreciation comparison below, otherwise
+            // the post-fee remainder is taxed a second time as vault-appreciation profit.
+            if (feeRateBps > 0) {
+                rewardValueInBaseAsset = (feeInBaseAsset * 1e4) / feeRateBps;
+                if (rewardValueInBaseAsset > assetsReceived) {
+                    rewardValueInBaseAsset = assetsReceived;
+                }
+            }
         }
         uint256 proportionalCost;
         uint256 proportionalShares;
@@ -237,7 +258,8 @@ contract YieldSeekerFeeTracker is AccessControl {
             proportionalCost = (totalCostBasis * assetsReceived) / totalVaultBalanceBefore;
             proportionalShares = (totalShares * assetsReceived) / totalVaultBalanceBefore;
         }
-        uint256 netAssets = assetsReceived - feeInBaseAsset;
+        uint256 excludedRewardValue = rewardValueInBaseAsset > feeInBaseAsset ? rewardValueInBaseAsset : feeInBaseAsset;
+        uint256 netAssets = assetsReceived - excludedRewardValue;
         if (netAssets > proportionalCost) {
             uint256 profit = netAssets - proportionalCost;
             _chargeFeesOnProfit(wallet, profit);

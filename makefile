@@ -42,6 +42,9 @@ start-prod:
 test:
 	@ forge test -vvv
 
+test-fork:
+	@ forge test --fork-url http://127.0.0.1:8545 --match-path "test/fork/*.sol" -vvv
+
 clean:
 	@ forge clean
 	@ rm -rf cache out
