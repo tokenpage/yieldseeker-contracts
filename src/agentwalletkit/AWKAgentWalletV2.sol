@@ -42,25 +42,6 @@ library AgentWalletStorageV2 {
 }
 
 /**
- * @dev Tracks EntryPoint adapter execution so delegated adapter code cannot re-enter
- *      owner or executor entry points with the EntryPoint caller identity.
- */
-library AgentWalletExecutionStorageV2 {
-    bytes32 private constant STORAGE_LOCATION = keccak256("agentwalletkit.agentwallet.execution.v2");
-
-    struct Layout {
-        bool entryPointAdapterExecution;
-    }
-
-    function layout() internal pure returns (Layout storage l) {
-        bytes32 slot = STORAGE_LOCATION;
-        assembly {
-            l.slot := slot
-        }
-    }
-}
-
-/**
  * @title AWKAgentWalletV2
  * @notice Abstract ERC-4337 v0.6 smart wallet with EntryPoint-relayed owner actions.
  * @dev Implements:
@@ -93,29 +74,18 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     event TargetUnblocked(address indexed target);
     event SyncedFromFactory(address indexed adapterRegistry);
 
-    /// @dev Accepts a direct owner call, or a call relayed by the canonical EntryPoint on behalf
-    ///      of a UserOperation. Adapter execution sets a context flag so an operator-authorized
-    ///      adapter cannot re-enter owner or executor entry points through nested delegatecall.
     modifier onlyOwner() virtual {
-        if (msg.sender != owner() && (msg.sender != address(ENTRY_POINT) || _entryPointAdapterExecution())) {
+        if (msg.sender != owner() && msg.sender != address(ENTRY_POINT)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
         _;
     }
 
     modifier onlyExecutors() virtual {
-        if ((msg.sender == address(ENTRY_POINT) && _entryPointAdapterExecution()) || (msg.sender != address(ENTRY_POINT) && msg.sender != owner() && !isAgentOperator(msg.sender))) {
+        if (msg.sender != address(ENTRY_POINT) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
         _;
-    }
-
-    function _entryPointAdapterExecution() internal view returns (bool) {
-        return AgentWalletExecutionStorageV2.layout().entryPointAdapterExecution;
-    }
-
-    function _setEntryPointAdapterExecution(bool active) internal {
-        AgentWalletExecutionStorageV2.layout().entryPointAdapterExecution = active;
     }
 
     constructor(address factory) {
@@ -361,9 +331,7 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param data The operation data for the adapter
      */
     function executeViaAdapter(address adapter, address target, bytes calldata data) external virtual onlyExecutors returns (bytes memory result) {
-        _setEntryPointAdapterExecution(msg.sender == address(ENTRY_POINT));
-        result = _executeAdapterCall(adapter, target, data);
-        _setEntryPointAdapterExecution(false);
+        return _executeAdapterCall(adapter, target, data);
     }
 
     /**
@@ -372,12 +340,10 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external virtual onlyExecutors returns (bytes[] memory results) {
         uint256 length = adapters.length;
         if (length != targets.length || length != datas.length) revert InvalidState();
-        _setEntryPointAdapterExecution(msg.sender == address(ENTRY_POINT));
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             results[i] = _executeAdapterCall(adapters[i], targets[i], datas[i]);
         }
-        _setEntryPointAdapterExecution(false);
     }
 
     // ============ UUPS Upgradeability ============
