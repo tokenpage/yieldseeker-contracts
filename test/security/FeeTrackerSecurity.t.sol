@@ -3,9 +3,10 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -41,10 +42,10 @@ contract FeeTrackerSecurityTest is Test {
         feeTracker.setFeeConfig(FEE_RATE, feeCollector);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV1 impl = new AgentWalletV1(address(factory));
+        AgentWalletV2 impl = new AgentWalletV2(address(factory));
         factory.setAdapterRegistry(registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(impl);
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -52,20 +53,20 @@ contract FeeTrackerSecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV1 wallet) {
+    function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
     }
 
     function test_RecordYieldAccruesFees() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(1_000e6);
         assertEq(feeTracker.getFeesOwed(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
@@ -78,7 +79,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_PartialWithdrawWithVaultTokenFees_DoesNotDoubleChargeProfit() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         // Seed vault position
@@ -102,7 +103,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_MixedRewardAndDepositShares_WithdrawalRetainsRemainingRewardShares() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         // Deposit principal: 100 assets for 100 shares tracked in position
@@ -125,7 +126,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_LossWithdrawalDoesNotChargeFees() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
@@ -138,7 +139,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_YieldTokenFeeTrackedAndConvertedOnSwap() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         address rewardToken = address(0xDEAD);
 
         vm.prank(address(wallet));
@@ -153,7 +154,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_FeePaymentReducesFeesOwed() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
 
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(500e6);

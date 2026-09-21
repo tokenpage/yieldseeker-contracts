@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerAgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2} from "../../src/AgentWalletV2.sol";
 
 /**
  * @title MockAgentWalletV2
  * @notice Mock V2 implementation for testing upgrades
- * @dev Extends V1 with new state variables - no initialization required (Option 1)
+ * @dev Extends V2 with additional state variables for upgrade testing
  */
-contract MockAgentWalletV2 is YieldSeekerAgentWalletV1 {
+contract MockAgentWalletV2 is YieldSeekerAgentWalletV2 {
     /// @custom:storage-location erc7201:yieldseeker.storage.AgentWalletV2
     struct AgentWalletV2Storage {
         uint256 v2Counter;
@@ -24,7 +24,7 @@ contract MockAgentWalletV2 is YieldSeekerAgentWalletV1 {
     event V2MessageSet(string oldMessage, string newMessage);
     event V2CustomAddressSet(address oldAddress, address newAddress);
 
-    constructor(address factory) YieldSeekerAgentWalletV1(factory) {}
+    constructor(address factory) YieldSeekerAgentWalletV2(factory) {}
 
     function _getV2Storage() private pure returns (AgentWalletV2Storage storage $) {
         assembly {
