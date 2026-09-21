@@ -113,6 +113,16 @@ contract AgentWalletAuthorizationTest is Test {
         assertEq(result, SIG_VALIDATION_FAILED);
     }
 
+    function test_ValidateUserOp_UpgradeToAndCallSelector_OperatorSignature_Fails() public {
+        // upgradeToAndCall is OZ's own public UUPS entrypoint (no explicit modifier on the
+        // function itself) — authorization is enforced inside _authorizeUpgrade. It must be
+        // just as owner-only as upgradeToLatest() when reached via a relayed UserOp, even
+        // though its selector differs and it accepts arbitrary post-upgrade callback data.
+        bytes memory callData = abi.encodeWithSelector(wallet.upgradeToAndCall.selector, address(0), "");
+        uint256 result = _validateWithSigner(callData, operatorKey);
+        assertEq(result, SIG_VALIDATION_FAILED);
+    }
+
     // ============ _validateSignature: adapter-execution selectors are operator-authorizable ============
 
     function test_ValidateUserOp_ExecuteViaAdapterSelector_OperatorSignature_Succeeds() public {
@@ -184,6 +194,18 @@ contract AgentWalletAuthorizationTest is Test {
     function test_EntryPoint_CanCallUpgradeToLatest() public {
         vm.prank(ENTRY_POINT);
         wallet.upgradeToLatest();
+    }
+
+    function test_EntryPoint_CanCallUpgradeToAndCall() public {
+        address approvedImplementation = address(factory.agentWalletImplementation());
+        vm.prank(ENTRY_POINT);
+        wallet.upgradeToAndCall(approvedImplementation, "");
+    }
+
+    function test_EntryPoint_CannotCallUpgradeToAndCall_WithUnapprovedImplementation() public {
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert();
+        wallet.upgradeToAndCall(address(vaultAdapter), "");
     }
 
     // ============ onlyOwner: regressions — non-owner, non-EntryPoint callers still rejected ============
