@@ -16,7 +16,7 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerStorageV1, InvalidAsset, InvalidFeeTracker} from "./AgentWalletV1.sol";
+import {InvalidAsset, InvalidFeeTracker, YieldSeekerStorageV1} from "./AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -36,7 +36,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  *      plain import (libraries and free errors aren't subject to the virtual/override rule), and
  *      duplicating the small set of members that live only inside the sealed V1 contract:
  *      initialize, the baseAsset/feeTracker accessors, the feeTracker-caching sync override,
- *      collectFees, and the fee-aware withdrawal check itself. Every member here is `virtual| so a
+ *      collectFees, and the fee-aware withdrawal check itself. Every member here is `virtual` so a
  *      future V3 never needs to repeat this duplication.
  *
  *      Storage is untouched: `YieldSeekerStorageV1`'s slot is identical to what V1 already uses,
@@ -141,7 +141,7 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
      * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
      *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
-    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwnerOrEntryPoint {
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwner {
         uint256 withdrawable = _getWithdrawableBalance(asset);
         if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
         _withdrawAsset(recipient, asset, amount);
@@ -154,7 +154,7 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
      * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
      *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
      */
-    function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwnerOrEntryPoint {
+    function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwner {
         uint256 withdrawable = _getWithdrawableBalance(asset);
         _withdrawAsset(recipient, asset, withdrawable);
     }

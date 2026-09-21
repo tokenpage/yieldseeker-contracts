@@ -5,8 +5,8 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {Test} from "forge-std/Test.sol";
@@ -83,7 +83,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         vm.prank(admin);
         v2Implementation = new AgentWalletV2(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(v2Implementation);
+        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
 
         // 5. The wallet owner opts in. This is the ONLY step that changes v1Wallet's behavior.
         vm.prank(ownerAddr);
@@ -122,7 +122,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         vm.prank(admin);
         v2Implementation = new AgentWalletV2(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(v2Implementation);
+        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
 
         // New wallets now deploy on V2...
         vm.prank(operatorAddr);
