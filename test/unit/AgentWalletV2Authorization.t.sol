@@ -9,6 +9,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -16,12 +17,23 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
+contract NestedDelegatecallAdapter is IAWKAdapter {
+    function execute(address, bytes calldata data) external payable returns (bytes memory result) {
+        (bool success, bytes memory returndata) = address(this).delegatecall(data);
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
+        return returndata;
+    }
+}
+
 /// @title Agent Wallet V2 Authorization Unit Tests
 /// @notice Exercises the real AWKAgentWalletV2/YieldSeekerAgentWalletV2 onlyOwner /
 ///         _validateSignature logic: every owner action is EntryPoint-relayable with the owner's
 ///         signature, while operator signatures remain limited to the adapter-execution selectors.
-///         V1 is deployed unmodified alongside V2 in every test to prove the factory can serve
-///         both simultaneously.
+///         V1 compatibility is covered separately by the migration suite.
 contract AgentWalletV2AuthorizationTest is Test {
     using MessageHashUtils for bytes32;
 
@@ -161,6 +173,16 @@ contract AgentWalletV2AuthorizationTest is Test {
         assertEq(result, SIG_VALIDATION_SUCCESS);
     }
 
+    function test_ValidateUserOp_SyncFromFactory_OperatorSignature_Fails() public {
+        uint256 result = _validateWithSigner(abi.encodeWithSelector(wallet.syncFromFactory.selector), operatorKey);
+        assertEq(result, SIG_VALIDATION_FAILED);
+    }
+
+    function test_ValidateUserOp_CollectFees_OperatorSignature_Fails() public {
+        uint256 result = _validateWithSigner(abi.encodeWithSelector(wallet.collectFees.selector), operatorKey);
+        assertEq(result, SIG_VALIDATION_FAILED);
+    }
+
     function test_ValidateUserOp_ShortCallData_OperatorSignature_Fails() public {
         uint256 result = _validateWithSigner("", operatorKey);
         assertEq(result, SIG_VALIDATION_FAILED);
@@ -285,6 +307,37 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(operatorAddr);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
         assertGt(vault.balanceOf(address(wallet)), 0);
+    }
+
+    function test_EntryPoint_OperatorSignedAdapterExecution_Succeeds() public {
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
+        bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(vaultAdapter), address(vault), depositData);
+
+        assertEq(_validateWithSigner(callData, operatorKey), SIG_VALIDATION_SUCCESS);
+
+        vm.prank(ENTRY_POINT);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        assertGt(vault.balanceOf(address(wallet)), 0);
+    }
+
+    function test_EntryPoint_OperatorSignedAdapterCannotReachOwnerActionsThroughNestedDelegatecall() public {
+        NestedDelegatecallAdapter adapter = new NestedDelegatecallAdapter();
+        vm.startPrank(admin);
+        registry.registerAdapter(address(adapter));
+        registry.setTargetAdapter(address(adapter), address(adapter));
+        vm.stopPrank();
+
+        bytes memory nestedCall = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
+        bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(adapter), address(adapter), nestedCall);
+
+        assertEq(_validateWithSigner(callData, operatorKey), SIG_VALIDATION_SUCCESS);
+
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert();
+        wallet.executeViaAdapter(address(adapter), address(adapter), nestedCall);
+
+        assertEq(usdc.balanceOf(recipient), 0);
     }
 
     // ============ Adapter execution parity coverage ============
