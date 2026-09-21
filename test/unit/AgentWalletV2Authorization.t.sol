@@ -7,6 +7,7 @@ import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
@@ -26,6 +27,18 @@ contract NestedDelegatecallAdapter is IAWKAdapter {
             }
         }
         return returndata;
+    }
+}
+
+contract FactoryBoundNonUUPSImplementation {
+    address private immutable _factory;
+
+    constructor(address factory_) {
+        _factory = factory_;
+    }
+
+    function FACTORY() external view returns (address) {
+        return _factory;
     }
 }
 
@@ -91,6 +104,35 @@ contract AgentWalletV2AuthorizationTest is Test {
         wallet = AgentWalletV2(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc)))));
 
         usdc.mint(address(wallet), 1_000e6);
+    }
+
+    function test_FactoryCreate_RejectsInvalidOwnerAndBaseAsset() public {
+        vm.prank(operatorAddr);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
+        factory.createAgentWallet(address(0), 2, address(usdc));
+
+        vm.prank(operatorAddr);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
+        factory.createAgentWallet(ownerAddr, 2, address(0));
+
+        address eoaAsset = address(0xBEEF);
+        vm.prank(operatorAddr);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, eoaAsset));
+        factory.createAgentWallet(ownerAddr, 2, eoaAsset);
+    }
+
+    function test_FactoryCreate_NonOperatorReverts() public {
+        vm.prank(strangerAddr);
+        vm.expectRevert();
+        factory.createAgentWallet(ownerAddr, 2, address(usdc));
+    }
+
+    function test_FactoryRejectsImplementationFromDifferentFactory() public {
+        FactoryBoundNonUUPSImplementation foreignImplementation = new FactoryBoundNonUUPSImplementation(address(0xBEEF));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidImplementationFactory.selector);
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(foreignImplementation))));
     }
 
     // ============ _validateSignature: withdrawal selectors are owner-only ============
@@ -183,6 +225,11 @@ contract AgentWalletV2AuthorizationTest is Test {
         assertEq(result, SIG_VALIDATION_FAILED);
     }
 
+    function test_ValidateUserOp_OwnerSignature_SucceedsForExecutorSelectors() public {
+        assertEq(_validateWithSigner(abi.encodeWithSelector(wallet.syncFromFactory.selector), ownerKey), SIG_VALIDATION_SUCCESS);
+        assertEq(_validateWithSigner(abi.encodeWithSelector(wallet.collectFees.selector), ownerKey), SIG_VALIDATION_SUCCESS);
+    }
+
     function test_ValidateUserOp_ShortCallData_OperatorSignature_Fails() public {
         uint256 result = _validateWithSigner("", operatorKey);
         assertEq(result, SIG_VALIDATION_FAILED);
@@ -248,6 +295,43 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(ENTRY_POINT);
         wallet.syncFromFactory();
         assertEq(address(wallet.adapterRegistry()), address(registry));
+    }
+
+    function test_SyncFromFactory_UpdatesRegistryAndFeeTracker() public {
+        AdapterRegistry nextRegistry = new AdapterRegistry(admin, admin);
+        FeeTracker nextTracker = new FeeTracker(admin);
+
+        vm.prank(admin);
+        factory.setAdapterRegistry(nextRegistry);
+        vm.prank(admin);
+        factory.setFeeTracker(nextTracker);
+
+        assertEq(address(wallet.adapterRegistry()), address(registry));
+        assertEq(address(wallet.feeTracker()), address(feeTracker));
+
+        vm.prank(ownerAddr);
+        wallet.syncFromFactory();
+
+        assertEq(address(wallet.adapterRegistry()), address(nextRegistry));
+        assertEq(address(wallet.feeTracker()), address(nextTracker));
+    }
+
+    function test_SyncFromFactory_RemovesRevokedOperator() public {
+        assertTrue(wallet.isAgentOperator(operatorAddr));
+
+        bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
+        vm.prank(admin);
+        factory.revokeRole(operatorRole, operatorAddr);
+
+        vm.prank(operatorAddr);
+        wallet.syncFromFactory();
+
+        assertFalse(wallet.isAgentOperator(operatorAddr));
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
+        vm.prank(operatorAddr);
+        vm.expectRevert();
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
     function test_EntryPoint_CanCallUpgradeToLatest() public {
@@ -431,6 +515,20 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(operatorAddr);
         vm.expectRevert();
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), zeroDepositData);
+    }
+
+    function test_FailedAdapterCall_DoesNotLeaveReentrancyLockSet() public {
+        bytes memory zeroDepositData = abi.encodeCall(vaultAdapter.deposit, (0));
+
+        vm.prank(operatorAddr);
+        vm.expectRevert();
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), zeroDepositData);
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
+        vm.prank(operatorAddr);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        assertGt(vault.balanceOf(address(wallet)), 0);
     }
 
     function test_ExecuteViaAdapterBatch_ValidBatch() public {
@@ -650,6 +748,34 @@ contract AgentWalletV2AuthorizationTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 10e6);
     }
 
+    function test_CollectFees_OwnerCanCollectOwedFees() public {
+        vm.prank(admin);
+        feeTracker.setFeeConfig(1000, admin);
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldEarned(100e6);
+
+        vm.prank(ownerAddr);
+        wallet.collectFees();
+
+        assertEq(usdc.balanceOf(admin), 10e6);
+        assertEq(usdc.balanceOf(address(wallet)), 990e6);
+        assertEq(feeTracker.getFeesOwed(address(wallet)), 0);
+    }
+
+    function test_CollectFees_CapsAtWalletBalanceAndUpdatesTracker() public {
+        vm.prank(admin);
+        feeTracker.setFeeConfig(1000, admin);
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldEarned(20_000e6);
+
+        vm.prank(operatorAddr);
+        wallet.collectFees();
+
+        assertEq(usdc.balanceOf(admin), 1_000e6);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(feeTracker.getFeesOwed(address(wallet)), 1_000e6);
+    }
+
     function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
         MockERC20 otherToken = new MockERC20("Other Token", "OTHER");
         otherToken.mint(address(wallet), 500e6);
@@ -697,6 +823,22 @@ contract AgentWalletV2AuthorizationTest is Test {
         wallet.withdrawAllAssetToUser(recipient, address(otherToken));
     }
 
+    function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
+        vm.prank(admin);
+        feeTracker.setFeeConfig(1000, admin);
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldEarned(20_000e6);
+
+        uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
+
+        vm.prank(ownerAddr);
+        wallet.withdrawAllAssetToUser(recipient, address(usdc));
+
+        assertEq(usdc.balanceOf(recipient), 0);
+        assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
+        assertEq(feeTracker.getFeesOwed(address(wallet)), 2_000e6);
+    }
+
     function test_WithdrawEthToUser_ValidAmount() public {
         uint256 amount = 1 ether;
         vm.deal(address(wallet), amount);
@@ -736,6 +878,14 @@ contract AgentWalletV2AuthorizationTest is Test {
 
         assertEq(address(wallet.adapterRegistry()), address(registry));
         assertEq(address(wallet.feeTracker()), address(feeTracker));
+    }
+
+    function test_InitializeCannotBeCalledTwice() public {
+        vm.expectRevert();
+        wallet.initialize(ownerAddr, 2, address(usdc));
+
+        assertEq(wallet.owner(), ownerAddr);
+        assertEq(address(wallet.baseAsset()), address(usdc));
     }
 
     function test_SyncFromFactory_NonExecutorReverts() public {
@@ -782,10 +932,21 @@ contract AgentWalletV2AuthorizationTest is Test {
         assertEq(_implementation(), address(nextImplementation));
     }
 
+    function test_UpgradeToLatest_ApprovedNonUUPSImplementationReverts() public {
+        FactoryBoundNonUUPSImplementation badImplementation = new FactoryBoundNonUUPSImplementation(address(factory));
+
+        vm.prank(admin);
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(badImplementation))));
+
+        vm.prank(ownerAddr);
+        vm.expectRevert();
+        wallet.upgradeToLatest();
+    }
+
     // ============ Helpers ============
 
     function _ownerActionCallData() internal view returns (bytes[] memory calls) {
-        calls = new bytes[](10);
+        calls = new bytes[](12);
         calls[0] = abi.encodeWithSelector(wallet.blockAdapter.selector, address(vaultAdapter));
         calls[1] = abi.encodeWithSelector(wallet.unblockAdapter.selector, address(vaultAdapter));
         calls[2] = abi.encodeWithSelector(wallet.blockTarget.selector, address(vault));
@@ -796,6 +957,8 @@ contract AgentWalletV2AuthorizationTest is Test {
         calls[7] = abi.encodeWithSelector(wallet.withdrawAllEthToUser.selector, recipient);
         calls[8] = abi.encodeWithSelector(wallet.upgradeToLatest.selector);
         calls[9] = abi.encodeWithSelector(wallet.upgradeToAndCall.selector, address(1), bytes(""));
+        calls[10] = abi.encodeWithSelector(wallet.syncFromFactory.selector);
+        calls[11] = abi.encodeWithSelector(wallet.collectFees.selector);
     }
 
     function _implementation() internal view returns (address) {

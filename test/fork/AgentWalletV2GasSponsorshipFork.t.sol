@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
@@ -13,6 +15,18 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract EntryPointNestedDelegatecallAdapter is IAWKAdapter {
+    function execute(address, bytes calldata data) external payable returns (bytes memory result) {
+        (bool success, bytes memory returndata) = address(this).delegatecall(data);
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
+        return returndata;
+    }
+}
 
 /// @title Agent Wallet V2 Gas Sponsorship Fork Test
 /// @notice Runs against the real, canonical ERC-4337 v0.6 EntryPoint singleton deployed on Base.
@@ -105,6 +119,27 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         assertLt(address(wallet).balance, walletBalanceBefore, "execution cost paid from the wallet's own sponsor-funded balance");
     }
 
+    function test_RelayerCannotReplayOwnerSignedWithdrawal() public {
+        bytes memory callData = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
+        UserOperation memory userOp = _buildSignedUserOp(callData, ownerKey);
+
+        UserOperation[] memory ops = new UserOperation[](1);
+        ops[0] = userOp;
+
+        vm.prank(relayer);
+        ENTRY_POINT.handleOps(ops, payable(relayer));
+
+        assertEq(usdc.balanceOf(recipient), 500e6);
+        assertEq(ENTRY_POINT.getNonce(address(wallet), 0), 1);
+
+        vm.prank(relayer);
+        vm.expectRevert();
+        ENTRY_POINT.handleOps(ops, payable(relayer));
+
+        assertEq(usdc.balanceOf(recipient), 500e6);
+        assertEq(usdc.balanceOf(address(wallet)), 500e6);
+    }
+
     function test_RelayerCannotSubmitOperatorSignedWithdrawal() public {
         bytes memory callData = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
         UserOperation memory userOp = _buildSignedUserOp(callData, operatorKey);
@@ -131,6 +166,27 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         ENTRY_POINT.handleOps(ops, payable(relayer));
 
         assertGt(vault.balanceOf(address(wallet)), 0, "operator-authorized adapter execution must still succeed via a relayed UserOp");
+    }
+
+    function test_RelayerCannotReenterOwnerActionThroughOperatorSignedAdapter() public {
+        EntryPointNestedDelegatecallAdapter adapter = new EntryPointNestedDelegatecallAdapter();
+        vm.startPrank(admin);
+        registry.registerAdapter(address(adapter));
+        registry.setTargetAdapter(address(adapter), address(adapter));
+        vm.stopPrank();
+
+        bytes memory nestedCall = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
+        bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(adapter), address(adapter), nestedCall);
+        UserOperation memory userOp = _buildSignedUserOp(callData, operatorKey);
+
+        UserOperation[] memory ops = new UserOperation[](1);
+        ops[0] = userOp;
+
+        vm.prank(relayer);
+        ENTRY_POINT.handleOps(ops, payable(relayer));
+
+        assertEq(usdc.balanceOf(recipient), 0, "nested owner action must not transfer funds");
+        assertEq(usdc.balanceOf(address(wallet)), 1_000e6, "wallet balance must remain unchanged");
     }
 
     // ============ Helpers ============

@@ -112,6 +112,40 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         assertEq(usdc.balanceOf(recipient), 200e6, "direct owner withdrawal must still work post-upgrade");
     }
 
+    function test_ExistingV1Wallet_UpgradePreservesFeeDebtAndWithdrawalGuard() public {
+        vm.prank(operatorAddr);
+        AgentWalletV1 v1Wallet = factory.createAgentWallet(ownerAddr, 1, address(usdc));
+        usdc.mint(address(v1Wallet), 1_000e6);
+
+        vm.prank(admin);
+        feeTracker.setFeeConfig(1000, admin);
+        vm.prank(address(v1Wallet));
+        feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
+        vm.prank(address(v1Wallet));
+        feeTracker.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
+
+        assertEq(feeTracker.getFeesOwed(address(v1Wallet)), 10e6);
+
+        vm.prank(admin);
+        v2Implementation = new AgentWalletV2(address(factory));
+        vm.prank(admin);
+        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
+
+        vm.prank(ownerAddr);
+        AgentWalletV1(payable(address(v1Wallet))).upgradeToLatest();
+        AgentWalletV2 upgradedWallet = AgentWalletV2(payable(address(v1Wallet)));
+
+        vm.prank(ownerAddr);
+        vm.expectRevert();
+        upgradedWallet.withdrawAssetToUser(recipient, address(usdc), 1_000e6);
+
+        vm.prank(ownerAddr);
+        upgradedWallet.withdrawAssetToUser(recipient, address(usdc), 990e6);
+
+        assertEq(usdc.balanceOf(recipient), 990e6);
+        assertEq(feeTracker.getFeesOwed(address(upgradedWallet)), 10e6);
+    }
+
     function test_V1Wallet_ThatNeverUpgrades_IsUnaffectedByV2Existing() public {
         // A second, sibling V1 wallet that never opts in. Deploying V2 and even having OTHER
         // wallets upgrade to it must not change this wallet's behavior at all.
