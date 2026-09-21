@@ -13,6 +13,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 
 // Test utilities
+import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 
@@ -297,36 +298,40 @@ contract SystemIntegrationTest is Test {
     // ========================================
 
     function test_WalletUpgrade_PreservesState() public {
-        // Create wallet and execute operations
         vm.prank(operator);
         AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
 
-        // Fund and deposit to establish state
         usdc.mint(address(wallet), 1000e6);
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
-        // Block an adapter
         vm.prank(user);
         wallet.blockAdapter(address(vaultAdapter));
 
         uint256 sharesBefore = vault.balanceOf(address(wallet));
+        MockAgentWalletV3 newImpl = new MockAgentWalletV3(address(factory));
 
-        // Deploy new implementation
-        AgentWalletV2 newImpl = new AgentWalletV2(address(factory));
-
-        // Update factory's implementation
         vm.prank(admin);
         factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(newImpl))));
 
-        // Upgrade wallet
         vm.prank(user);
         wallet.upgradeToAndCall(address(newImpl), "");
 
-        // Verify state preserved
-        assertTrue(wallet.isAdapterBlocked(address(vaultAdapter)));
+        MockAgentWalletV3 upgradedWallet = MockAgentWalletV3(payable(address(wallet)));
+        assertEq(upgradedWallet.version(), 3);
+        assertTrue(upgradedWallet.isAdapterBlocked(address(vaultAdapter)));
         assertEq(vault.balanceOf(address(wallet)), sharesBefore);
+
+        (uint256 counter, string memory message, address customAddress) = upgradedWallet.getV3State();
+        assertEq(counter, 0);
+        assertEq(bytes(message).length, 0);
+        assertEq(customAddress, address(0));
+
+        vm.prank(user);
+        upgradedWallet.incrementV3Counter();
+        (counter,,) = upgradedWallet.getV3State();
+        assertEq(counter, 1);
     }
 
     function test_MultipleWalletsPerUser_IndependentState() public {

@@ -9,6 +9,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -228,10 +229,10 @@ contract AgentWalletV2AuthorizationTest is Test {
     }
 
     function test_EntryPoint_CanCallUpgradeToLatest() public {
-        AgentWalletV2 nextImplementation;
+        MockAgentWalletV3 nextImplementation;
 
         vm.prank(admin);
-        nextImplementation = new AgentWalletV2(address(factory));
+        nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
         factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(nextImplementation))));
 
@@ -242,10 +243,10 @@ contract AgentWalletV2AuthorizationTest is Test {
     }
 
     function test_EntryPoint_CanCallUpgradeToAndCall() public {
-        AgentWalletV2 nextImplementation;
+        MockAgentWalletV3 nextImplementation;
 
         vm.prank(admin);
-        nextImplementation = new AgentWalletV2(address(factory));
+        nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
         factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(nextImplementation))));
 
@@ -681,18 +682,24 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(ownerAddr);
         wallet.blockAdapter(blockedAdapter);
 
-        AgentWalletV2 nextImplementation;
+        MockAgentWalletV3 nextImplementation;
         vm.prank(admin);
-        nextImplementation = new AgentWalletV2(address(factory));
+        nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
         factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(nextImplementation))));
 
         vm.prank(ownerAddr);
         wallet.upgradeToAndCall(address(nextImplementation), "");
 
-        assertEq(wallet.owner(), ownerAddr);
-        assertEq(address(wallet.baseAsset()), address(usdc));
-        assertTrue(wallet.isAdapterBlocked(blockedAdapter));
+        MockAgentWalletV3 upgradedWallet = MockAgentWalletV3(payable(address(wallet)));
+        assertEq(upgradedWallet.version(), 3);
+        assertEq(upgradedWallet.owner(), ownerAddr);
+        assertEq(address(upgradedWallet.baseAsset()), address(usdc));
+        assertTrue(upgradedWallet.isAdapterBlocked(blockedAdapter));
+        (uint256 counter, string memory message, address customAddress) = upgradedWallet.getV3State();
+        assertEq(counter, 0);
+        assertEq(bytes(message).length, 0);
+        assertEq(customAddress, address(0));
         assertEq(_implementation(), address(nextImplementation));
     }
 

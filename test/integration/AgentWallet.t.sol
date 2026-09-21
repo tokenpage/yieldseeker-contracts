@@ -17,6 +17,7 @@ import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ER
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
 
 // Test utilities
+import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -1297,27 +1298,73 @@ contract AgentWalletIntegrationTest is Test {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1_000e6)));
 
         uint256 sharesBeforeUpgrade = vault.balanceOf(walletAddr);
+        (uint256 costBasisBeforeUpgrade, uint256 trackedSharesBeforeUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(sharesBeforeUpgrade, 1_000e6);
 
+        vm.prank(user);
+        wallet.blockAdapter(address(merklAdapter));
         usdc.mint(address(vault), 100e6);
-        AgentWalletV2 nextImplementation = new AgentWalletV2(address(factory));
 
+        MockAgentWalletV3 nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
         factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(nextImplementation))));
 
         vm.prank(user);
         wallet.upgradeToLatest();
 
-        AgentWalletV2 upgradedWallet = AgentWalletV2(payable(walletAddr));
+        MockAgentWalletV3 upgradedWallet = MockAgentWalletV3(payable(walletAddr));
+        assertEq(upgradedWallet.version(), 3);
         assertEq(upgradedWallet.owner(), user);
+        assertEq(upgradedWallet.ownerAgentIndex(), AGENT_INDEX);
         assertEq(address(upgradedWallet.baseAsset()), address(usdc));
+        assertEq(address(upgradedWallet.feeTracker()), address(feeTracker));
+        assertTrue(upgradedWallet.isAdapterBlocked(address(merklAdapter)));
         assertEq(vault.balanceOf(walletAddr), sharesBeforeUpgrade);
+
+        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasisAfterUpgrade, costBasisBeforeUpgrade);
+        assertEq(trackedSharesAfterUpgrade, trackedSharesBeforeUpgrade);
+
+        (uint256 v3Counter, string memory v3Message, address v3CustomAddress) = upgradedWallet.getV3State();
+        assertEq(v3Counter, 0);
+        assertEq(bytes(v3Message).length, 0);
+        assertEq(v3CustomAddress, address(0));
+
+        vm.expectEmit(true, false, false, true);
+        emit MockAgentWalletV3.V3FunctionCalled(user, "Hello from V3!");
+        vm.prank(user);
+        upgradedWallet.v3OnlyFunction("Hello from V3!");
+
+        vm.expectEmit(false, false, false, true);
+        emit MockAgentWalletV3.V3CounterIncremented(0, 1);
+        vm.prank(user);
+        upgradedWallet.incrementV3Counter();
+
+        vm.expectEmit(false, false, false, true);
+        emit MockAgentWalletV3.V3MessageSet("", "Configured message");
+        vm.prank(user);
+        upgradedWallet.setV3Message("Configured message");
+
+        address customAddr = address(0xC0FFEE);
+        vm.expectEmit(false, false, false, true);
+        emit MockAgentWalletV3.V3CustomAddressSet(address(0), customAddr);
+        vm.prank(user);
+        upgradedWallet.setV3CustomAddress(customAddr);
+
+        (uint256 newCounter, string memory newMessage, address newCustomAddress) = upgradedWallet.getV3State();
+        assertEq(newCounter, 1);
+        assertEq(newMessage, "Configured message");
+        assertEq(newCustomAddress, customAddr);
 
         vm.prank(user);
         upgradedWallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (sharesBeforeUpgrade)));
 
         assertEq(feeTracker.getFeesOwed(walletAddr), 10e6);
         assertApproxEqAbs(usdc.balanceOf(walletAddr), 1_100e6, 100);
+
+        vm.prank(user);
+        upgradedWallet.withdrawAssetToUser(user, address(usdc), 1_090e6);
+        assertApproxEqAbs(usdc.balanceOf(walletAddr), 10e6, 100);
     }
 
     function test_CreateFreshV2Wallet_InitializesCorrectly() public {
