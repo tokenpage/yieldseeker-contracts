@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -13,13 +13,13 @@ import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
-/// @title Agent Wallet Gas Sponsorship Fork Test
-/// @notice Runs against the real, canonical ERC-4337 v0.6 EntryPoint singleton deployed on Base
-///         (proving this isn't a mocked approximation). Demonstrates the actual property the
-///         integrator needs: a relayer that is neither the owner nor an operator can submit and
-///         pay for a withdrawal, while only the owner's signature can ever authorize it, and an
-///         operator's signature can authorize adapter execution but never a withdrawal.
-contract AgentWalletGasSponsorshipForkTest is Test {
+/// @title Agent Wallet V2 Gas Sponsorship Fork Test
+/// @notice Runs against the real, canonical ERC-4337 v0.6 EntryPoint singleton deployed on Base.
+///         Demonstrates the actual property the integrator needs, on the real V2 implementation:
+///         a relayer that is neither the owner nor an operator can submit and pay for a
+///         withdrawal, while only the owner's signature can ever authorize it, and an operator's
+///         signature can authorize adapter execution but never a withdrawal.
+contract AgentWalletV2GasSponsorshipForkTest is Test {
     using MessageHashUtils for bytes32;
 
     IEntryPoint internal constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
@@ -30,7 +30,7 @@ contract AgentWalletGasSponsorshipForkTest is Test {
     ERC4626Adapter vaultAdapter;
     MockERC20 usdc;
     MockERC4626 vault;
-    AgentWalletV1 wallet;
+    AgentWalletV2 wallet;
 
     address admin = makeAddr("admin");
     address ownerAddr;
@@ -61,7 +61,7 @@ contract AgentWalletGasSponsorshipForkTest is Test {
         feeTracker = new FeeTracker(admin);
         feeTracker.setFeeConfig(0, admin);
         factory = new AgentWalletFactory(admin, operatorAddr);
-        AgentWalletV1 implementation = new AgentWalletV1(address(factory));
+        AgentWalletV2 implementation = new AgentWalletV2(address(factory));
         factory.setAdapterRegistry(registry);
         factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(implementation);
@@ -71,7 +71,7 @@ contract AgentWalletGasSponsorshipForkTest is Test {
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = factory.createAgentWallet(ownerAddr, 1, address(usdc));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc)))));
 
         usdc.mint(address(wallet), 1_000e6);
 
@@ -94,8 +94,6 @@ contract AgentWalletGasSponsorshipForkTest is Test {
         uint256 walletBalanceBefore = address(wallet).balance;
 
         // The relayer — not the owner, not an operator — submits and is compensated for gas.
-        // vm.txGasPrice ensures the relayer's compensation is observable even under forge's
-        // default zero-gas-price test execution.
         vm.txGasPrice(1 gwei);
         vm.prank(relayer);
         ENTRY_POINT.handleOps(ops, payable(relayer));

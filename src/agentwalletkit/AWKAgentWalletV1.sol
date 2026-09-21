@@ -99,9 +99,12 @@ abstract contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializabl
     event SyncedFromFactory(address indexed adapterRegistry);
 
     modifier onlyOwner() {
-        if (msg.sender != address(ENTRY_POINT) && msg.sender != owner()) {
-            revert AWKErrors.Unauthorized(msg.sender);
-        }
+        if (msg.sender != owner()) revert AWKErrors.Unauthorized(msg.sender);
+        _;
+    }
+
+    modifier onlySyncers() {
+        if (msg.sender != owner() && !isAgentOperator(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
         _;
     }
 
@@ -249,7 +252,7 @@ abstract contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializabl
     /**
      * @notice Refresh configuration from the factory
      */
-    function syncFromFactory() external onlyExecutors {
+    function syncFromFactory() external onlySyncers {
         _syncFromFactory();
     }
 
@@ -290,10 +293,7 @@ abstract contract AWKAgentWalletV1 is IAWKAgentWallet, BaseAccount, Initializabl
         if (signer == owner()) {
             return 0;
         }
-        // Operators may only authorize adapter execution
-        bytes4 selector = userOp.callData.length >= 4 ? bytes4(userOp.callData[:4]) : bytes4(0);
-        bool isAdapterCall = selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector;
-        if (isAgentOperator(signer) && isAdapterCall) {
+        if (isAgentOperator(signer)) {
             return 0;
         }
         return SIG_VALIDATION_FAILED;

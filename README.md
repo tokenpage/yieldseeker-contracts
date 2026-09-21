@@ -49,7 +49,6 @@ This system enforces **parameter-level validation** through protocol-specific ad
 
 **Important Limitation**: Wallets cache `agentOperators` locally for ERC-4337 gas efficiency. This creates a window where:
 - A removed operator can still sign for wallets that haven't called `syncFromFactory()`
-- **Bounded blast radius**: a stale-cached operator's signature is only ever valid for `executeViaAdapter`/`executeViaAdapterBatch` — it cannot authorize a withdrawal, an upgrade, or a block/unblock call, even before the cache is refreshed. See [Server Authorization Deep Dive](#server-authorization-deep-dive).
 - Mitigation: `AdapterRegistry.pause()` instantly blocks ALL adapter execution across ALL wallets
 
 **Emergency Response Playbook:**
@@ -201,18 +200,15 @@ event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTrac
 | `initialize(owner, index, asset)` | Factory only | Sets up wallet and syncs config from Factory |
 | `executeViaAdapter(adapter, target, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
 | `executeViaAdapterBatch(adapters[], targets[], datas[])` | Executors | Execute multiple adapter calls in a batch |
-| `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation — owner authorizes any function; operator authorizes adapter execution only |
+| `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
 | `blockAdapter(adapter)` | Owner only | Block an adapter from being used by this wallet |
 | `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
 | `blockTarget(target)` | Owner only | Block a target from being used by this wallet |
 | `unblockTarget(target)` | Owner only | Unblock a previously blocked target |
-| `syncFromFactory()` | Owner / Operator | Refresh cached config from Factory |
+| `syncFromFactory()` | Anyone | Refresh cached config from Factory |
 | `withdrawToken(token, to, amount)` | Owner only | Withdraw any ERC20 token |
 | `withdrawETH(to, amount)` | Owner only | Withdraw ETH |
 | `upgradeToAndCall(newImpl, data)` | Owner only | UUPS upgrade (validates against Factory) |
-
-**Gas-Sponsored Owner Actions:**
-Every "Owner only" function above accepts either a direct call from the owner's address, or a call relayed by the canonical ERC-4337 EntryPoint on behalf of a UserOperation the owner signed. This lets a third party (a relayer, a paymaster, an integrator's own infrastructure) submit and pay gas for a withdrawal, an upgrade, or a block/unblock call — but only a signature from the current owner can ever authorize one; see [Server Authorization Deep Dive](#server-authorization-deep-dive) for exactly how operator signatures are excluded from this path.
 
 **Upgrade Restrictions:**
 The wallet enforces that upgrades can only use implementations approved by the Factory:
@@ -233,10 +229,10 @@ This design ensures:
 - Security through factory approval and timelock notice period
 - Users can choose to upgrade, wait, or exit entirely
 
-**Signature Authorization Model:**
-The wallet validates each UserOperation based on both the signer and the function being called, not just the signer:
-1. **Owner signature**: Valid for any function on this wallet, whether called directly or relayed via EntryPoint.
-2. **Operator signature**: Valid only for `executeViaAdapter`/`executeViaAdapterBatch`. An operator signature is never accepted for a withdrawal, an upgrade, or a block/unblock call, regardless of cache state.
+**Operator Authorization:**
+The wallet validates UserOperation signatures from either:
+1. The wallet's owner (user's EOA)
+2. Any address in the cached `agentOperators` list (synced from Factory)
 
 **Important**: The operator list is cached locally for gas efficiency. After operator changes at the Factory level, wallets must call `syncFromFactory()` to refresh their cache. See [Emergency Controls](#emergency-controls-and-stale-cache-mitigation) for details on this limitation and mitigations.
 
@@ -1025,23 +1021,19 @@ Failing to migrate FeeTracker state allows users to avoid paying accrued platfor
 
 ```solidity
 // In AgentWallet.validateUserOp():
-function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash)
-    internal override returns (uint256)
+function _validateSignature(PackedUserOperation calldata userOp, bytes32 userOpHash)
+    internal view override returns (uint256)
 {
     bytes32 hash = userOpHash.toEthSignedMessageHash();
     address recovered = hash.recover(userOp.signature);
 
-    // Owner signature: valid for any function, direct call or relayed
-    if (recovered == owner()) {
+    // Check if signer is owner
+    if (recovered == l.owner) {
         return SIG_VALIDATION_SUCCESS;
     }
 
-    // Operator signature: valid ONLY for executeViaAdapter/executeViaAdapterBatch.
-    // A stale-cached or otherwise valid operator signature can never authorize a
-    // withdrawal, an upgrade, or a block/unblock call.
-    bytes4 selector = userOp.callData.length >= 4 ? bytes4(userOp.callData[:4]) : bytes4(0);
-    bool isAdapterCall = selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector;
-    if (isAgentOperator(recovered) && isAdapterCall) {
+    // Check if signer is in cached agentOperators list
+    if (l.isAgentOperator[recovered]) {
         return SIG_VALIDATION_SUCCESS;
     }
 
@@ -1054,7 +1046,6 @@ function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash)
 2. **Cached for gas**: `isAgentOperator` mapping avoids external calls during validation
 3. **Factory is source of truth**: `syncFromFactory()` refreshes the cache
 4. **Instant revocation via pause**: Even with stale cache, pausing registry stops all operations
-5. **Selector-scoped operator trust**: an operator signature is checked against the UserOperation's function selector, not just the signer — this is what makes point 4 a defense-in-depth backstop rather than the only thing standing between a stale/compromised operator key and a user's funds
 
 ---
 
