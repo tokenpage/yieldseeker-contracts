@@ -27,21 +27,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title YieldSeekerAgentWalletV2
- * @notice YieldSeeker agent wallet with fee tracking, base asset management, and EntryPoint-
- *         relayed (gas-sponsored) owner authorization.
- * @dev V1 (`YieldSeekerAgentWalletV1`) is never modified. Its withdrawal overrides didn't restate
- *      `virtual`, sealing them against further overriding — the only Solidity-legal way to change
- *      their behavior without touching V1 is to skip inheriting V1 and instead build directly on
- *      `AWKAgentWalletV2`, reusing V1's storage library (`YieldSeekerStorageV1`) and errors via
- *      plain import (libraries and free errors aren't subject to the virtual/override rule), and
- *      duplicating the small set of members that live only inside the sealed V1 contract:
- *      initialize, the baseAsset/feeTracker accessors, the feeTracker-caching sync override,
- *      collectFees, and the fee-aware withdrawal check itself. Every member here is `virtual` so a
- *      future V3 never needs to repeat this duplication.
- *
- *      Storage is untouched: `YieldSeekerStorageV1`'s slot is identical to what V1 already uses,
- *      so an existing V1 wallet's owner, base asset, and fee tracker are read correctly the moment
- *      its proxy is upgraded to this implementation — no migration function, no re-initialization.
+ * @notice YieldSeeker agent wallet with fee tracking and base asset management
+ * @dev Extends AWKAgentWalletV2 with YieldSeeker-specific functionality.
  */
 contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
     using SafeERC20 for IERC20;
