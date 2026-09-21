@@ -24,6 +24,7 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
@@ -56,7 +57,7 @@ library AgentWalletStorageV2 {
  *      2. Add any protocol-specific storage and logic
  *      3. Ensure the paired Factory calls initialize() atomically during deployment
  */
-abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable {
+abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
@@ -75,6 +76,7 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     event SyncedFromFactory(address indexed adapterRegistry);
 
     modifier onlyOwner() virtual {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
         if (msg.sender != owner() && msg.sender != address(ENTRY_POINT)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
@@ -82,6 +84,7 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     modifier onlyExecutors() virtual {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
         if (msg.sender != address(ENTRY_POINT) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
@@ -330,14 +333,14 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param target The target contract the adapter will interact with
      * @param data The operation data for the adapter
      */
-    function executeViaAdapter(address adapter, address target, bytes calldata data) external virtual onlyExecutors returns (bytes memory result) {
+    function executeViaAdapter(address adapter, address target, bytes calldata data) external virtual onlyExecutors nonReentrant returns (bytes memory result) {
         return _executeAdapterCall(adapter, target, data);
     }
 
     /**
      * @notice Execute multiple adapter calls in a batch
      */
-    function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external virtual onlyExecutors returns (bytes[] memory results) {
+    function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external virtual onlyExecutors nonReentrant returns (bytes[] memory results) {
         uint256 length = adapters.length;
         if (length != targets.length || length != datas.length) revert InvalidState();
         results = new bytes[](length);

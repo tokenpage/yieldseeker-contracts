@@ -9,12 +9,25 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract NestedDelegatecallAdapter is IAWKAdapter {
+    function execute(address, bytes calldata data) external payable returns (bytes memory result) {
+        (bool success, bytes memory returndata) = address(this).delegatecall(data);
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
+        return returndata;
+    }
+}
 
 /// @title Agent Wallet V2 Authorization Unit Tests
 /// @notice Exercises the real AWKAgentWalletV2/YieldSeekerAgentWalletV2 onlyOwner /
@@ -306,6 +319,51 @@ contract AgentWalletV2AuthorizationTest is Test {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         assertGt(vault.balanceOf(address(wallet)), 0);
+    }
+
+    function test_EntryPoint_OperatorSignedAdapterCannotReenterOwnerActions() public {
+        NestedDelegatecallAdapter adapter = new NestedDelegatecallAdapter();
+        vm.startPrank(admin);
+        registry.registerAdapter(address(adapter));
+        registry.setTargetAdapter(address(adapter), address(adapter));
+        vm.stopPrank();
+
+        bytes memory nestedCall = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
+        bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(adapter), address(adapter), nestedCall);
+
+        assertEq(_validateWithSigner(callData, operatorKey), SIG_VALIDATION_SUCCESS);
+
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert();
+        wallet.executeViaAdapter(address(adapter), address(adapter), nestedCall);
+
+        assertEq(usdc.balanceOf(recipient), 0);
+    }
+
+    function test_EntryPoint_OperatorSignedAdapterCannotReenterAnotherAdapter() public {
+        NestedDelegatecallAdapter adapter = new NestedDelegatecallAdapter();
+        vm.startPrank(admin);
+        registry.registerAdapter(address(adapter));
+        registry.setTargetAdapter(address(adapter), address(adapter));
+        vm.stopPrank();
+
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
+        bytes memory nestedCall = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(vaultAdapter), address(vault), depositData);
+        address[] memory adapters = new address[](1);
+        address[] memory targets = new address[](1);
+        bytes[] memory datas = new bytes[](1);
+        adapters[0] = address(adapter);
+        targets[0] = address(adapter);
+        datas[0] = nestedCall;
+        bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapterBatch.selector, adapters, targets, datas);
+
+        assertEq(_validateWithSigner(callData, operatorKey), SIG_VALIDATION_SUCCESS);
+
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert();
+        wallet.executeViaAdapterBatch(adapters, targets, datas);
+
+        assertEq(vault.balanceOf(address(wallet)), 0);
     }
 
     // ============ Adapter execution parity coverage ============
