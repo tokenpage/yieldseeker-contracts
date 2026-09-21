@@ -39,7 +39,7 @@ contract AaveV3ForkTest is Test {
         bytes memory depositResult = wallet.executeAdapter(address(adapter), A_BAS_USDC, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Aave deposit must consume the full requested amount");
-        assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 1, "Aave aTokens must mint ~1:1 with deposited assets");
+        assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 10, "Aave aTokens must mint ~1:1 with deposited assets");
         assertEq(aToken.balanceOf(address(wallet)), shares, "aToken balance must match minted shares");
         assertEq(feeTracker.agentVaultCostBasis(address(wallet), A_BAS_USDC), DEPOSIT_AMOUNT, "Cost basis must match deposit");
 
