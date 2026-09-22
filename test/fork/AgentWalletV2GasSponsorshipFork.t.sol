@@ -13,6 +13,7 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {IPaymaster} from "account-abstraction/interfaces/IPaymaster.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -25,6 +26,38 @@ contract EntryPointNestedDelegatecallAdapter is IAWKAdapter {
             }
         }
         return returndata;
+    }
+}
+
+contract LocalAcceptAllPaymaster is IPaymaster {
+    IEntryPoint public immutable entryPoint;
+
+    constructor(IEntryPoint _entryPoint) {
+        entryPoint = _entryPoint;
+    }
+
+    receive() external payable {}
+
+    function deposit() external payable {
+        entryPoint.depositTo{value: msg.value}(payable(address(this)));
+    }
+
+    function addStake(uint32 unstakeDelaySec) external payable {
+        entryPoint.addStake{value: msg.value}(unstakeDelaySec);
+    }
+
+    function validatePaymasterUserOp(UserOperation calldata, bytes32, uint256)
+        external
+        view
+        override
+        returns (bytes memory context, uint256 validationData)
+    {
+        require(msg.sender == address(entryPoint), "Sender not EntryPoint");
+        return ("", 0);
+    }
+
+    function postOp(PostOpMode, bytes calldata, uint256) external view override {
+        require(msg.sender == address(entryPoint), "Sender not EntryPoint");
     }
 }
 
@@ -119,6 +152,36 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         assertLt(address(wallet).balance, walletBalanceBefore, "execution cost paid from the wallet's own sponsor-funded balance");
     }
 
+    function test_RelayerSubmitsOwnerSignedWithdrawal_PaymasterPaysGas() public {
+        LocalAcceptAllPaymaster paymaster;
+        vm.prank(admin);
+        paymaster = new LocalAcceptAllPaymaster(ENTRY_POINT);
+
+        vm.startPrank(admin);
+        paymaster.addStake{value: 1 ether}(1 days);
+        paymaster.deposit{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.deal(address(wallet), 0);
+        uint256 paymasterDepositBefore = ENTRY_POINT.balanceOf(address(paymaster));
+        bytes memory callData = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
+        UserOperation memory userOp = _buildSignedPaymasterUserOp(callData, ownerKey, address(paymaster));
+
+        UserOperation[] memory ops = new UserOperation[](1);
+        ops[0] = userOp;
+
+        vm.txGasPrice(1 gwei);
+        vm.prank(relayer);
+        ENTRY_POINT.handleOps(ops, payable(relayer));
+
+        assertEq(usdc.balanceOf(recipient), 500e6, "paymaster-sponsored withdrawal must execute");
+        assertEq(ownerAddr.balance, 0, "owner must not spend native gas");
+        assertEq(address(wallet).balance, 0, "wallet must not prefund the EntryPoint");
+        assertEq(ENTRY_POINT.balanceOf(address(wallet)), 0, "wallet must not use an EntryPoint deposit");
+        assertLt(ENTRY_POINT.balanceOf(address(paymaster)), paymasterDepositBefore, "paymaster deposit must pay gas");
+    }
+
+
     function test_RelayerCannotReplayOwnerSignedWithdrawal() public {
         bytes memory callData = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
         UserOperation memory userOp = _buildSignedUserOp(callData, ownerKey);
@@ -210,4 +273,28 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         userOp.signature = abi.encodePacked(r, s, v);
         return userOp;
     }
+    function _buildSignedPaymasterUserOp(bytes memory callData, uint256 signerKey, address paymaster)
+        internal
+        view
+        returns (UserOperation memory)
+    {
+        UserOperation memory userOp = UserOperation({
+            sender: address(wallet),
+            nonce: ENTRY_POINT.getNonce(address(wallet), 0),
+            initCode: "",
+            callData: callData,
+            callGasLimit: 500000,
+            verificationGasLimit: 500000,
+            preVerificationGas: 100000,
+            maxFeePerGas: 10 gwei,
+            maxPriorityFeePerGas: 1 gwei,
+            paymasterAndData: abi.encodePacked(paymaster),
+            signature: ""
+        });
+        bytes32 userOpHash = ENTRY_POINT.getUserOpHash(userOp);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash.toEthSignedMessageHash());
+        userOp.signature = abi.encodePacked(r, s, v);
+        return userOp;
+    }
+
 }
