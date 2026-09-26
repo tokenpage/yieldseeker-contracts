@@ -48,14 +48,14 @@ while IFS=' ' read -r OP_ID TX_HASH BLOCK_NUM; do
   ) &
 
   (
-    TX_JSON=$(cast tx --rpc-url "$ARCHIVE_RPC" --json "$TX_HASH" 2>/dev/null)
+    TX_JSON=$(cast tx --rpc-url "$ARCHIVE_RPC" --json "$TX_HASH" 2>/dev/null | jq -c '.data // .')
     echo "$TX_JSON" | jq -r '.from // "unknown"' > "$WORK/$OP_ID.from"
     echo "$TX_JSON" | jq -r '.input // ""'        > "$WORK/$OP_ID.input"
   ) &
 
   (
     BLOCK_DEC=$(printf "%d" "$BLOCK_NUM" 2>/dev/null || echo "0")
-    BLK_TS_HEX=$(cast block --rpc-url "$ARCHIVE_RPC" --json "$BLOCK_DEC" 2>/dev/null | jq -r '.timestamp // "0x0"')
+    BLK_TS_HEX=$(cast block --rpc-url "$ARCHIVE_RPC" --json "$BLOCK_DEC" 2>/dev/null | jq -r '(.data // .).timestamp // "0x0"')
     BLK_TS=$(printf "%d" "$BLK_TS_HEX" 2>/dev/null || echo "0")
     echo "${BLK_TS:-0}" > "$WORK/$OP_ID.proposed"
   ) &
