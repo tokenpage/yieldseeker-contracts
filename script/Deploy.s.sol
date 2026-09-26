@@ -4,7 +4,8 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "../src/AgentWalletV1.sol";
+import {AWKAgentWalletV1} from "../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWallet} from "../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../src/adapters/AerodromeCLSwapAdapter.sol";
@@ -32,6 +33,7 @@ contract DeployScript is Script {
 
     // Deployment Salt for deterministic addresses
     uint256 constant SALT = 0x711;
+    address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 4-day delay)
@@ -43,6 +45,7 @@ contract DeployScript is Script {
         address agentWalletFactory;
         address adapterRegistry;
         address agentWalletImplementation;
+        address agentWalletV1Implementation;
         address feeTracker;
         address erc4626Adapter;
         address merklAdapter;
@@ -65,6 +68,21 @@ contract DeployScript is Script {
         } catch {
             return address(0);
         }
+    }
+    function deployCreate2(bytes memory initCode) internal returns (address deployed) {
+        bytes32 salt = bytes32(SALT);
+        require(CREATE2_DEPLOYER.code.length > 0, "CREATE2 deployer has no code");
+        address predicted = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, keccak256(initCode)))))
+        );
+        (bool success, bytes memory returnData) = CREATE2_DEPLOYER.call(abi.encodePacked(salt, initCode));
+        require(success, "CREATE2 deployment failed");
+        require(returnData.length == 20, "CREATE2 deployer returned invalid address");
+        assembly ("memory-safe") {
+            deployed := shr(96, mload(add(returnData, 32)))
+        }
+        require(deployed == predicted, "CREATE2 address mismatch");
+        require(deployed.code.length > 0, "CREATE2 deployment produced no code");
     }
 
     function getUniswapV3Router(uint256 chainId) internal pure returns (address) {
@@ -143,6 +161,7 @@ contract DeployScript is Script {
                 agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
                 adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
                 agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
+                agentWalletV1Implementation: safeReadAddress(deployJson, ".agentWalletV1Implementation"),
                 feeTracker: safeReadAddress(deployJson, ".feeTracker"),
                 erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
                 merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
@@ -165,9 +184,10 @@ contract DeployScript is Script {
             proposers[0] = timelockProposerAddress;
             address[] memory executors = new address[](1);
             executors[0] = timelockExecutorAddress;
-            AdminTimelock newAdminTimelock = new AdminTimelock{salt: bytes32(SALT)}(adminTimelockDelay, proposers, executors, timelockAdminAddress);
-            deployments.adminTimelock = address(newAdminTimelock);
-            console2.log("-> AdminTimelock deployed at:", address(newAdminTimelock));
+            deployments.adminTimelock = deployCreate2(
+                abi.encodePacked(type(AdminTimelock).creationCode, abi.encode(adminTimelockDelay, proposers, executors, timelockAdminAddress))
+            );
+            console2.log("-> AdminTimelock deployed at:", deployments.adminTimelock);
             console2.log("   delay (seconds):", adminTimelockDelay);
         } else {
             console2.log("-> Using existing adminTimelock:", deployments.adminTimelock);
@@ -175,122 +195,130 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWalletFactory
         if (deployments.agentWalletFactory == address(0)) {
-            AgentWalletFactory newAgentWalletFactory = new AgentWalletFactory{salt: bytes32(SALT)}(deployments.adminTimelock, serverAddress);
-            deployments.agentWalletFactory = address(newAgentWalletFactory);
-            console2.log("-> AgentWalletFactory deployed at:", address(newAgentWalletFactory));
+            deployments.agentWalletFactory = deployCreate2(
+                abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, serverAddress))
+            );
+            console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
             console2.log("   AGENT_OPERATOR_ROLE granted to:", serverAddress);
         } else {
             console2.log("-> Using existing agentWalletFactory:", deployments.agentWalletFactory);
         }
 
-        // Deploy or reuse AgentWallet Implementation
+        // Deploy or reuse AgentWallet V2 implementation
         if (deployments.agentWalletImplementation == address(0)) {
-            AgentWallet newAgentWalletImplementation = new AgentWallet{salt: bytes32(SALT)}(deployments.agentWalletFactory);
-            deployments.agentWalletImplementation = address(newAgentWalletImplementation);
-            console2.log("-> AgentWallet Implementation deployed at:", address(newAgentWalletImplementation));
+            deployments.agentWalletImplementation = deployCreate2(
+                abi.encodePacked(type(AgentWallet).creationCode, abi.encode(deployments.agentWalletFactory))
+            );
+            console2.log("-> AgentWallet Implementation deployed at:", deployments.agentWalletImplementation);
         } else {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
         }
 
         // Deploy or reuse AdapterRegistry
         if (deployments.adapterRegistry == address(0)) {
-            AdapterRegistry newAdapterRegistry = new AdapterRegistry{salt: bytes32(SALT)}(deployments.adminTimelock, emergencyAdminAddress);
-            deployments.adapterRegistry = address(newAdapterRegistry);
-            console2.log("-> AdapterRegistry deployed at:", address(newAdapterRegistry));
+            deployments.adapterRegistry = deployCreate2(
+                abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress))
+            );
+            console2.log("-> AdapterRegistry deployed at:", deployments.adapterRegistry);
         } else {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
         }
 
         // Deploy or reuse FeeTracker
         if (deployments.feeTracker == address(0)) {
-            FeeTracker newFeeTracker = new FeeTracker{salt: bytes32(SALT)}(deployments.adminTimelock);
-            deployments.feeTracker = address(newFeeTracker);
-            console2.log("-> FeeTracker deployed at:", address(newFeeTracker));
+            deployments.feeTracker = deployCreate2(
+                abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock))
+            );
+            console2.log("-> FeeTracker deployed at:", deployments.feeTracker);
         } else {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
         }
 
         // Deploy or reuse ERC4626 Adapter
         if (deployments.erc4626Adapter == address(0)) {
-            ERC4626Adapter erc4626Adapter = new ERC4626Adapter{salt: bytes32(SALT)}();
-            deployments.erc4626Adapter = address(erc4626Adapter);
-            console2.log("-> ERC4626Adapter deployed at:", address(erc4626Adapter));
+            deployments.erc4626Adapter = deployCreate2(abi.encodePacked(type(ERC4626Adapter).creationCode));
+            console2.log("-> ERC4626Adapter deployed at:", deployments.erc4626Adapter);
         } else {
             console2.log("-> Using existing erc4626Adapter:", deployments.erc4626Adapter);
         }
 
         // Deploy or reuse Merkl Adapter
         if (deployments.merklAdapter == address(0)) {
-            MerklAdapter merklAdapter = new MerklAdapter{salt: bytes32(SALT)}();
-            deployments.merklAdapter = address(merklAdapter);
-            console2.log("-> MerklAdapter deployed at:", address(merklAdapter));
+            deployments.merklAdapter = deployCreate2(abi.encodePacked(type(MerklAdapter).creationCode));
+            console2.log("-> MerklAdapter deployed at:", deployments.merklAdapter);
         } else {
             console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
         }
 
         if (deployments.swapSellPolicy == address(0)) {
-            SwapSellPolicy swapSellPolicy = new SwapSellPolicy{salt: bytes32(SALT)}(deployments.adminTimelock, emergencyAdminAddress, false);
-            deployments.swapSellPolicy = address(swapSellPolicy);
-            console2.log("-> SwapSellPolicy deployed at:", address(swapSellPolicy));
+            deployments.swapSellPolicy = deployCreate2(
+                abi.encodePacked(type(SwapSellPolicy).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, false))
+            );
+            console2.log("-> SwapSellPolicy deployed at:", deployments.swapSellPolicy);
         } else {
             console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
         }
 
         if (deployments.uniswapV3SwapAdapter == address(0)) {
-            UniswapV3SwapAdapter uniswapV3SwapAdapter = new UniswapV3SwapAdapter{salt: bytes32(SALT)}(uniswapV3Router, deployments.swapSellPolicy);
-            deployments.uniswapV3SwapAdapter = address(uniswapV3SwapAdapter);
-            console2.log("-> UniswapV3SwapAdapter deployed at:", address(uniswapV3SwapAdapter));
+            deployments.uniswapV3SwapAdapter = deployCreate2(
+                abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy))
+            );
+            console2.log("-> UniswapV3SwapAdapter deployed at:", deployments.uniswapV3SwapAdapter);
         } else {
             console2.log("-> Using existing uniswapV3SwapAdapter:", deployments.uniswapV3SwapAdapter);
         }
 
         if (deployments.aerodromeV2SwapAdapter == address(0)) {
-            AerodromeV2SwapAdapter aerodromeV2SwapAdapter = new AerodromeV2SwapAdapter{salt: bytes32(SALT)}(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy);
-            deployments.aerodromeV2SwapAdapter = address(aerodromeV2SwapAdapter);
-            console2.log("-> AerodromeV2SwapAdapter deployed at:", address(aerodromeV2SwapAdapter));
+            deployments.aerodromeV2SwapAdapter = deployCreate2(
+                abi.encodePacked(
+                    type(AerodromeV2SwapAdapter).creationCode,
+                    abi.encode(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy)
+                )
+            );
+            console2.log("-> AerodromeV2SwapAdapter deployed at:", deployments.aerodromeV2SwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeV2SwapAdapter:", deployments.aerodromeV2SwapAdapter);
         }
 
         if (deployments.aerodromeClSwapAdapter == address(0)) {
-            AerodromeCLSwapAdapter aerodromeClSwapAdapter = new AerodromeCLSwapAdapter{salt: bytes32(SALT)}(aerodromeClRouter, deployments.swapSellPolicy);
-            deployments.aerodromeClSwapAdapter = address(aerodromeClSwapAdapter);
-            console2.log("-> AerodromeCLSwapAdapter deployed at:", address(aerodromeClSwapAdapter));
+            deployments.aerodromeClSwapAdapter = deployCreate2(
+                abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter, deployments.swapSellPolicy))
+            );
+            console2.log("-> AerodromeCLSwapAdapter deployed at:", deployments.aerodromeClSwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
         }
 
         // Deploy or reuse Aave V3 Adapter
         if (deployments.aaveV3Adapter == address(0)) {
-            AaveV3Adapter aaveV3Adapter = new AaveV3Adapter{salt: bytes32(SALT)}();
-            deployments.aaveV3Adapter = address(aaveV3Adapter);
-            console2.log("-> AaveV3Adapter deployed at:", address(aaveV3Adapter));
+            deployments.aaveV3Adapter = deployCreate2(abi.encodePacked(type(AaveV3Adapter).creationCode));
+            console2.log("-> AaveV3Adapter deployed at:", deployments.aaveV3Adapter);
         } else {
             console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
         }
 
         // Deploy or reuse Compound V3 Adapter
         if (deployments.compoundV3Adapter == address(0)) {
-            CompoundV3Adapter compoundV3Adapter = new CompoundV3Adapter{salt: bytes32(SALT)}();
-            deployments.compoundV3Adapter = address(compoundV3Adapter);
-            console2.log("-> CompoundV3Adapter deployed at:", address(compoundV3Adapter));
+            deployments.compoundV3Adapter = deployCreate2(abi.encodePacked(type(CompoundV3Adapter).creationCode));
+            console2.log("-> CompoundV3Adapter deployed at:", deployments.compoundV3Adapter);
         } else {
             console2.log("-> Using existing compoundV3Adapter:", deployments.compoundV3Adapter);
         }
 
         // Deploy or reuse Compound V2 Adapter (for Moonwell and other Compound V2 forks)
         if (deployments.compoundV2Adapter == address(0)) {
-            CompoundV2Adapter compoundV2Adapter = new CompoundV2Adapter{salt: bytes32(SALT)}();
-            deployments.compoundV2Adapter = address(compoundV2Adapter);
-            console2.log("-> CompoundV2Adapter deployed at:", address(compoundV2Adapter));
+            deployments.compoundV2Adapter = deployCreate2(abi.encodePacked(type(CompoundV2Adapter).creationCode));
+            console2.log("-> CompoundV2Adapter deployed at:", deployments.compoundV2Adapter);
         } else {
             console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
         }
+
         // Deploy or reuse Moonwell Reward Adapter
         if (deployments.moonwellRewardAdapter == address(0)) {
-            MoonwellRewardAdapter moonwellRewardAdapter = new MoonwellRewardAdapter{salt: bytes32(SALT)}(getWellToken(block.chainid));
-            deployments.moonwellRewardAdapter = address(moonwellRewardAdapter);
-            console2.log("-> MoonwellRewardAdapter deployed at:", address(moonwellRewardAdapter));
+            deployments.moonwellRewardAdapter = deployCreate2(
+                abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid)))
+            );
+            console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
         } else {
             console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
         }
@@ -301,6 +329,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
         vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
+        vm.serializeAddress(json, "agentWalletV1Implementation", deployments.agentWalletV1Implementation);
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
@@ -333,7 +362,7 @@ contract DeployScript is Script {
         console2.log("-> Preparing agentWalletFactory configuration...");
         if (address(agentWalletFactory.agentWalletImplementation()) != deployments.agentWalletImplementation) {
             targets[operationCount] = deployments.agentWalletFactory;
-            datas[operationCount] = abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation))));
+            datas[operationCount] = abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AWKAgentWalletV1(payable(deployments.agentWalletImplementation))));
             operationCount++;
         }
         if (address(agentWalletFactory.adapterRegistry()) != deployments.adapterRegistry) {
@@ -426,6 +455,8 @@ contract DeployScript is Script {
     }
 
     function scheduleAndExecuteBatch(AdminTimelock adminTimelock, address[] memory targets, uint256[] memory values, bytes[] memory datas, uint256 delay, bytes32 salt) internal {
+        bytes32 operationId = adminTimelock.hashOperationBatch(targets, values, datas, bytes32(0), salt);
+        console2.log("   Batch operation ID:", vm.toString(operationId));
         if (delay == 0) {
             // Testing mode: execute directly
             adminTimelock.scheduleBatch(targets, values, datas, bytes32(0), salt, 0);

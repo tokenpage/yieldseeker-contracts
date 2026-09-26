@@ -3,21 +3,32 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {AWKAgentWalletV1, AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Test} from "forge-std/Test.sol";
 
+interface IReentrantWallet {
+    function executeViaAdapter(address adapter, address target, bytes calldata data) external returns (bytes memory);
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external;
+}
+
 contract ReenterExecuteAdapter is IAWKAdapter {
-    function execute(address target, bytes calldata data) external payable returns (bytes memory) {
-        // Attempt to re-enter wallet execution; should revert due to onlyExecutors
-        AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));
-        wallet.executeViaAdapter(address(this), target, data);
-        return "";
+    function execute(address target, bytes calldata data) external payable returns (bytes memory result) {
+        bytes memory nestedCall = abi.encodeWithSelector(IReentrantWallet.executeViaAdapter.selector, address(this), target, data);
+        (bool success, bytes memory returndata) = address(this).delegatecall(nestedCall);
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
+        return returndata;
     }
 }
 
@@ -28,11 +39,15 @@ contract ReenterWithdrawAdapter is IAWKAdapter {
         USDC_ADDRESS = _usdc;
     }
 
-    function execute(address target, bytes calldata) external payable returns (bytes memory) {
-        // Attempt to withdraw during adapter call; should revert due to onlyOwner
-        AgentWalletV1 wallet = AgentWalletV1(payable(msg.sender));
-        wallet.withdrawAssetToUser(target, USDC_ADDRESS, 1);
-        return "";
+    function execute(address target, bytes calldata) external payable returns (bytes memory result) {
+        bytes memory nestedCall = abi.encodeWithSelector(IReentrantWallet.withdrawAssetToUser.selector, target, USDC_ADDRESS, 1);
+        (bool success, bytes memory returndata) = address(this).delegatecall(nestedCall);
+        if (!success) {
+            assembly {
+                revert(add(returndata, 0x20), mload(returndata))
+            }
+        }
+        return returndata;
     }
 }
 
@@ -68,10 +83,10 @@ contract ReentrancySecurityTest is Test {
         feeTracker.setFeeConfig(FEE_RATE, feeCollector);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV1 impl = new AgentWalletV1(address(factory));
+        AgentWalletV2 impl = new AgentWalletV2(address(factory));
         factory.setAdapterRegistry(registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(impl);
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -86,31 +101,31 @@ contract ReentrancySecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV1 wallet) {
+    function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
     }
 
-    function test_ReenterExecuteViaAdapter_RevertsUnauthorized() public {
-        AgentWalletV1 wallet = _createWallet();
+    function test_ReenterExecuteViaAdapter_RevertsReentrancy() public {
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)));
         wallet.executeViaAdapter(address(reenterExecute), address(reenterExecute), "");
     }
 
-    function test_ReenterWithdrawBaseAsset_RevertsUnauthorized() public {
-        AgentWalletV1 wallet = _createWallet();
+    function test_ReenterWithdrawBaseAsset_RevertsReentrancy() public {
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(user);
-        vm.expectRevert();
-        wallet.executeViaAdapter(address(reenterWithdraw), address(user), "");
+        vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)));
+        wallet.executeViaAdapter(address(reenterWithdraw), address(reenterWithdraw), "");
     }
 
-    function test_ReenterDuringBatch_RevertsUnauthorized() public {
-        AgentWalletV1 wallet = _createWallet();
+    function test_ReenterDuringBatch_RevertsReentrancy() public {
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         address[] memory adapters = new address[](2);
@@ -126,12 +141,12 @@ contract ReentrancySecurityTest is Test {
         datas[1] = "";
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)));
         wallet.executeViaAdapterBatch(adapters, targets, datas);
     }
 
     function test_NonExecutorCannotTriggerReenterAdapter() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(feeCollector);

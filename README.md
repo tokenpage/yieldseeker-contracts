@@ -48,13 +48,16 @@ This system enforces **parameter-level validation** through protocol-specific ad
 ### Emergency Controls and Stale Cache Mitigation
 
 **Important Limitation**: Wallets cache `agentOperators` locally for ERC-4337 gas efficiency. This creates a window where:
-- A removed operator can still sign for wallets that haven't called `syncFromFactory()`
-- Mitigation: `AdapterRegistry.pause()` instantly blocks ALL adapter execution across ALL wallets
+- A removed operator can still sign for wallets that have not called `syncFromFactory()`
+- A Factory role change does not push new authorization state into already deployed wallets
 
-**Emergency Response Playbook:**
-1. **Immediate**: Call `AdapterRegistry.pause()` - stops all agent operations instantly
-2. **Then**: Remove compromised operator from Factory
-3. **Finally**: Users call `syncFromFactory()` on their wallets (or we batch-call for them)
+**Operator Revocation Procedure:**
+1. **Pause first**: Call `AdapterRegistry.pause()` to stop adapter execution across all wallets immediately.
+2. **Revoke globally**: Remove the operator's `AGENT_OPERATOR_ROLE` from the Factory.
+3. **Synchronize every wallet**: Call `syncFromFactory()` on every existing wallet and verify that the revoked operator is no longer cached. This is a per-wallet operation; revoking the Factory role alone does not update deployed wallets. Calls may be submitted individually or through a batch process, but every wallet must complete synchronization.
+4. **Resume**: Call `AdapterRegistry.unpause()` only after all wallets have synchronized.
+
+Without the registry pause, unsynchronized wallets remain able to accept the revoked operator's adapter UserOperations until their local cache is refreshed.
 
 ### Standards Compliance
 
@@ -330,6 +333,10 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 **Validation:**
 - Enforces that the vault's underlying asset matches the wallet's `baseAsset`
 - Calls FeeTracker to record deposits/withdrawals for fee calculation
+
+**Known Limitation / Future Work**:
+- Deposits do not accept a `minShares` bound, and withdrawals do not accept a `minAssets` bound.
+- Future ERC4626 adapter versions should add explicit minimum-output parameters. The current version relies on approved vaults and does not add slippage bounds.
 
 ---
 

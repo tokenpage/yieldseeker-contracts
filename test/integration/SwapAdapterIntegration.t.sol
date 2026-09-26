@@ -3,14 +3,14 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AWKAgentWalletV1, AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
@@ -109,9 +109,9 @@ contract SwapAdapterIntegrationTest is Test {
         return abi.decode(abi.decode(data, (bytes)), (uint256));
     }
 
-    function _createWallet() internal returns (AgentWalletV1 wallet) {
+    function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = factory.createAgentWallet(user, 1, address(baseAsset));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, 1, address(baseAsset)))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -152,8 +152,8 @@ contract SwapAdapterIntegrationTest is Test {
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(registry);
         factory.setFeeTracker(feeTracker);
-        AgentWalletV1 walletImplementation = new AgentWalletV1(address(factory));
-        factory.setAgentWalletImplementation(walletImplementation);
+        AgentWalletV2 walletImplementation = new AgentWalletV2(address(factory));
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(walletImplementation))));
         sellPolicy = new YieldSeekerSwapSellPolicy(admin, admin, false);
         sellPolicy.addSellableToken(address(sellToken));
         uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter), address(sellPolicy));
@@ -175,7 +175,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_UniswapSwap_ThroughWallet_Succeeds() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         uniswapRouter.setBuyAmount(500e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
@@ -189,7 +189,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_AerodromeV2Swap_ThroughWallet_Succeeds() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         aerodromeV2Router.setBuyAmount(450e6);
         AWKAerodromeV2SwapAdapter.SwapRoute memory route = _aerodromeV2Route(address(sellToken), address(baseAsset));
@@ -202,7 +202,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_AerodromeCLSwap_ThroughWallet_Succeeds() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         aerodromeClRouter.setBuyAmount(470e6);
         AWKAerodromeCLSwapAdapter.SwapRoute memory route = _aerodromeClRoute(address(sellToken), address(baseAsset));
@@ -215,7 +215,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_SwapBatchAcrossAdapters_Succeeds() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         uniswapRouter.setBuyAmount(120e6);
         aerodromeV2Router.setBuyAmount(130e6);
@@ -245,7 +245,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_UniswapSwap_RevertsOnEndpointMismatch() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 500e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(otherToken));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(50e6)));
@@ -256,7 +256,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_Swap_RevertsWhenSellPolicyBlocksToken() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 500e6);
         vm.prank(admin);
         sellPolicy.removeSellableToken(address(sellToken));
@@ -269,7 +269,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_Swap_RevertsWhenBuyingNonBaseAsset() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 500e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(otherToken));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(otherToken), route, uint256(100e6), uint256(50e6)));
@@ -280,7 +280,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_WalletEnforcesTargetToAdapterMapping() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 500e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(50e6)));
@@ -290,7 +290,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_UniswapSwap_RecordsAndConvertsYieldTokenFees() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldTokenEarned(address(sellToken), 100e6);

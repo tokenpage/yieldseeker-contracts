@@ -25,6 +25,10 @@ contract AdapterWalletHarness is IAgentWallet {
         return _FEE_TRACKER;
     }
 
+    function recordAgentYieldTokenEarned(address token, uint256 amount) external {
+        _FEE_TRACKER.recordAgentYieldTokenEarned(token, amount);
+    }
+
     /// @notice Execute adapter logic via delegatecall
     function executeAdapter(address adapter, address target, bytes memory data) external returns (bytes memory) {
         (bool ok, bytes memory res) = adapter.delegatecall(abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data));

@@ -61,8 +61,7 @@ contract MoonwellCompoundV2ForkTest is Test {
         assertEq(liveBalanceBefore, totalVaultBalanceBefore, "Live Compound V2 conversion mismatch");
 
         uint256 rewardTokenAmount = shares / 10;
-        vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(marketAddress, rewardTokenAmount);
+        wallet.recordAgentYieldTokenEarned(marketAddress, rewardTokenAmount);
 
         bytes memory withdrawResult = wallet.executeAdapter(address(adapter), marketAddress, abi.encodeWithSelector(adapter.withdraw.selector, liveBalanceBefore));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
