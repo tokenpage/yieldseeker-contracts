@@ -3,9 +3,10 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
+import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -41,10 +42,10 @@ contract RegistrySecurityTest is Test {
         feeTracker.setFeeConfig(FEE_RATE, feeCollector);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV1 impl = new AgentWalletV1(address(factory));
+        AgentWalletV2 impl = new AgentWalletV2(address(factory));
         factory.setAdapterRegistry(registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(impl);
+        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -52,13 +53,13 @@ contract RegistrySecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV1 wallet) {
+    function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
     }
 
     function test_UnregisteredAdapterBlocksExecution() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 500e6);
 
         vm.prank(emergencyAdmin);
@@ -70,7 +71,7 @@ contract RegistrySecurityTest is Test {
     }
 
     function test_ReregisterAdapterRestoresExecution() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 500e6);
 
         vm.prank(emergencyAdmin);
@@ -84,7 +85,7 @@ contract RegistrySecurityTest is Test {
     }
 
     function test_RemoveTargetBlocksEvenIfAdapterRegistered() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 500e6);
 
         vm.prank(emergencyAdmin);
@@ -96,7 +97,7 @@ contract RegistrySecurityTest is Test {
     }
 
     function test_RemoveTargetAfterUnregisterPreventsReactivation() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 500e6);
 
         vm.prank(emergencyAdmin);
@@ -112,7 +113,7 @@ contract RegistrySecurityTest is Test {
     }
 
     function test_PauseReturnsNoAdapter() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 200e6);
 
         vm.prank(emergencyAdmin);
@@ -124,7 +125,7 @@ contract RegistrySecurityTest is Test {
     }
 
     function test_UnpauseRestoresAdapterLookup() public {
-        AgentWalletV1 wallet = _createWallet();
+        AgentWalletV2 wallet = _createWallet();
         usdc.mint(address(wallet), 200e6);
 
         vm.prank(emergencyAdmin);
