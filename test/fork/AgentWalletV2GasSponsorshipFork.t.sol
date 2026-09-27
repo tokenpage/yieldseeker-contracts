@@ -46,12 +46,7 @@ contract LocalAcceptAllPaymaster is IPaymaster {
         entryPoint.addStake{value: msg.value}(unstakeDelaySec);
     }
 
-    function validatePaymasterUserOp(UserOperation calldata, bytes32, uint256)
-        external
-        view
-        override
-        returns (bytes memory context, uint256 validationData)
-    {
+    function validatePaymasterUserOp(UserOperation calldata, bytes32, uint256) external view override returns (bytes memory context, uint256 validationData) {
         require(msg.sender == address(entryPoint), "Sender not EntryPoint");
         return ("", 0);
     }
@@ -181,7 +176,6 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         assertLt(ENTRY_POINT.balanceOf(address(paymaster)), paymasterDepositBefore, "paymaster deposit must pay gas");
     }
 
-
     function test_RelayerCannotReplayOwnerSignedWithdrawal() public {
         bytes memory callData = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
         UserOperation memory userOp = _buildSignedUserOp(callData, ownerKey);
@@ -273,11 +267,8 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         userOp.signature = abi.encodePacked(r, s, v);
         return userOp;
     }
-    function _buildSignedPaymasterUserOp(bytes memory callData, uint256 signerKey, address paymaster)
-        internal
-        view
-        returns (UserOperation memory)
-    {
+
+    function _buildSignedPaymasterUserOp(bytes memory callData, uint256 signerKey, address paymaster) internal view returns (UserOperation memory) {
         UserOperation memory userOp = UserOperation({
             sender: address(wallet),
             nonce: ENTRY_POINT.getNonce(address(wallet), 0),
@@ -296,5 +287,4 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
         userOp.signature = abi.encodePacked(r, s, v);
         return userOp;
     }
-
 }

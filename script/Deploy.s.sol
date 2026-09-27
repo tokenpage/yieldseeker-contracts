@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
-import {AWKAgentWalletV1} from "../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {YieldSeekerAgentWalletV2 as AgentWallet} from "../src/AgentWalletV2.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
@@ -17,6 +16,7 @@ import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdap
 import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
+import {AWKAgentWalletV1} from "../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -69,12 +69,11 @@ contract DeployScript is Script {
             return address(0);
         }
     }
+
     function deployCreate2(bytes memory initCode) internal returns (address deployed) {
         bytes32 salt = bytes32(SALT);
         require(CREATE2_DEPLOYER.code.length > 0, "CREATE2 deployer has no code");
-        address predicted = address(
-            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, keccak256(initCode)))))
-        );
+        address predicted = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, keccak256(initCode))))));
         (bool success, bytes memory returnData) = CREATE2_DEPLOYER.call(abi.encodePacked(salt, initCode));
         require(success, "CREATE2 deployment failed");
         require(returnData.length == 20, "CREATE2 deployer returned invalid address");
@@ -184,9 +183,7 @@ contract DeployScript is Script {
             proposers[0] = timelockProposerAddress;
             address[] memory executors = new address[](1);
             executors[0] = timelockExecutorAddress;
-            deployments.adminTimelock = deployCreate2(
-                abi.encodePacked(type(AdminTimelock).creationCode, abi.encode(adminTimelockDelay, proposers, executors, timelockAdminAddress))
-            );
+            deployments.adminTimelock = deployCreate2(abi.encodePacked(type(AdminTimelock).creationCode, abi.encode(adminTimelockDelay, proposers, executors, timelockAdminAddress)));
             console2.log("-> AdminTimelock deployed at:", deployments.adminTimelock);
             console2.log("   delay (seconds):", adminTimelockDelay);
         } else {
@@ -195,9 +192,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWalletFactory
         if (deployments.agentWalletFactory == address(0)) {
-            deployments.agentWalletFactory = deployCreate2(
-                abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, serverAddress))
-            );
+            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, serverAddress)));
             console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
             console2.log("   AGENT_OPERATOR_ROLE granted to:", serverAddress);
         } else {
@@ -206,9 +201,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWallet V2 implementation
         if (deployments.agentWalletImplementation == address(0)) {
-            deployments.agentWalletImplementation = deployCreate2(
-                abi.encodePacked(type(AgentWallet).creationCode, abi.encode(deployments.agentWalletFactory))
-            );
+            deployments.agentWalletImplementation = deployCreate2(abi.encodePacked(type(AgentWallet).creationCode, abi.encode(deployments.agentWalletFactory)));
             console2.log("-> AgentWallet Implementation deployed at:", deployments.agentWalletImplementation);
         } else {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
@@ -216,9 +209,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse AdapterRegistry
         if (deployments.adapterRegistry == address(0)) {
-            deployments.adapterRegistry = deployCreate2(
-                abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress))
-            );
+            deployments.adapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)));
             console2.log("-> AdapterRegistry deployed at:", deployments.adapterRegistry);
         } else {
             console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
@@ -226,9 +217,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse FeeTracker
         if (deployments.feeTracker == address(0)) {
-            deployments.feeTracker = deployCreate2(
-                abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock))
-            );
+            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock)));
             console2.log("-> FeeTracker deployed at:", deployments.feeTracker);
         } else {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
@@ -251,39 +240,28 @@ contract DeployScript is Script {
         }
 
         if (deployments.swapSellPolicy == address(0)) {
-            deployments.swapSellPolicy = deployCreate2(
-                abi.encodePacked(type(SwapSellPolicy).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, false))
-            );
+            deployments.swapSellPolicy = deployCreate2(abi.encodePacked(type(SwapSellPolicy).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, false)));
             console2.log("-> SwapSellPolicy deployed at:", deployments.swapSellPolicy);
         } else {
             console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
         }
 
         if (deployments.uniswapV3SwapAdapter == address(0)) {
-            deployments.uniswapV3SwapAdapter = deployCreate2(
-                abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy))
-            );
+            deployments.uniswapV3SwapAdapter = deployCreate2(abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy)));
             console2.log("-> UniswapV3SwapAdapter deployed at:", deployments.uniswapV3SwapAdapter);
         } else {
             console2.log("-> Using existing uniswapV3SwapAdapter:", deployments.uniswapV3SwapAdapter);
         }
 
         if (deployments.aerodromeV2SwapAdapter == address(0)) {
-            deployments.aerodromeV2SwapAdapter = deployCreate2(
-                abi.encodePacked(
-                    type(AerodromeV2SwapAdapter).creationCode,
-                    abi.encode(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy)
-                )
-            );
+            deployments.aerodromeV2SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeV2SwapAdapter).creationCode, abi.encode(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy)));
             console2.log("-> AerodromeV2SwapAdapter deployed at:", deployments.aerodromeV2SwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeV2SwapAdapter:", deployments.aerodromeV2SwapAdapter);
         }
 
         if (deployments.aerodromeClSwapAdapter == address(0)) {
-            deployments.aerodromeClSwapAdapter = deployCreate2(
-                abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter, deployments.swapSellPolicy))
-            );
+            deployments.aerodromeClSwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter, deployments.swapSellPolicy)));
             console2.log("-> AerodromeCLSwapAdapter deployed at:", deployments.aerodromeClSwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
@@ -315,9 +293,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse Moonwell Reward Adapter
         if (deployments.moonwellRewardAdapter == address(0)) {
-            deployments.moonwellRewardAdapter = deployCreate2(
-                abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid)))
-            );
+            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
             console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
         } else {
             console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
