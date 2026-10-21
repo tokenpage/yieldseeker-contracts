@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
@@ -25,8 +25,7 @@ contract ERC4626AdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         altAsset = new MockERC20("Alt", "ALT");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         adapter = new YieldSeekerERC4626Adapter();
         vault = new MockERC4626(address(baseAsset), "Vault", "vUSDC");

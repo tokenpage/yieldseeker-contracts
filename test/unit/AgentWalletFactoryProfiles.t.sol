@@ -6,7 +6,6 @@ import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidFeeTracker} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
-import {YieldSeekerFeeTracker as LegacyFeeTracker} from "../../src/_old/FeeTracker.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -94,9 +93,9 @@ contract AgentWalletFactoryProfilesTest is Test {
     }
 
     function test_FeeContractWithoutFeeModuleInterfaceIsRejected() public {
-        LegacyFeeTracker legacyTracker = new LegacyFeeTracker(address(this));
+        YieldSeekerAdapterRegistry notAFeeModule = new YieldSeekerAdapterRegistry(address(this), address(this));
         vm.expectRevert(InvalidFeeTracker.selector);
-        factory.setFeeTracker(PROFILE_VAULT, YieldSeekerFeeTracker(address(legacyTracker)));
+        factory.setFeeTracker(PROFILE_VAULT, YieldSeekerFeeTracker(address(notAFeeModule)));
     }
 
     function test_DuplicateOwnerIndexReverts() public {

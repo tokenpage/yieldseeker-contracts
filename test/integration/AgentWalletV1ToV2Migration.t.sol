@@ -2,10 +2,10 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -17,6 +17,7 @@ import {Test} from "forge-std/Test.sol";
 ///         step), while a V1 wallet that never upgrades keeps behaving exactly as before —
 ///         entirely unaffected by V2 existing or by other wallets upgrading to it.
 contract AgentWalletV1ToV2MigrationTest is Test {
+    bytes32 constant VAULT_PROFILE = keccak256("vault");
     address internal constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     AgentWalletFactory factory;
@@ -39,13 +40,12 @@ contract AgentWalletV1ToV2MigrationTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(0, admin);
+        feeTracker = new FeeTracker(admin, admin, admin, 5000, 0);
         factory = new AgentWalletFactory(admin, operatorAddr);
         v1Implementation = new AgentWalletV1(address(factory));
-        factory.setAdapterRegistry(registry);
-        factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(v1Implementation);
+        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v1Implementation))));
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
@@ -55,7 +55,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
     function test_ExistingV1Wallet_UpgradesToV2_PreservesStateAndGainsSponsorship() public {
         // 1. Deploy a wallet under V1 — this is the "thousands of existing users" scenario.
         vm.prank(operatorAddr);
-        AgentWalletV1 v1Wallet = factory.createAgentWallet(ownerAddr, 1, address(usdc));
+        AgentWalletV1 v1Wallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(v1Wallet), 1_000e6);
 
         // 2. Give it real V1 state: a vault position (via the operator, autonomous trading) and
@@ -83,7 +83,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         vm.prank(admin);
         v2Implementation = new AgentWalletV2(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
 
         // 5. The wallet owner opts in. This is the ONLY step that changes v1Wallet's behavior.
         vm.prank(ownerAddr);
@@ -114,11 +114,11 @@ contract AgentWalletV1ToV2MigrationTest is Test {
 
     function test_ExistingV1Wallet_UpgradePreservesFeeDebtAndWithdrawalGuard() public {
         vm.prank(operatorAddr);
-        AgentWalletV1 v1Wallet = factory.createAgentWallet(ownerAddr, 1, address(usdc));
+        AgentWalletV1 v1Wallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(v1Wallet), 1_000e6);
 
         vm.prank(admin);
-        feeTracker.setFeeConfig(1000, admin);
+        feeTracker.setPlanRate(0, 1000);
         vm.prank(address(v1Wallet));
         feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
         vm.prank(address(v1Wallet));
@@ -129,7 +129,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         vm.prank(admin);
         v2Implementation = new AgentWalletV2(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
 
         vm.prank(ownerAddr);
         AgentWalletV1(payable(address(v1Wallet))).upgradeToLatest();
@@ -150,17 +150,17 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         // A second, sibling V1 wallet that never opts in. Deploying V2 and even having OTHER
         // wallets upgrade to it must not change this wallet's behavior at all.
         vm.prank(operatorAddr);
-        AgentWalletV1 unupgradedWallet = factory.createAgentWallet(ownerAddr, 2, address(usdc));
+        AgentWalletV1 unupgradedWallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(unupgradedWallet), 500e6);
 
         vm.prank(admin);
         v2Implementation = new AgentWalletV2(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV1(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
 
         // New wallets now deploy on V2...
         vm.prank(operatorAddr);
-        AgentWalletV1 freshWallet = factory.createAgentWallet(makeAddr("newOwner"), 1, address(usdc));
+        AgentWalletV1 freshWallet = AgentWalletV1(payable(address(factory.createAgentWallet(makeAddr("newOwner"), 1, address(usdc), VAULT_PROFILE))));
         assertTrue(_isEntryPointRelayable(freshWallet), "a freshly created wallet after the flip must be on V2");
 
         // ...but the untouched sibling from before the flip is still plain V1 behavior: no

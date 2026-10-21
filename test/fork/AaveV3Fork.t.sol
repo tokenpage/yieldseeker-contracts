@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
@@ -30,8 +30,7 @@ contract AaveV3ForkTest is Test {
         IERC20Metadata asset = IERC20Metadata(USDC);
         IAaveAToken aToken = IAaveAToken(A_BAS_USDC);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(FEE_RATE_BPS, address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerAaveV3Adapter adapter = new YieldSeekerAaveV3Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);

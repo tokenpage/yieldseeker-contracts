@@ -2,11 +2,11 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {AWKAgentWalletV1, AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -70,6 +70,7 @@ contract ReentrancySecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
+    bytes32 constant VAULT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -79,14 +80,13 @@ contract ReentrancySecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV2 impl = new AgentWalletV2(address(factory));
-        factory.setAdapterRegistry(registry);
-        factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
+        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setAgentWalletImplementation(impl);
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -103,7 +103,7 @@ contract ReentrancySecurityTest is Test {
 
     function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
     }
 
     function test_ReenterExecuteViaAdapter_RevertsReentrancy() public {

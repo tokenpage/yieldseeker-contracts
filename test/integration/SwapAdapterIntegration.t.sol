@@ -2,15 +2,15 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AWKAgentWalletV1, AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
@@ -86,6 +86,7 @@ contract MockAerodromeCLRouterIntegration {
 }
 
 contract SwapAdapterIntegrationTest is Test {
+    bytes32 constant VAULT_PROFILE = keccak256("vault");
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
@@ -111,7 +112,7 @@ contract SwapAdapterIntegrationTest is Test {
 
     function _createWallet() internal returns (AgentWalletV2 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, 1, address(baseAsset)))));
+        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_PROFILE))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -147,13 +148,12 @@ contract SwapAdapterIntegrationTest is Test {
         aerodromeClRouter = new MockAerodromeCLRouterIntegration();
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(1000, feeCollector);
+        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, 1000);
         factory = new AgentWalletFactory(admin, operator);
-        factory.setAdapterRegistry(registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
         AgentWalletV2 walletImplementation = new AgentWalletV2(address(factory));
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(walletImplementation))));
+        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(walletImplementation))));
         sellPolicy = new YieldSeekerSwapSellPolicy(admin, admin, false);
         sellPolicy.addSellableToken(address(sellToken));
         uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter), address(sellPolicy));

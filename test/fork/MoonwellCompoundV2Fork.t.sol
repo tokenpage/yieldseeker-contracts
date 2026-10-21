@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerCompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
@@ -46,8 +46,7 @@ contract MoonwellCompoundV2ForkTest is Test {
         IMoonwellMarket market = IMoonwellMarket(marketAddress);
         assertEq(asset.decimals(), expectedDecimals, "Unexpected underlying decimals");
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(FEE_RATE_BPS, address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
         deal(assetAddress, address(wallet), depositAmount);
@@ -82,8 +81,7 @@ contract MoonwellCompoundV2ForkTest is Test {
         IERC20Metadata weth = IERC20Metadata(WETH);
         IMoonwellMarket market = IMoonwellMarket(MWETH);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(FEE_RATE_BPS, address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(weth, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
 

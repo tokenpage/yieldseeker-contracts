@@ -2,11 +2,10 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -29,6 +28,7 @@ contract AccessControlSecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
+    bytes32 constant VAULT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -37,13 +37,12 @@ contract AccessControlSecurityTest is Test {
         entryPoint = new MockEntryPoint();
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV2 impl = new AgentWalletV2(address(factory));
-        factory.setAdapterRegistry(registry);
-        factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
+        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setAgentWalletImplementation(impl);
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
@@ -52,13 +51,13 @@ contract AccessControlSecurityTest is Test {
 
     function _createWallet() internal returns (address wallet) {
         vm.prank(operator);
-        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)));
+        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE));
     }
 
     function test_NonOperatorCannotCreateWallet() public {
         vm.prank(attacker);
         vm.expectRevert();
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc));
+        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE);
     }
 
     function test_OperatorCreatesWalletSetsOwner() public {
@@ -114,8 +113,8 @@ contract AccessControlSecurityTest is Test {
 
     function test_AdminCanUpdateFeeConfig() public {
         vm.prank(admin);
-        feeTracker.setFeeConfig(2000, feeCollector);
-        assertEq(feeTracker.feeRateBps(), 2000);
+        feeTracker.setPlanRate(0, 2000);
+        assertEq(feeTracker.planRateBps(0), 2000);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 
@@ -123,6 +122,6 @@ contract AccessControlSecurityTest is Test {
         AdapterRegistry newRegistry = new AdapterRegistry(admin, emergencyAdmin);
         vm.prank(attacker);
         vm.expectRevert();
-        factory.setAdapterRegistry(newRegistry);
+        factory.setAdapterRegistry(VAULT_PROFILE, newRegistry);
     }
 }

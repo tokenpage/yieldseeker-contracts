@@ -795,6 +795,9 @@ sequenceDiagram
 Required environment variables:
 - `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
 - `SERVER_ADDRESS`: Backend server address
+- `MULTISIG_ADMIN_ADDRESS`: Timelock executor and admin
+- `PLAN_MANAGER_ADDRESS`: Can move users to cheaper fee plans
+- `FEE_COLLECTOR_ADDRESS`: Receives fees from new fee trackers
 - `RPC_NODE_URL_8453`: Base network RPC endpoint
 - `ETHERSCAN_API_KEY`:  For contract verification (optional)
 

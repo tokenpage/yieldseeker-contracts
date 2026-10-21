@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed, BaseAssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
@@ -72,8 +72,7 @@ contract AerodromeCLSwapAdapterTest is Test {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         sellToken = new MockERC20("Mock Token", "mTKN");
         otherToken = new MockERC20("Other Token", "oTKN");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(sellToken));
         router = new MockAerodromeCLRouter();

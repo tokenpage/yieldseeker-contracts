@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker as CurrentFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IAgentWallet} from "../../../src/IAgentWallet.sol";
-import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -12,8 +11,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract AdapterWalletHarness is IAgentWallet {
     IERC20 private immutable _BASE_ASSET;
     YieldSeekerFeeTracker private immutable _FEE_TRACKER;
+    address public immutable owner;
 
     constructor(IERC20 baseAsset_, YieldSeekerFeeTracker feeTracker_) {
+        owner = msg.sender;
         _BASE_ASSET = baseAsset_;
         _FEE_TRACKER = feeTracker_;
     }
@@ -22,8 +23,8 @@ contract AdapterWalletHarness is IAgentWallet {
         return _BASE_ASSET;
     }
 
-    function feeTracker() external view override returns (CurrentFeeTracker) {
-        return CurrentFeeTracker(address(_FEE_TRACKER));
+    function feeTracker() external view override returns (YieldSeekerFeeTracker) {
+        return _FEE_TRACKER;
     }
 
     function recordAgentYieldTokenEarned(address token, uint256 amount) external {
