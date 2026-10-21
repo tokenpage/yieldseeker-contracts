@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
 import {YieldSeekerMoonwellRewardAdapter} from "../../../src/adapters/MoonwellRewardAdapter.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {AdapterWalletHarness} from "./AdapterHarness.t.sol";

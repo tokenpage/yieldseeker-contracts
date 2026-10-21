@@ -29,7 +29,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *            swap the fee logic under an existing wallet.
  *         2. The fee contract decides what the owner may withdraw (reverting for tokens that may not leave), so e.g.
  *            borrow agents can withdraw borrowed assets.
- * @dev Only deploy this implementation for YieldSeekerAgentWalletFactoryV2. Wallets that already have a fee tracker
+ * @dev Only deploy this implementation for the profile YieldSeekerAgentWalletFactory. Wallets that already have a fee tracker
  *      would pin it, and a legacy FeeTracker has no withdrawable().
  */
 contract YieldSeekerAgentWalletV3 is YieldSeekerAgentWalletV2 {

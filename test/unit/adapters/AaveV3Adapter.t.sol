@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";

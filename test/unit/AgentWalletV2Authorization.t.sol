@@ -2,10 +2,10 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";

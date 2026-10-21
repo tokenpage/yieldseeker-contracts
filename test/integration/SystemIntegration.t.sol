@@ -7,9 +7,9 @@ import {Test} from "forge-std/Test.sol";
 
 // Real contracts (not mocks)
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 
 // Test utilities

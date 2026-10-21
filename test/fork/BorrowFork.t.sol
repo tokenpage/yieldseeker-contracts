@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactoryV2 as AgentWalletFactory} from "../../src/AgentWalletFactoryV2.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
@@ -15,7 +15,6 @@ import {AWKWalletLinkRegistry} from "../../src/agentwalletkit/AWKWalletLinkRegis
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
-import {YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -57,15 +56,15 @@ contract BorrowForkTest is Test {
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
         borrowFeeModule = new YieldSeekerBorrowFeeModule(address(this), address(this), feeCollector, 200, 50);
-        YieldSeekerVaultFeeModule vaultFeeModule = new YieldSeekerVaultFeeModule(address(this), address(this), feeCollector, 5000, 1000);
+        FeeTracker vaultFeeModule = new FeeTracker(address(this), address(this), feeCollector, 5000, 1000);
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
         factory = new AgentWalletFactory(address(this), operator);
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
-        factory.setProfileAdapterRegistry(BORROW_PROFILE, borrowRegistry);
-        factory.setProfileFeeTracker(BORROW_PROFILE, FeeTracker(address(borrowFeeModule)));
-        factory.setProfileAdapterRegistry(VAULT_PROFILE, vaultRegistry);
-        factory.setProfileFeeTracker(VAULT_PROFILE, FeeTracker(address(vaultFeeModule)));
+        factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
+        factory.setFeeTracker(BORROW_PROFILE, FeeTracker(address(borrowFeeModule)));
+        factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
+        factory.setFeeTracker(VAULT_PROFILE, FeeTracker(address(vaultFeeModule)));
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter(oracle);
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter(oracle);
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);

@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactoryV2} from "../../../src/AgentWalletFactoryV2.sol";
+import {YieldSeekerAgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3} from "../../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
@@ -27,7 +27,7 @@ contract PairSwapAdapterTest is Test {
     address private constant FEE_COLLECTOR = address(0xFEE);
     uint256 private constant SLIPPAGE_BPS = 100;
 
-    YieldSeekerAgentWalletFactoryV2 private factory;
+    YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private wallet;
     YieldSeekerAdapterRegistry private registry;
     YieldSeekerBorrowFeeModule private feeModule;
@@ -63,12 +63,12 @@ contract PairSwapAdapterTest is Test {
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
         feeModule = new YieldSeekerBorrowFeeModule(address(this), address(this), FEE_COLLECTOR, 10_000, 50);
-        factory = new YieldSeekerAgentWalletFactoryV2(address(this), OPERATOR);
+        factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
-        factory.setProfileAdapterRegistry(PROFILE, registry);
-        factory.setProfileFeeTracker(PROFILE, YieldSeekerFeeTracker(address(feeModule)));
+        factory.setAdapterRegistry(PROFILE, registry);
+        factory.setFeeTracker(PROFILE, YieldSeekerFeeTracker(address(feeModule)));
 
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(reward));

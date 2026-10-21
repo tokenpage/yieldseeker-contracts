@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AgentAlreadyExists, TooManyOperators} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
+import {AgentAlreadyExists, TooManyOperators} from "../../src/_old/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockAdapterRegistry} from "../mocks/MockAdapterRegistry.sol";
 import {MockAgentWalletFactory} from "../mocks/MockAgentWalletFactory.sol";

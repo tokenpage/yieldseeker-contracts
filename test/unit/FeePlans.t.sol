@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerFeeTracker as YieldSeekerVaultFeeModule} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {InvalidFeeRate, PlanRateIncrease, UnknownPlan} from "../../src/fees/FeePlans.sol";
-import {YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
 import {Test} from "forge-std/Test.sol";

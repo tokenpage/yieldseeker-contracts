@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidFeeRate} from "../../src/FeeTracker.sol";
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
+import {InvalidFeeRate} from "../../src/_old/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../src/_old/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
 import {Test} from "forge-std/Test.sol";

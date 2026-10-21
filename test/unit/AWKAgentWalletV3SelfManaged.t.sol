@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {TooManyOperators} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
+import {TooManyOperators} from "../../src/_old/agentwalletkit/AWKAgentWalletFactory.sol";
 import {NotAllowed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockV3EchoAdapter, MockV3SelfManagedWallet, MockV3SelfManagedWalletV2, MockV3WalletFactory} from "../mocks/MockV3TestHelpers.sol";

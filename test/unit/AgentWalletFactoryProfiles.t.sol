@@ -2,18 +2,17 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactoryV2} from "../../src/AgentWalletFactoryV2.sol";
+import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidFeeTracker} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
-import {AgentAlreadyExists, InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
-import {UnknownProfile} from "../../src/agentwalletkit/AWKAgentWalletFactoryV2.sol";
-import {YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YieldSeekerFeeTracker as LegacyFeeTracker} from "../../src/_old/FeeTracker.sol";
+import {AgentAlreadyExists, InvalidImplementationFactory, UnknownProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
-contract AgentWalletFactoryV2Test is Test {
+contract AgentWalletFactoryProfilesTest is Test {
     bytes32 private constant PROFILE_VAULT = keccak256("profile-vault");
     bytes32 private constant PROFILE_BORROW = keccak256("profile-borrow");
 
@@ -25,24 +24,24 @@ contract AgentWalletFactoryV2Test is Test {
     MockERC20 private baseAsset;
     YieldSeekerAdapterRegistry private registryVault;
     YieldSeekerAdapterRegistry private registryBorrow;
-    YieldSeekerVaultFeeModule private feeVault;
-    YieldSeekerVaultFeeModule private feeBorrow;
-    YieldSeekerAgentWalletFactoryV2 private factory;
+    YieldSeekerFeeTracker private feeVault;
+    YieldSeekerFeeTracker private feeBorrow;
+    YieldSeekerAgentWalletFactory private factory;
 
     function setUp() public {
         baseAsset = new MockERC20("Base Asset", "BASE");
         registryVault = new YieldSeekerAdapterRegistry(address(this), address(this));
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
-        feeVault = new YieldSeekerVaultFeeModule(address(this), address(this), FEE_COLLECTOR_A, 10_000, 1_000);
-        feeBorrow = new YieldSeekerVaultFeeModule(address(this), address(this), FEE_COLLECTOR_B, 10_000, 500);
-        factory = new YieldSeekerAgentWalletFactoryV2(address(this), OPERATOR);
+        feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A, 10_000, 1_000);
+        feeBorrow = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_B, 10_000, 500);
+        factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
 
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
-        factory.setProfileAdapterRegistry(PROFILE_VAULT, registryVault);
-        factory.setProfileAdapterRegistry(PROFILE_BORROW, registryBorrow);
-        factory.setProfileFeeTracker(PROFILE_VAULT, YieldSeekerFeeTracker(address(feeVault)));
-        factory.setProfileFeeTracker(PROFILE_BORROW, YieldSeekerFeeTracker(address(feeBorrow)));
+        factory.setAdapterRegistry(PROFILE_VAULT, registryVault);
+        factory.setAdapterRegistry(PROFILE_BORROW, registryBorrow);
+        factory.setFeeTracker(PROFILE_VAULT, feeVault);
+        factory.setFeeTracker(PROFILE_BORROW, feeBorrow);
     }
 
     function test_CreatedWalletsUseTheirProfileRegistryAndFeeModule() public {
@@ -88,16 +87,16 @@ contract AgentWalletFactoryV2Test is Test {
 
     function test_ProfileZeroIsRejectedByBothProfileSetters() public {
         vm.expectRevert(abi.encodeWithSelector(UnknownProfile.selector, bytes32(0)));
-        factory.setProfileAdapterRegistry(bytes32(0), registryVault);
+        factory.setAdapterRegistry(bytes32(0), registryVault);
 
         vm.expectRevert(abi.encodeWithSelector(UnknownProfile.selector, bytes32(0)));
-        factory.setProfileFeeTracker(bytes32(0), YieldSeekerFeeTracker(address(feeVault)));
+        factory.setFeeTracker(bytes32(0), feeVault);
     }
 
     function test_FeeContractWithoutFeeModuleInterfaceIsRejected() public {
-        YieldSeekerFeeTracker legacyTracker = new YieldSeekerFeeTracker(address(this));
+        LegacyFeeTracker legacyTracker = new LegacyFeeTracker(address(this));
         vm.expectRevert(InvalidFeeTracker.selector);
-        factory.setProfileFeeTracker(PROFILE_VAULT, legacyTracker);
+        factory.setFeeTracker(PROFILE_VAULT, YieldSeekerFeeTracker(address(legacyTracker)));
     }
 
     function test_DuplicateOwnerIndexReverts() public {
@@ -111,7 +110,7 @@ contract AgentWalletFactoryV2Test is Test {
     }
 
     function test_ImplementationBoundToAnotherFactoryIsRejected() public {
-        YieldSeekerAgentWalletFactoryV2 otherFactory = new YieldSeekerAgentWalletFactoryV2(address(this), STRANGER);
+        YieldSeekerAgentWalletFactory otherFactory = new YieldSeekerAgentWalletFactory(address(this), STRANGER);
         YieldSeekerAgentWalletV3 foreignImplementation = new YieldSeekerAgentWalletV3(address(otherFactory));
 
         vm.expectRevert(InvalidImplementationFactory.selector);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
+import {YieldSeekerFeeTracker} from "../../../src/_old/FeeTracker.sol";
 import {AssetNotAllowed, BaseAssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";

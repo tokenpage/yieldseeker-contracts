@@ -15,7 +15,7 @@
 pragma solidity 0.8.28;
 
 import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
-import {AWKAgentWalletFactoryV2} from "../AWKAgentWalletFactoryV2.sol";
+import {AWKAgentWalletFactory} from "../AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV2} from "../AWKAgentWalletV2.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {AWKWalletLinkRegistry} from "../AWKWalletLinkRegistry.sol";
@@ -54,7 +54,7 @@ contract AWKTransferAdapter is AWKAdapter {
         (address token, address to, uint256 amount) = abi.decode(data[4:], (address, address, uint256));
         if (amount == 0) revert AWKErrors.ZeroAmount();
         AWKAgentWalletV2 wallet = AWKAgentWalletV2(payable(address(this)));
-        AWKAgentWalletFactoryV2 factory = AWKAgentWalletFactoryV2(address(wallet.FACTORY()));
+        AWKAgentWalletFactory factory = AWKAgentWalletFactory(address(wallet.FACTORY()));
         if (factory.walletProfile(address(this)) == bytes32(0) || factory.walletProfile(to) == bytes32(0)) revert NotLinkedWallet(to);
         if (AWKAgentWalletV2(payable(to)).owner() != wallet.owner()) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);

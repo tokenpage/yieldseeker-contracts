@@ -16,27 +16,31 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../AgentWalletV1.sol";
-import {IAgentWallet} from "../IAgentWallet.sol";
-import {YieldSeekerFeePlans} from "./FeePlans.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
+error InvalidFeeRate();
+
 /**
- * @title YieldSeekerVaultFeeModule
- * @notice YieldSeekerFeeTracker with a fee rate per user (from YieldSeekerFeePlans)
- * @dev Identical to YieldSeekerFeeTracker except that every use of feeRateBps reads the wallet owner's plan rate,
- *      configuration goes through YieldSeekerFeePlans, and withdrawable() lets V3 wallets withdraw only their base asset.
+ * @title YieldSeekerFeeTracker
+ * @notice Tracks fees for YieldSeeker wallets
+ * @dev Called by wallets to record yield and calculate fees.
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
-contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
+contract YieldSeekerFeeTracker is AccessControl {
     using SafeCast for uint256;
 
+    uint256 public constant MAX_FEE_RATE_BPS = 5000;
     uint256 public constant ASSET_EXCHANGE_RATE_PRECISION = 1e18;
 
     struct VaultPosition {
         uint128 costBasis;
         uint128 shares;
     }
+
+    uint256 public feeRateBps;
+    address public feeCollector;
 
     mapping(address wallet => uint256) public agentFeesCharged;
     mapping(address wallet => uint256) public agentFeesPaid;
@@ -47,16 +51,19 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
 
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
     event FeePaid(address indexed wallet, uint256 amount);
+    event FeeConfigUpdated(uint256 feeRateBps, address feeCollector);
 
-    constructor(address admin, address planManager, address initialFeeCollector, uint256 maxFeeRateBps, uint256 defaultRateBps) YieldSeekerFeePlans(admin, planManager, initialFeeCollector, maxFeeRateBps, defaultRateBps) {}
+    constructor(address admin) {
+        if (admin == address(0)) revert AWKErrors.ZeroAddress();
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
 
-    /**
-     * @notice Only the base asset may leave the wallet, minus fees owed (vault shares and reward tokens go through adapters)
-     */
-    function withdrawable(address wallet, address token, uint256 balance) external view returns (uint256) {
-        if (token != address(IAgentWallet(wallet).baseAsset())) revert InvalidAsset();
-        uint256 feesOwed = this.getFeesOwed(wallet);
-        return balance > feesOwed ? balance - feesOwed : 0;
+    function setFeeConfig(uint256 _feeRateBps, address _feeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_feeRateBps > MAX_FEE_RATE_BPS) revert InvalidFeeRate();
+        if (_feeCollector == address(0)) revert AWKErrors.ZeroAddress();
+        feeRateBps = _feeRateBps;
+        feeCollector = _feeCollector;
+        emit FeeConfigUpdated(_feeRateBps, _feeCollector);
     }
 
     /**
@@ -138,7 +145,7 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
     }
 
     function _chargeFeesOnProfit(address wallet, uint256 profit) internal {
-        uint256 fee = (profit * feeRateBpsForWallet(wallet)) / 1e4;
+        uint256 fee = (profit * feeRateBps) / 1e4;
         agentFeesCharged[wallet] += fee;
         emit YieldRecorded(wallet, profit, fee);
     }
@@ -152,7 +159,6 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
     function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
         if (sharesSpent == 0) return;
         address wallet = msg.sender;
-        uint256 feeRateBps = feeRateBpsForWallet(wallet);
         VaultPosition storage pos = _agentVaultPositions[wallet][vault];
         uint256 totalShares = pos.shares;
         uint256 totalCostBasis = pos.costBasis;
@@ -213,7 +219,6 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
     function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore, uint256 vaultTokenToBaseAssetRate) external {
         if (assetsReceived == 0 || totalVaultBalanceBefore == 0) return;
         address wallet = msg.sender;
-        uint256 feeRateBps = feeRateBpsForWallet(wallet);
         VaultPosition storage pos = _agentVaultPositions[wallet][vault];
         uint256 totalCostBasis = pos.costBasis;
         uint256 totalShares = pos.shares;
@@ -268,7 +273,7 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
      * @param amount The amount of yield earned in base asset
      */
     function recordAgentYieldEarned(uint256 amount) external {
-        uint256 fee = (amount * feeRateBpsForWallet(msg.sender)) / 1e4;
+        uint256 fee = (amount * feeRateBps) / 1e4;
         agentFeesCharged[msg.sender] += fee;
         emit YieldRecorded(msg.sender, amount, fee);
     }
@@ -281,7 +286,7 @@ contract YieldSeekerVaultFeeModule is YieldSeekerFeePlans {
      *      and stores the fee portion to be collected when swapped to base asset.
      */
     function recordAgentYieldTokenEarned(address token, uint256 amount) external {
-        uint256 feeInToken = (amount * feeRateBpsForWallet(msg.sender)) / 1e4;
+        uint256 feeInToken = (amount * feeRateBps) / 1e4;
         agentYieldTokenFeesOwed[msg.sender][token] += feeInToken;
     }
 

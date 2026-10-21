@@ -2,14 +2,13 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactoryV2} from "../../src/AgentWalletFactoryV2.sol";
+import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
-import {YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3YieldSeekerWalletV1, MockV3YieldSeekerWalletV2} from "../mocks/MockV3TestHelpers.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -37,9 +36,9 @@ contract AgentWalletV3Test is Test {
     MockERC20 private unrelated;
     YieldSeekerAdapterRegistry private vaultRegistry;
     YieldSeekerAdapterRegistry private borrowRegistry;
-    YieldSeekerVaultFeeModule private vaultFees;
+    YieldSeekerFeeTracker private vaultFees;
     YieldSeekerBorrowFeeModule private borrowFees;
-    YieldSeekerAgentWalletFactoryV2 private factory;
+    YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private vaultWallet;
     YieldSeekerAgentWalletV3 private borrowWallet;
 
@@ -52,16 +51,16 @@ contract AgentWalletV3Test is Test {
         unrelated = new MockERC20("Unrelated", "NOPE");
         vaultRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         borrowRegistry = new YieldSeekerAdapterRegistry(admin, admin);
-        vaultFees = new YieldSeekerVaultFeeModule(admin, admin, feeCollector, 10_000, 1_000);
+        vaultFees = new YieldSeekerFeeTracker(admin, admin, feeCollector, 10_000, 1_000);
         borrowFees = new YieldSeekerBorrowFeeModule(admin, admin, feeCollector, 10_000, 1_000);
-        factory = new YieldSeekerAgentWalletFactoryV2(admin, operator);
+        factory = new YieldSeekerAgentWalletFactory(admin, operator);
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
-        factory.setProfileAdapterRegistry(VAULT_PROFILE, vaultRegistry);
-        factory.setProfileAdapterRegistry(BORROW_PROFILE, borrowRegistry);
-        factory.setProfileFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(vaultFees)));
-        factory.setProfileFeeTracker(BORROW_PROFILE, YieldSeekerFeeTracker(address(borrowFees)));
+        factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
+        factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
+        factory.setFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(vaultFees)));
+        factory.setFeeTracker(BORROW_PROFILE, YieldSeekerFeeTracker(address(borrowFees)));
 
         vm.startPrank(operator);
         vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_PROFILE);
@@ -75,12 +74,12 @@ contract AgentWalletV3Test is Test {
 
     function test_ProfileFeeTrackerIsPinnedWhileRegistryAndOperatorsResync() public {
         YieldSeekerAdapterRegistry nextRegistry = new YieldSeekerAdapterRegistry(admin, admin);
-        YieldSeekerVaultFeeModule nextFees = new YieldSeekerVaultFeeModule(admin, admin, feeCollector, 10_000, 250);
+        YieldSeekerFeeTracker nextFees = new YieldSeekerFeeTracker(admin, admin, feeCollector, 10_000, 250);
         address nextOperator = makeAddr("next-operator");
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
 
-        factory.setProfileAdapterRegistry(VAULT_PROFILE, nextRegistry);
-        factory.setProfileFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(nextFees)));
+        factory.setAdapterRegistry(VAULT_PROFILE, nextRegistry);
+        factory.setFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(nextFees)));
         factory.grantRole(operatorRole, nextOperator);
         factory.revokeRole(operatorRole, operator);
 

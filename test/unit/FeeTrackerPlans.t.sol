@@ -2,12 +2,12 @@
 pragma solidity 0.8.28;
 
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YieldSeekerFeeTracker as YieldSeekerVaultFeeModule} from "../../src/FeeTracker.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
 import {Test} from "forge-std/Test.sol";
 
-contract VaultFeeModuleTest is Test {
+contract FeeTrackerPlansTest is Test {
     address internal admin = makeAddr("admin");
     address internal planManager = makeAddr("planManager");
     address internal collector = makeAddr("collector");

@@ -2,9 +2,9 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/_old/AgentWalletFactory.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/_old/FeeTracker.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";

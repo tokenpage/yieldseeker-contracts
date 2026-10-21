@@ -3,10 +3,11 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
-import {YieldSeekerAgentWalletFactoryV2 as AgentWalletFactory} from "../src/AgentWalletFactoryV2.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOracle.sol";
+import {YieldSeekerFeeTracker as LegacyFeeTracker} from "../src/_old/FeeTracker.sol";
 import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../src/adapters/AaveV4LendingAdapter.sol";
 import {YieldSeekerAerodromeCLPairSwapAdapter as AerodromeCLPairSwapAdapter} from "../src/adapters/AerodromeCLPairSwapAdapter.sol";
@@ -21,7 +22,6 @@ import {IAaveV4Spoke} from "../src/agentwalletkit/adapters/AWKAaveV4LendingAdapt
 import {AWKLendingAdapter} from "../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {YieldSeekerBorrowFeeModule as BorrowFeeModule} from "../src/fees/BorrowFeeModule.sol";
-import {YieldSeekerVaultFeeModule as VaultFeeModule} from "../src/fees/VaultFeeModule.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -115,8 +115,8 @@ contract DeployV3Script is Script {
             feeTracker: existingJson.readAddress(".feeTracker"),
             merklAdapter: existingJson.readAddress(".merklAdapter")
         });
-        address feeCollector = FeeTracker(existing.feeTracker).feeCollector();
-        uint256 vaultFeeBps = FeeTracker(existing.feeTracker).feeRateBps();
+        address feeCollector = LegacyFeeTracker(existing.feeTracker).feeCollector();
+        uint256 vaultFeeBps = LegacyFeeTracker(existing.feeTracker).feeRateBps();
         console2.log("Timelock:", existing.adminTimelock);
         console2.log("Server:", serverAddress);
         console2.log("Plan manager:", planManagerAddress);
@@ -125,11 +125,11 @@ contract DeployV3Script is Script {
 
         vm.startBroadcast();
         Deployments memory d;
-        d.agentWalletFactory = _deploy("AgentWalletFactoryV2", abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(existing.adminTimelock, serverAddress)));
+        d.agentWalletFactory = _deploy("AgentWalletFactory", abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(existing.adminTimelock, serverAddress)));
         d.agentWalletImplementation = _deploy("AgentWalletV3", abi.encodePacked(type(AgentWallet).creationCode, abi.encode(d.agentWalletFactory)));
         d.borrowAdapterRegistry = _deploy("BorrowAdapterRegistry", abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(existing.adminTimelock, emergencyAdminAddress)));
         d.priceOracle = _deploy("PriceOracle", abi.encodePacked(type(PriceOracle).creationCode, abi.encode(existing.adminTimelock, emergencyAdminAddress, SEQUENCER_UPTIME_FEED)));
-        d.vaultFeeModule = _deploy("VaultFeeModule", abi.encodePacked(type(VaultFeeModule).creationCode, abi.encode(existing.adminTimelock, planManagerAddress, feeCollector, VAULT_MAX_FEE_BPS, vaultFeeBps)));
+        d.vaultFeeModule = _deploy("VaultFeeTracker", abi.encodePacked(type(FeeTracker).creationCode, abi.encode(existing.adminTimelock, planManagerAddress, feeCollector, VAULT_MAX_FEE_BPS, vaultFeeBps)));
         d.borrowFeeModule = _deploy("BorrowFeeModule", abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(existing.adminTimelock, planManagerAddress, feeCollector, BORROW_MAX_FEE_BPS, BORROW_DEFAULT_FEE_BPS)));
         d.borrowRewardSellPolicy = _deploy("BorrowRewardSellPolicy", abi.encodePacked(type(SwapSellPolicy).creationCode, abi.encode(existing.adminTimelock, emergencyAdminAddress, false)));
         d.walletLinkRegistry = _deploy("WalletLinkRegistry", type(WalletLinkRegistry).creationCode);
@@ -160,10 +160,10 @@ contract DeployV3Script is Script {
         PriceOracle oracle = PriceOracle(d.priceOracle);
 
         _op(d.agentWalletFactory, abi.encodeCall(factory.setAgentWalletImplementation, (AgentWallet(payable(d.agentWalletImplementation)))));
-        _op(d.agentWalletFactory, abi.encodeCall(factory.setProfileAdapterRegistry, (VAULT_PROFILE, vaultRegistry)));
-        _op(d.agentWalletFactory, abi.encodeCall(factory.setProfileFeeTracker, (VAULT_PROFILE, FeeTracker(d.vaultFeeModule))));
-        _op(d.agentWalletFactory, abi.encodeCall(factory.setProfileAdapterRegistry, (BORROW_PROFILE, borrowRegistry)));
-        _op(d.agentWalletFactory, abi.encodeCall(factory.setProfileFeeTracker, (BORROW_PROFILE, FeeTracker(d.borrowFeeModule))));
+        _op(d.agentWalletFactory, abi.encodeCall(factory.setAdapterRegistry, (VAULT_PROFILE, vaultRegistry)));
+        _op(d.agentWalletFactory, abi.encodeCall(factory.setFeeTracker, (VAULT_PROFILE, FeeTracker(d.vaultFeeModule))));
+        _op(d.agentWalletFactory, abi.encodeCall(factory.setAdapterRegistry, (BORROW_PROFILE, borrowRegistry)));
+        _op(d.agentWalletFactory, abi.encodeCall(factory.setFeeTracker, (BORROW_PROFILE, FeeTracker(d.borrowFeeModule))));
 
         _op(d.priceOracle, abi.encodeCall(oracle.setSource, (WETH, IPriceFeed(ETH_USD_FEED), 1 hours)));
         _op(d.priceOracle, abi.encodeCall(oracle.setSource, (CBBTC, IPriceFeed(CBBTC_USD_FEED), 1 hours)));
