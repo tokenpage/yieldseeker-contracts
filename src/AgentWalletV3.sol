@@ -16,7 +16,7 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidFeeTracker, YieldSeekerStorageV1} from "./AgentWalletV1.sol";
+import {InvalidAsset, InvalidFeeTracker, YieldSeekerStorageV1} from "./AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -117,13 +117,14 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
 
     /**
-     * @notice Calculate withdrawable balance (total balance minus fees reserved by the fee tracker)
-     * @param asset Address of the asset to check (the fee tracker reverts for assets that may not leave)
+     * @notice Calculate withdrawable balance (total balance minus fees owed)
+     * @param asset Address of the asset to check (must be allowed by the fee tracker, e.g. the base asset)
      */
     function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
-        uint256 feesReserved = feeTracker().feesReserved(address(this), asset);
+        (bool allowed, uint256 feesOwed) = feeTracker().withdrawReserve(address(this), asset);
+        if (!allowed) revert InvalidAsset();
         uint256 balance = IERC20(asset).balanceOf(address(this));
-        return balance > feesReserved ? balance - feesReserved : 0;
+        return balance > feesOwed ? balance - feesOwed : 0;
     }
 
     /**

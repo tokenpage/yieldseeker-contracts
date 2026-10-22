@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
@@ -192,13 +191,16 @@ contract FeeTrackerPlansTest is Test {
         walletA.execute(address(module), abi.encodeCall(module.recordAgentYieldEarned, (100e6)));
 
         assertEq(module.getFeesOwed(address(walletA)), 5e6);
-        assertEq(module.feesReserved(address(walletA), address(baseAsset)), 5e6);
-        vm.expectRevert(InvalidAsset.selector);
-        module.feesReserved(address(walletA), address(rewardToken));
+        (bool baseAllowed, uint256 baseReserved) = module.withdrawReserve(address(walletA), address(baseAsset));
+        (bool rewardAllowed,) = module.withdrawReserve(address(walletA), address(rewardToken));
+        assertTrue(baseAllowed);
+        assertEq(baseReserved, 5e6);
+        assertFalse(rewardAllowed);
 
         walletA.execute(address(module), abi.encodeCall(module.recordFeePaid, (2e6)));
         assertEq(module.agentFeesPaid(address(walletA)), 2e6);
-        assertEq(module.feesReserved(address(walletA), address(baseAsset)), 3e6);
+        (, baseReserved) = module.withdrawReserve(address(walletA), address(baseAsset));
+        assertEq(baseReserved, 3e6);
 
         walletA.execute(address(module), abi.encodeCall(module.recordFeePaid, (10e6)));
         assertEq(module.agentFeesPaid(address(walletA)), 12e6);

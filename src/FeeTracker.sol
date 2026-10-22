@@ -26,7 +26,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
  * @notice Tracks fees for YieldSeeker wallets
  * @dev Called by wallets to record yield and calculate fees.
  *      The fee rate is per wallet owner (YieldSeekerFeePlans). Other fee types (e.g. the borrow fee) are modules
- *      plugged in by the admin; feesReserved() combines this tracker's vault fees with every module's.
+ *      plugged in by the admin; withdrawReserve() combines this tracker's vault fees with every module's.
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
 contract YieldSeekerFeeTracker is YieldSeekerFeePlans {
@@ -52,19 +52,18 @@ contract YieldSeekerFeeTracker is YieldSeekerFeePlans {
     constructor(address admin, address planManager, address initialFeeCollector, uint256 maxFeeRateBps, uint256 defaultRateBps) YieldSeekerFeePlans(admin, planManager, initialFeeCollector, maxFeeRateBps, defaultRateBps) {}
 
     /**
-     * @notice How much of `token` a wallet must keep for fees owed. The base asset keeps vault fees owed; other tokens
-     *         may only leave if a fee module allows them, keeping what that module holds back (vault shares and reward
-     *         tokens go through adapters). Reverts with InvalidAsset for tokens that may not leave.
+     * @notice Whether `token` may leave `wallet`, and how much of it the wallet must keep for fees owed. The base
+     *         asset may leave minus vault fees owed; other tokens only if a fee module accounts for them, minus what
+     *         that module holds back (vault shares and reward tokens go through adapters).
      */
-    function feesReserved(address wallet, address token) external view returns (uint256 reserved) {
-        bool allowed = token == address(IAgentWallet(wallet).baseAsset());
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
+        allowed = token == address(IAgentWallet(wallet).baseAsset());
         if (allowed) reserved = this.getFeesOwed(wallet);
         for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
             (bool moduleAllows, uint256 moduleReserved) = feeModules[_moduleFeeTypes[i]].withdrawReserve(wallet, token);
             allowed = allowed || moduleAllows;
             reserved += moduleReserved;
         }
-        if (!allowed) revert InvalidAsset();
     }
 
     /**

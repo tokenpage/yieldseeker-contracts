@@ -16,6 +16,7 @@
 //
 pragma solidity 0.8.28;
 
+import {InvalidAsset} from "../AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV3} from "../AgentWalletV3.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {YieldSeekerWalletLinkRegistry} from "../WalletLinkRegistry.sol";
@@ -63,10 +64,11 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         if (factory.walletProfile(address(this)) == bytes32(0) || factory.walletProfile(to) == bytes32(0)) revert NotLinkedWallet(to);
         if (YieldSeekerAgentWalletV3(payable(to)).owner() != wallet.owner()) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);
-        IAgentWallet(to).feeTracker().feesReserved(to, token);
-        uint256 feesReserved = _feeTracker().feesReserved(address(this), token);
+        (bool receiverAllows,) = IAgentWallet(to).feeTracker().withdrawReserve(to, token);
+        (bool senderAllows, uint256 feesOwed) = _feeTracker().withdrawReserve(address(this), token);
+        if (!receiverAllows || !senderAllows) revert InvalidAsset();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance < feesReserved || amount > balance - feesReserved) revert AWKErrors.InsufficientBalance();
+        if (balance < feesOwed || amount > balance - feesOwed) revert AWKErrors.InsufficientBalance();
         IERC20(token).safeTransfer(to, amount);
         emit TransferredToLinkedWallet(address(this), to, token, amount);
         return abi.encode(amount);

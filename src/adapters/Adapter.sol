@@ -19,10 +19,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
-import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../fees/BorrowFeeModule.sol";
-import {IYieldSeekerFeeModuleHost} from "../fees/IYieldSeekerFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 error AssetNotAllowed();
 error BaseAssetNotAllowed();
@@ -56,17 +53,5 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
 
     function _feeTracker() internal view returns (FeeTracker) {
         return _ysAgentWallet().feeTracker();
-    }
-
-    /// @dev The wallet's borrow fee module, or address(0) (also for wallets pinned to a tracker without fee modules)
-    function _borrowFeeModule() internal view returns (YieldSeekerBorrowFeeModule) {
-        address tracker = address(_feeTracker());
-        if (!IERC165(tracker).supportsInterface(type(IYieldSeekerFeeModuleHost).interfaceId)) return YieldSeekerBorrowFeeModule(address(0));
-        return YieldSeekerBorrowFeeModule(address(IYieldSeekerFeeModuleHost(tracker).feeModules(BORROW_FEE)));
-    }
-
-    function _isBorrowedToken(address token) internal view returns (bool) {
-        YieldSeekerBorrowFeeModule module = _borrowFeeModule();
-        return address(module) != address(0) && module.isBorrowedToken(address(this), token);
     }
 }

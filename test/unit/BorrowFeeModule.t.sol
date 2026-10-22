@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {BORROW_FEE, FeePaidExceedsOwed, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
@@ -124,10 +123,14 @@ contract BorrowFeeModuleTest is Test {
 
         wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (address(debtToken), 40, address(baseAsset), 40)));
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 60);
-        assertEq(tracker.feesReserved(address(wallet), address(baseAsset)), 0);
-        assertEq(tracker.feesReserved(address(wallet), address(debtToken)), 60);
-        vm.expectRevert(InvalidAsset.selector);
-        tracker.feesReserved(address(wallet), address(unrelatedToken));
+        (bool baseAllowed, uint256 baseReserved) = tracker.withdrawReserve(address(wallet), address(baseAsset));
+        (bool debtAllowed, uint256 debtReserved) = tracker.withdrawReserve(address(wallet), address(debtToken));
+        (bool unrelatedAllowed,) = tracker.withdrawReserve(address(wallet), address(unrelatedToken));
+        assertTrue(baseAllowed);
+        assertEq(baseReserved, 0);
+        assertTrue(debtAllowed);
+        assertEq(debtReserved, 60);
+        assertFalse(unrelatedAllowed);
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {

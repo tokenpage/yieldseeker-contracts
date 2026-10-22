@@ -98,9 +98,9 @@ contract MockFeeTracker is AccessControl, IYieldSeekerFeeModuleHost {
         return owed > paid ? owed - paid : 0;
     }
 
-    function feesReserved(address wallet, address token) external view override returns (uint256) {
-        if (token != address(IAgentWallet(wallet).baseAsset())) revert InvalidAsset();
-        return getFeesOwed(wallet);
+    function withdrawReserve(address wallet, address token) external view override returns (bool allowed, uint256 reserved) {
+        if (token != address(IAgentWallet(wallet).baseAsset())) return (false, 0);
+        return (true, getFeesOwed(wallet));
     }
 
     function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
