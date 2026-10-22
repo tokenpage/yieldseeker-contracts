@@ -12,6 +12,7 @@ import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentW
 import {AWKAgentWalletV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -56,7 +57,6 @@ contract AgentWalletV3AuthorizationTest is Test {
     uint256 internal constant SIG_VALIDATION_SUCCESS = 0;
     bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 internal constant VAULT_PROFILE = keccak256("vault");
-    bytes32 internal constant VAULT_FEE = keccak256("vault");
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
     event AdapterBlocked(address indexed adapter);

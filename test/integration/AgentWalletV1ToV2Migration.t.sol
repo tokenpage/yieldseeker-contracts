@@ -7,6 +7,7 @@ import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {Test} from "forge-std/Test.sol";
@@ -117,7 +118,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         AgentWalletV1 v1Wallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(v1Wallet), 1_000e6);
 
-        bytes32 vaultFee = feeTracker.VAULT_FEE();
+        bytes32 vaultFee = VAULT_FEE;
         vm.prank(admin);
         feeTracker.setPlanRate(0, vaultFee, 1000);
         vm.prank(address(v1Wallet));

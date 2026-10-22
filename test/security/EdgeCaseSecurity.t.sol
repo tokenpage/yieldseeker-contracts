@@ -6,6 +6,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -126,7 +127,7 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_FeeRateAboveMaxReverts() public {
-        bytes32 vaultFeeType = feeTracker.VAULT_FEE();
+        bytes32 vaultFeeType = VAULT_FEE;
         vm.prank(admin);
         vm.expectRevert();
         feeTracker.setPlanRate(0, vaultFeeType, 6000);

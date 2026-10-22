@@ -133,7 +133,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     /// @notice Borrowed tokens may leave minus the fees owed in them; other tokens are not this module's concern
     function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
-        if (!isBorrowedToken[wallet][token]) return (false, 0);
-        return (true, feesOwed(wallet, token));
+        allowed = isBorrowedToken[wallet][token];
+        if (allowed) reserved = feesOwed(wallet, token);
     }
 }

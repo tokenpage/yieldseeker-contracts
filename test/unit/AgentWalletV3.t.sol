@@ -9,11 +9,32 @@ import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3YieldSeekerWalletV1, MockV3YieldSeekerWalletV2} from "../mocks/MockV3TestHelpers.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract RevertingWithdrawReserveModule is IYieldSeekerFeeModule {
+    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
+        return 10_000;
+    }
+
+    function withdrawReserve(address, address) external pure override returns (bool, uint256) {
+        revert();
+    }
+}
+
+contract GasBurningWithdrawReserveModule is IYieldSeekerFeeModule {
+    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
+        return 10_000;
+    }
+
+    function withdrawReserve(address, address) external view override returns (bool, uint256) {
+        while (true) {}
+    }
+}
 
 contract AgentWalletV3Test is Test {
     using MessageHashUtils for bytes32;
@@ -41,6 +62,8 @@ contract AgentWalletV3Test is Test {
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private vaultWallet;
     YieldSeekerAgentWalletV3 private borrowWallet;
+
+    event FeePaid(address indexed wallet, uint256 amount);
 
     function setUp() public {
         admin = address(this);
@@ -158,6 +181,9 @@ contract AgentWalletV3Test is Test {
         vm.prank(address(vaultWallet));
         vaultFees.recordAgentYieldEarned(100e6);
 
+        vm.expectEmit(true, false, false, true, address(vaultFees.VAULT_FEE_MODULE()));
+        emit FeePaid(address(vaultWallet), 10e6);
+
         vm.prank(operator);
         vaultWallet.collectFees();
 
@@ -199,6 +225,72 @@ contract AgentWalletV3Test is Test {
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
         borrowWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
+    }
+
+    function test_BorrowedTokenRewardFeesAreAddedToBorrowFeeReserve() public {
+        bytes32 market = keccak256("rewarded-debt-market");
+        uint256 startTime = vm.getBlockTimestamp();
+        if (startTime == 0) {
+            vm.warp(1);
+            startTime = vm.getBlockTimestamp();
+        }
+
+        vm.prank(address(borrowWallet));
+        borrowFees.recordBorrow(market, address(usdc), 100e6, 0);
+        vm.warp(startTime + 365 days);
+        vm.prank(address(borrowWallet));
+        borrowFees.checkpoint(market, address(usdc), 100e6);
+
+        uint256 rewardAmount = 200e6;
+        vm.prank(address(borrowWallet));
+        vaultFees.recordAgentYieldTokenEarned(address(usdc), rewardAmount);
+
+        uint256 borrowFeesOwed = borrowFees.feesOwed(address(borrowWallet), address(usdc));
+        uint256 rewardFeesOwed = vaultFees.getAgentYieldTokenFeesOwed(address(borrowWallet), address(usdc));
+        assertEq(borrowFeesOwed, 10e6);
+        assertEq(rewardFeesOwed, 20e6);
+        (bool allowed, uint256 reserved) = vaultFees.withdrawReserve(address(borrowWallet), address(usdc));
+        assertTrue(allowed);
+        assertEq(reserved, borrowFeesOwed + rewardFeesOwed);
+
+        uint256 withdrawable = usdc.balanceOf(address(borrowWallet)) - reserved;
+        uint256 attemptedWithdrawal = withdrawable + 1;
+        vm.expectRevert(AWKErrors.InsufficientBalance.selector);
+        vm.prank(owner);
+        borrowWallet.withdrawAssetToUser(recipient, address(usdc), attemptedWithdrawal);
+
+        vm.prank(owner);
+        borrowWallet.withdrawAssetToUser(recipient, address(usdc), withdrawable);
+        assertEq(usdc.balanceOf(address(borrowWallet)), reserved);
+    }
+
+    function test_FailingFeeModulesDoNotBlockBaseWithdrawalsOrAllowOtherTokens() public {
+        vaultFees.addFeeModule(keccak256("reverting-reserve"), new RevertingWithdrawReserveModule());
+        vaultFees.addFeeModule(keccak256("gas-burning-reserve"), new GasBurningWithdrawReserveModule());
+
+        vm.prank(address(borrowWallet));
+        vaultFees.recordAgentYieldEarned(100e6);
+        uint256 reserve = vaultFees.getFeesOwed(address(borrowWallet));
+        uint256 baseBalance = weth.balanceOf(address(borrowWallet));
+        uint256 withdrawable = baseBalance - reserve;
+
+        (bool baseAllowed, uint256 baseReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(weth));
+        assertTrue(baseAllowed);
+        assertEq(baseReserved, reserve);
+
+        vm.prank(owner);
+        borrowWallet.withdrawAssetToUser(recipient, address(weth), withdrawable);
+        assertEq(weth.balanceOf(recipient), withdrawable);
+        assertEq(weth.balanceOf(address(borrowWallet)), reserve);
+
+        unrelated.mint(address(borrowWallet), 3e6);
+        (bool unrelatedAllowed, uint256 unrelatedReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(unrelated));
+        assertFalse(unrelatedAllowed);
+        assertEq(unrelatedReserved, 0);
+        vm.expectRevert(InvalidAsset.selector);
+        vm.prank(owner);
+        borrowWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
+        assertEq(unrelated.balanceOf(address(borrowWallet)), 3e6);
     }
 
     function _validateWithSigner(bytes memory callData, uint256 signerKey) private returns (uint256) {

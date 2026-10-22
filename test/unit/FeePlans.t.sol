@@ -5,11 +5,10 @@ import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeModuleAlreadySet, InvalidFeeRate, PlanRateIncrease, UnknownFeeType, UnknownPlan} from "../../src/fees/FeePlans.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
 import {Test} from "forge-std/Test.sol";
-
-bytes32 constant VAULT_FEE = keccak256("vault");
 
 contract FeePlansTest is Test {
     address internal admin = makeAddr("admin");
@@ -34,7 +33,7 @@ contract FeePlansTest is Test {
     }
 
     function testAdminSetsRatesThroughMaximumAndRejectsHigherRate() public {
-        uint256 maximumRate = module.MAX_FEE_RATE_BPS();
+        uint256 maximumRate = module.maxFeeRateBps(VAULT_FEE);
         vm.prank(admin);
         module.setPlanRate(1, VAULT_FEE, maximumRate);
         vm.expectRevert(InvalidFeeRate.selector);

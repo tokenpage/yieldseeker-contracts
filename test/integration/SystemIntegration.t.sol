@@ -11,6 +11,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 
 // Test utilities
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -93,7 +94,7 @@ contract SystemIntegrationTest is Test {
         assertEq(mappedAdapter, address(vaultAdapter));
 
         // Verify fee tracker configuration
-        assertEq(feeTracker.planRateBps(0, feeTracker.VAULT_FEE()), FEE_RATE);
+        assertEq(feeTracker.planRateBps(0, VAULT_FEE), FEE_RATE);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 
