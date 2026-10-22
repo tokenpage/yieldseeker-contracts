@@ -2,7 +2,8 @@
 pragma solidity 0.8.28;
 
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
-import {FeePaidExceedsOwed, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
+import {BORROW_FEE, FeePaidExceedsOwed, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
 import {Test} from "forge-std/Test.sol";
@@ -21,6 +22,7 @@ contract BorrowFeeModuleTest is Test {
     MockERC20WithDecimals internal debtToken;
     MockERC20WithDecimals internal unrelatedToken;
     MockFeeWallet internal wallet;
+    YieldSeekerFeeTracker internal tracker;
     YieldSeekerBorrowFeeModule internal module;
 
     function setUp() public {
@@ -28,7 +30,12 @@ contract BorrowFeeModuleTest is Test {
         debtToken = new MockERC20WithDecimals("Debt", "DEBT", 6);
         unrelatedToken = new MockERC20WithDecimals("Other", "OTHER", 18);
         wallet = new MockFeeWallet(owner, baseAsset);
-        module = new YieldSeekerBorrowFeeModule(admin, planManager, collector, 1_000, 1_000);
+        tracker = new YieldSeekerFeeTracker(admin, planManager, collector, 1_000, 1_000);
+        module = new YieldSeekerBorrowFeeModule(tracker, 1_000);
+        vm.startPrank(admin);
+        tracker.addFeeModule(BORROW_FEE, module);
+        tracker.setPlanRate(0, BORROW_FEE, 1_000);
+        vm.stopPrank();
     }
 
     function testLinearAccrualIsMarketIsolatedAndPendingUntilCheckpoint() public {
@@ -93,10 +100,9 @@ contract BorrowFeeModuleTest is Test {
         uint256 start = vm.getBlockTimestamp();
 
         vm.startPrank(admin);
-        module.setPlanRate(1, 500);
-        module.assignPlan(owner, 1);
+        tracker.setPlanRate(1, BORROW_FEE, 500);
+        tracker.assignPlan(owner, 1);
         vm.stopPrank();
-
         vm.warp(start + YEAR);
         assertEq(module.pendingFee(address(wallet), MARKET_A), 100);
         _checkpoint(MARKET_A, 1_000);
@@ -118,21 +124,17 @@ contract BorrowFeeModuleTest is Test {
 
         wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (address(debtToken), 40, address(baseAsset), 40)));
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 60);
-        assertEq(module.getFeesOwed(address(wallet)), 0);
-        assertEq(module.withdrawable(address(wallet), address(baseAsset), 123), 123);
-        assertEq(module.withdrawable(address(wallet), address(debtToken), 100), 40);
-        assertEq(module.withdrawable(address(wallet), address(debtToken), 50), 0);
+        assertEq(tracker.feesReserved(address(wallet), address(baseAsset)), 0);
+        assertEq(tracker.feesReserved(address(wallet), address(debtToken)), 60);
         vm.expectRevert(InvalidAsset.selector);
-        module.withdrawable(address(wallet), address(unrelatedToken), 123);
+        tracker.feesReserved(address(wallet), address(unrelatedToken));
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {
-        wallet.execute(address(module), abi.encodeCall(module.recordAgentYieldEarned, (100)));
-        wallet.execute(address(module), abi.encodeCall(module.recordAgentYieldTokenEarned, (address(debtToken), 100)));
+        wallet.execute(address(tracker), abi.encodeCall(tracker.recordAgentYieldEarned, (100)));
 
-        assertEq(module.feesCharged(address(wallet), address(debtToken)), 0);
+        assertEq(tracker.getFeesOwed(address(wallet)), 10);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
-        assertEq(module.getFeesOwed(address(wallet)), 0);
     }
 
     function _recordBorrow(bytes32 market, uint256 amount, uint256 debtBefore) internal {

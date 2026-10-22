@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {InvalidAsset} from "../../src/AgentWalletV1.sol";
+import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";
+import {IYieldSeekerFeeModule, IYieldSeekerFeeModuleHost} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title MockFeeTracker
 /// @notice Mock implementation of FeeTracker for isolated unit testing
-contract MockFeeTracker is AccessControl {
+contract MockFeeTracker is AccessControl, IYieldSeekerFeeModuleHost {
     using SafeCast for uint256;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -16,6 +19,8 @@ contract MockFeeTracker is AccessControl {
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE_RATE = BASIS_POINTS; // 100%
 
+    mapping(bytes32 feeType => IYieldSeekerFeeModule module) public override feeModules;
+    mapping(address => uint256) private _feesPaid;
     uint256 private _feeRate;
     address private _feeCollector;
 
@@ -33,8 +38,8 @@ contract MockFeeTracker is AccessControl {
     event FeeConfigUpdated(uint256 indexed feeRate, address indexed collector);
     event YieldRecorded(address indexed agent, uint256 yield, uint256 feeAmount);
 
-    constructor(uint256 feeRate, address feeCollector) {
-        if (feeCollector == address(0)) {
+    constructor(uint256 feeRate, address initialFeeCollector) {
+        if (initialFeeCollector == address(0)) {
             revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
@@ -45,11 +50,11 @@ contract MockFeeTracker is AccessControl {
         _grantRole(ADMIN_ROLE, msg.sender);
 
         _feeRate = feeRate;
-        _feeCollector = feeCollector;
+        _feeCollector = initialFeeCollector;
     }
 
-    function setFeeConfig(uint256 feeRate, address feeCollector) external onlyRole(ADMIN_ROLE) {
-        if (feeCollector == address(0)) {
+    function setFeeConfig(uint256 feeRate, address newFeeCollector) external onlyRole(ADMIN_ROLE) {
+        if (newFeeCollector == address(0)) {
             revert AWKErrors.ZeroAddress();
         }
         if (feeRate > MAX_FEE_RATE) {
@@ -57,9 +62,9 @@ contract MockFeeTracker is AccessControl {
         }
 
         _feeRate = feeRate;
-        _feeCollector = feeCollector;
+        _feeCollector = newFeeCollector;
 
-        emit FeeConfigUpdated(feeRate, feeCollector);
+        emit FeeConfigUpdated(feeRate, newFeeCollector);
     }
 
     function recordYield(address agent, uint256 yieldAmount) external onlyRole(ADMIN_ROLE) {
@@ -75,12 +80,31 @@ contract MockFeeTracker is AccessControl {
         return (yieldAmount * _feeRate) / BASIS_POINTS;
     }
 
-    function getFeeConfig() external view returns (uint256 feeRate, address feeCollector) {
+    function getFeeConfig() external view returns (uint256 feeRate, address collectorAddress) {
         return (_feeRate, _feeCollector);
     }
 
-    function getFeesOwed(address agent) external view returns (uint256) {
-        return _feesOwed[agent];
+    function feeCollector() external view returns (address) {
+        return _feeCollector;
+    }
+
+    function recordFeePaid(uint256 amount) external {
+        _feesPaid[msg.sender] += amount;
+    }
+
+    function getFeesOwed(address agent) public view returns (uint256) {
+        uint256 owed = _feesOwed[agent];
+        uint256 paid = _feesPaid[agent];
+        return owed > paid ? owed - paid : 0;
+    }
+
+    function feesReserved(address wallet, address token) external view override returns (uint256) {
+        if (token != address(IAgentWallet(wallet).baseAsset())) revert InvalidAsset();
+        return getFeesOwed(wallet);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+        return interfaceId == type(IYieldSeekerFeeModuleHost).interfaceId || super.supportsInterface(interfaceId);
     }
 
     // ============ Position Tracking ============

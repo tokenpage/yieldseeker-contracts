@@ -593,6 +593,7 @@ contract FeeTrackerTest is Test {
 /// @title YieldSeekerFeeTracker Integration Tests
 /// @notice Tests for the real FeeTracker contract with vault yield token fee scenarios
 contract YieldSeekerFeeTrackerTest is Test {
+    bytes32 internal constant VAULT_FEE = keccak256("vault");
     YieldSeekerFeeTracker feeTracker;
 
     address admin = makeAddr("admin");
@@ -925,7 +926,7 @@ contract YieldSeekerFeeTrackerTest is Test {
 
         // Rate rises to 20% before the position is withdrawn.
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 2000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 2000);
 
         uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);
@@ -950,14 +951,14 @@ contract YieldSeekerFeeTrackerTest is Test {
         feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
         // Rate is 20% when the reward is recorded: 20% of 100 = 20 owed.
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 2000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 2000);
         vm.prank(agent1);
         feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
         assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 20e6);
 
         // Rate falls to 10% before the position is withdrawn.
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);

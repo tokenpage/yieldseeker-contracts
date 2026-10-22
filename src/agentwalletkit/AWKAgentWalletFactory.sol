@@ -15,7 +15,7 @@
 pragma solidity 0.8.28;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
-import {AWKAgentWalletV2 as AgentWallet} from "./AWKAgentWalletV2.sol";
+import {AWKAgentWalletV3 as AgentWallet} from "./AWKAgentWalletV3.sol";
 import {AWKErrors} from "./AWKErrors.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -63,7 +63,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex);
     event RegistryUpdated(bytes32 indexed profile, address indexed oldRegistry, address indexed newAdapterRegistry);
-    event TrackerUpdated(bytes32 indexed profile, address indexed oldTracker, address indexed newTracker);
+    event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)

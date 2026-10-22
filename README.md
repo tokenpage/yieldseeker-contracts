@@ -792,73 +792,125 @@ sequenceDiagram
 
 ### Setup
 
-Required environment variables:
-- `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
-- `SERVER_ADDRESS`: Backend server address
-- `MULTISIG_ADMIN_ADDRESS`: Timelock executor and admin
-- `PLAN_MANAGER_ADDRESS`: Can move users to cheaper fee plans
-- `FEE_COLLECTOR_ADDRESS`: Receives fees from new fee trackers
-- `RPC_NODE_URL_8453`: Base network RPC endpoint
-- `ETHERSCAN_API_KEY`:  For contract verification (optional)
-
-Notes:
-- `Deploy.s.sol` currently has swap router/factory addresses hardcoded for Base mainnet (`chainId == 8453`)
-- `Deploy.s.sol` is selective and only deploys contracts with missing/zero addresses in `deployments.json`
-
+Set these environment variables before running the scripts:
+- `SERVER_ADDRESS`: backend operator address
+- `DEPLOYER_PRIVATE_KEY`: deployer and timelock proposer key
+- `MULTISIG_ADMIN_ADDRESS`: timelock admin and executor
+- `PLAN_MANAGER_ADDRESS`: can move users to cheaper fee plans
+- `FEE_COLLECTOR_ADDRESS`: receives fees
+- `RPC_NODE_URL_8453`: Base RPC endpoint
+- `ETHERSCAN_API_KEY`: optional contract verification key
 
 ### Deploy
 
-```bash
-forge script script/Deploy.s.sol:DeployScript --rpc-url $RPC_NODE_URL_8453 --broadcast --verify
-```
-
-Deployment addresses saved to `deployments.json`.
-
-
-### Post-Deployment
+`Deploy.s.sol` deploys only contracts with missing addresses in `deployments.json`, wires the factory and fee tracker, registers adapters in both registries, grants the operator role, and schedules one configuration batch. The old swap adapter address keys are intentionally absent so the unified swap adapters are deployed.
 
 ```bash
-# Register ERC4626 vaults
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
-
-# Register other vaults
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB aave
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xb125E6687d4313864e53df431d5425969c15Eb2F compound
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22 moonwell
-
-# Rgister UniswapV3 router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x2626664c2603336E57B271c5C0b26F421741e481 uniswapv3
-# Rgister AerodromeV2 router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 aerodromev2
-# Rgister AerodromeCL router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5 aerodromecl
-# Register Merkl
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl
-
-# Add sellable tokens to the swap sell policy (tokens that agents are allowed to swap)
-forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
+forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify
 ```
 
-### Execute From Multisig
+New and reused addresses are saved to `deployments.json`. In production, execute the emitted timelock batch and wait for it to complete before registering targets and price sources below.
 
-When `TESTING_MODE=false`, scripts schedule timelock operations and do not execute them immediately.
+### Register launch targets
 
-1. Wait until the timelock delay has passed.
-2. In Safe UI (Base), create a transaction to `adminTimelock` with `value=0`.
-3. Use:
-   - `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` for the deploy config batch.
-   - `execute(address,uint256,bytes,bytes32,bytes32)` for single operations (vault registration, sellable tokens).
-4. Copy arguments exactly from the script output / `contracts/broadcast/.../run-latest.json` (`targets`, `values`, `datas`, `predecessor`, `salt`).
-5. Collect multisig approvals and execute.
+The registration scripts schedule timelock operations in production. Router addresses below are Base mainnet addresses. For transfers, pass the `walletLinkRegistry` address as the target; the script selects `agentTransferAdapter` from `deployments.json`.
 
-NOTE: f you scheduled operations with a `predecessor`, execute the predecessor operation first.
+```bash
+# Update the vault registry router mappings to the unified swap adapters
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" 0x2626664c2603336E57B271c5C0b26F421741e481 uniswapv3
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 aerodromev2
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5 aerodromecl
 
+# Register the routers and Merkl distributor in the borrow registry
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" 0x2626664c2603336E57B271c5C0b26F421741e481 uniswapv3 borrow
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 aerodromev2 borrow
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5 aerodromecl borrow
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl borrow
 
-### Selective Redeployment
+# Register the linked-wallet transfer target in both registries
+WALLET_LINK_REGISTRY=$(jq -r '.walletLinkRegistry' deployments.json)
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" "$WALLET_LINK_REGISTRY" transfer vault
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string,string)" "$WALLET_LINK_REGISTRY" transfer borrow
 
-To redeploy specific contracts:
-1. Set the contract's address to `0x0000000000000000000000000000000000000000` in `deployments.json`
-2. Run the deploy script again
+# Register additional vault targets as needed
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
+
+# Add tokens that agents are allowed to sell in swaps
+forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
+```
+
+### Register lending markets
+
+Market bytes are ABI encodings of the protocol contract and its market parameters. `cast abi-encode` produces the `bytes` argument for `RegisterMarketScript`.
+
+```bash
+WETH=0x4200000000000000000000000000000000000006
+USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+CBBTC=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
+AAVE_V3_POOL=0xA238Dd80C259a72e81d7e4664a9801593F98d1c5
+
+# Aave V3 WETH/USDC and cbBTC/USDC, eMode 0
+MARKET=$(cast abi-encode "f(address,address,address,uint8)" "$AAVE_V3_POOL" "$WETH" "$USDC" 0)
+forge script script/RegisterMarket.s.sol:RegisterMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev3 "$MARKET"
+MARKET=$(cast abi-encode "f(address,address,address,uint8)" "$AAVE_V3_POOL" "$CBBTC" "$USDC" 0)
+forge script script/RegisterMarket.s.sol:RegisterMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev3 "$MARKET"
+
+# Morpho Blue USDC loans against WETH and cbBTC, LLTV 0.86e18
+MORPHO_BLUE=0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb
+MORPHO_ADAPTIVE_IRM=0x46415998764C29aB2a25CbeA6254146D50D22687
+MORPHO_WETH_USDC_ORACLE=0xFEa2D58cEfCb9fcb597723c6bAE66fFE4193aFE4
+MORPHO_CBBTC_USDC_ORACLE=0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9
+LLTV=860000000000000000
+MARKET=$(cast abi-encode "f(address,(address,address,address,address,uint256))" "$MORPHO_BLUE" "($USDC,$WETH,$MORPHO_WETH_USDC_ORACLE,$MORPHO_ADAPTIVE_IRM,$LLTV)")
+forge script script/RegisterMarket.s.sol:RegisterMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" morpho "$MARKET"
+MARKET=$(cast abi-encode "f(address,(address,address,address,address,uint256))" "$MORPHO_BLUE" "($USDC,$CBBTC,$MORPHO_CBBTC_USDC_ORACLE,$MORPHO_ADAPTIVE_IRM,$LLTV)")
+forge script script/RegisterMarket.s.sol:RegisterMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" morpho "$MARKET"
+
+# Aave V4 MAG7: each reserve other than USDC reserve 7 is collateral against reserve 7
+AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
+RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
+for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
+  [ "$reserveId" -eq 7 ] && continue
+  MARKET=$(cast abi-encode "f(address,uint256,uint256)" "$AAVE_V4_SPOKE" "$reserveId" 7)
+  forge script script/RegisterMarket.s.sol:RegisterMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev4 "$MARKET"
+done
+```
+
+### Set price sources
+
+Staleness limits are in seconds: one hour is `3600`, 25 hours is `90000`, and four days is `345600`. The reserve-token loop uses `jq` to read the underlying asset from Aave V4's reserve tuple.
+
+```bash
+WETH=0x4200000000000000000000000000000000000006
+CBBTC=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
+USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
+RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
+
+# WETH, cbBTC, and USDC Chainlink USD feeds
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$WETH" 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70 3600
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$CBBTC" 0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D 3600
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$USDC" 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B 90000
+
+# Configure each MAG7 reserve token with its Aave V4 spoke-oracle source (excluding USDC reserve 7)
+AAVE_V4_ORACLE=$(cast call "$AAVE_V4_SPOKE" "ORACLE()(address)" --rpc-url "$RPC_NODE_URL_8453")
+for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
+  [ "$reserveId" -eq 7 ] && continue
+  RESERVE=$(cast call "$AAVE_V4_SPOKE" "getReserve(uint256)((address,address,uint16,uint8,uint24,uint8,uint32))" "$reserveId" --rpc-url "$RPC_NODE_URL_8453" --json)
+  ASSET=$(printf '%s' "$RESERVE" | jq -r '.[0]')
+  case "$ASSET" in "$WETH"|"$CBBTC"|"$USDC") continue ;; esac
+  FEED=$(cast call "$AAVE_V4_ORACLE" "getReserveSource(uint256)(address)" "$reserveId" --rpc-url "$RPC_NODE_URL_8453")
+  forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$ASSET" "$FEED" 345600
+done
+```
+
+### Execute from the multisig
+
+In production, scripts schedule timelock operations rather than executing them immediately. Wait for each operation's delay, then execute the deploy configuration with `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` or an individual registration/source update with `execute(address,uint256,bytes,bytes32,bytes32)`. Copy the emitted arguments exactly; `Deploy.s.sol` outputs the batch operation data and the smaller scripts output the single-operation data.
+
+### Selective redeployment
+
+To redeploy a contract, set its address to `0x0000000000000000000000000000000000000000` in `deployments.json` and run the deployment script again.
 
 ---
 

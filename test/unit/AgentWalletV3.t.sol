@@ -8,7 +8,7 @@ import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3YieldSeekerWalletV1, MockV3YieldSeekerWalletV2} from "../mocks/MockV3TestHelpers.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -52,15 +52,16 @@ contract AgentWalletV3Test is Test {
         vaultRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         borrowRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         vaultFees = new YieldSeekerFeeTracker(admin, admin, feeCollector, 10_000, 1_000);
-        borrowFees = new YieldSeekerBorrowFeeModule(admin, admin, feeCollector, 10_000, 1_000);
+        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
+        vaultFees.addFeeModule(BORROW_FEE, borrowFees);
+        vaultFees.setPlanRate(0, BORROW_FEE, 1_000);
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
         factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
         factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
-        factory.setFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(vaultFees)));
-        factory.setFeeTracker(BORROW_PROFILE, YieldSeekerFeeTracker(address(borrowFees)));
+        factory.setFeeTracker(vaultFees);
 
         vm.startPrank(operator);
         vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_PROFILE);
@@ -79,7 +80,7 @@ contract AgentWalletV3Test is Test {
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
 
         factory.setAdapterRegistry(VAULT_PROFILE, nextRegistry);
-        factory.setFeeTracker(VAULT_PROFILE, YieldSeekerFeeTracker(address(nextFees)));
+        factory.setFeeTracker(nextFees);
         factory.grantRole(operatorRole, nextOperator);
         factory.revokeRole(operatorRole, operator);
 

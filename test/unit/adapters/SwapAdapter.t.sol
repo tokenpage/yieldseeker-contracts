@@ -8,19 +8,19 @@ import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
-import {SwapBelowOraclePrice} from "../../../src/adapters/PairSwapAdapter.sol";
+import {SwapBelowOraclePrice} from "../../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
-import {YieldSeekerUniswapV3PairSwapAdapter} from "../../../src/adapters/UniswapV3PairSwapAdapter.sol";
+import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
 import {MockLendingSwapRouter} from "../../mocks/MockLendingSwapRouter.sol";
 import {Test} from "forge-std/Test.sol";
 
-contract PairSwapAdapterTest is Test {
+contract SwapAdapterTest is Test {
     bytes32 private constant PROFILE = keccak256("borrow");
     address private constant OWNER = address(0xA11CE);
     address private constant OPERATOR = address(0xB0B);
@@ -30,10 +30,11 @@ contract PairSwapAdapterTest is Test {
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private wallet;
     YieldSeekerAdapterRegistry private registry;
+    YieldSeekerFeeTracker private feeTracker;
     YieldSeekerBorrowFeeModule private feeModule;
     YieldSeekerPriceOracle private oracle;
     YieldSeekerSwapSellPolicy private sellPolicy;
-    YieldSeekerUniswapV3PairSwapAdapter private swapAdapter;
+    YieldSeekerUniswapV3SwapAdapter private swapAdapter;
     YieldSeekerAaveV3LendingAdapter private lendingAdapter;
     MockLendingSwapRouter private router;
     MockLendingAaveV3Pool private aavePool;
@@ -62,18 +63,21 @@ contract PairSwapAdapterTest is Test {
         oracle.setSource(address(weth), IPriceFeed(address(wethFeed)), 1 days);
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
-        feeModule = new YieldSeekerBorrowFeeModule(address(this), address(this), FEE_COLLECTOR, 10_000, 50);
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR, 10_000, 1_000);
+        feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
+        feeTracker.addFeeModule(BORROW_FEE, feeModule);
+        feeTracker.setPlanRate(0, BORROW_FEE, 50);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
         factory.setAdapterRegistry(PROFILE, registry);
-        factory.setFeeTracker(PROFILE, YieldSeekerFeeTracker(address(feeModule)));
+        factory.setFeeTracker(feeTracker);
 
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(reward));
         router = new MockLendingSwapRouter();
-        swapAdapter = new YieldSeekerUniswapV3PairSwapAdapter(address(router), address(sellPolicy), oracle, SLIPPAGE_BPS);
+        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router), address(sellPolicy), oracle, SLIPPAGE_BPS);
         registry.registerAdapter(address(swapAdapter));
         registry.setTargetAdapter(address(router), address(swapAdapter));
 
@@ -131,7 +135,10 @@ contract PairSwapAdapterTest is Test {
     function test_SellableRewardCanSwapToWethWithoutAnOraclePrice() public {
         uint256 rewardAmount = 7e18;
         uint256 wethOutput = 11e17;
+        uint256 rewardFee = (rewardAmount * feeTracker.feeRateBpsForWallet(address(wallet))) / 10_000;
         reward.mint(address(wallet), rewardAmount);
+        vm.prank(address(wallet));
+        feeTracker.recordAgentYieldTokenEarned(address(reward), rewardAmount);
         weth.mint(address(router), wethOutput);
         router.setOutputAmount(wethOutput);
 
@@ -139,6 +146,8 @@ contract PairSwapAdapterTest is Test {
 
         assertEq(reward.balanceOf(address(wallet)), 0);
         assertEq(weth.balanceOf(address(wallet)), wethOutput);
+        assertEq(feeTracker.getAgentYieldTokenFeesOwed(address(wallet), address(reward)), 0);
+        assertEq(feeTracker.agentFeesCharged(address(wallet)), (wethOutput * rewardFee) / rewardAmount);
     }
 
     function test_SellableRewardCannotBeSwappedToDebtToken() public {
@@ -153,6 +162,28 @@ contract PairSwapAdapterTest is Test {
 
         vm.expectRevert(_adapterError(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(unsupportedReward))));
         _executeSwap(address(unsupportedReward), address(weth), 1e18, 1);
+    }
+
+    function test_LegacyTrackerWalletCanSellRewardsButNotSwapBaseAsset() public {
+        YieldSeekerFeeTracker legacyTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR, 10_000, 1_000);
+        factory.setFeeTracker(legacyTracker);
+        vm.prank(OPERATOR);
+        YieldSeekerAgentWalletV3 legacyWallet = factory.createAgentWallet(OWNER, 2, address(weth), PROFILE);
+        uint256 rewardAmount = 1e18;
+        uint256 wethOutput = 1e18;
+        reward.mint(address(legacyWallet), rewardAmount);
+        weth.mint(address(router), wethOutput);
+        router.setOutputAmount(wethOutput);
+
+        _executeSwapFromWallet(legacyWallet, address(reward), address(weth), rewardAmount, 1);
+
+        assertEq(reward.balanceOf(address(legacyWallet)), 0);
+        assertEq(weth.balanceOf(address(legacyWallet)), wethOutput);
+
+        usdc.mint(address(router), 1e6);
+        router.setOutputAmount(1e6);
+        vm.expectRevert(_adapterError(abi.encodeWithSelector(AssetNotAllowed.selector)));
+        _executeSwapFromWallet(legacyWallet, address(weth), address(usdc), wethOutput, 1);
     }
 
     function _prepareBorrowedWallet() private {
@@ -172,6 +203,10 @@ contract PairSwapAdapterTest is Test {
     }
 
     function _executeSwap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) private {
+        _executeSwapFromWallet(wallet, sellToken, buyToken, sellAmount, minBuyAmount);
+    }
+
+    function _executeSwapFromWallet(YieldSeekerAgentWalletV3 targetWallet, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) private {
         address[] memory path = new address[](2);
         path[0] = sellToken;
         path[1] = buyToken;
@@ -179,7 +214,8 @@ contract PairSwapAdapterTest is Test {
         fees[0] = 3000;
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
         bytes memory data = abi.encodeWithSelector(swapAdapter.swap.selector, sellToken, buyToken, route, sellAmount, minBuyAmount);
-        _execute(address(swapAdapter), address(router), data);
+        vm.prank(OPERATOR);
+        targetWallet.executeViaAdapter(address(swapAdapter), address(router), data);
     }
 
     function _execute(address adapter, address target, bytes memory data) private {

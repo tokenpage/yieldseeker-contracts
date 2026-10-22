@@ -4,18 +4,18 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV1 as AgentWalletV1} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {Test} from "forge-std/Test.sol";
 
-/// @title Agent Wallet V1 -> V2 Migration Test
+/// @title Agent Wallet V1 -> V3 Migration Test
 /// @notice Proves the actual claim this whole exercise rests on: an already-deployed V1 wallet
-///         opts in to V2 cleanly (no data loss, no re-initialization, no separate migration
+///         opts in to V3 cleanly (no data loss, no re-initialization, no separate migration
 ///         step), while a V1 wallet that never upgrades keeps behaving exactly as before —
-///         entirely unaffected by V2 existing or by other wallets upgrading to it.
+///         entirely unaffected by V3 existing or by other wallets upgrading to it.
 contract AgentWalletV1ToV2MigrationTest is Test {
     bytes32 constant VAULT_PROFILE = keccak256("vault");
     address internal constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
@@ -27,7 +27,7 @@ contract AgentWalletV1ToV2MigrationTest is Test {
     MockERC20 usdc;
     MockERC4626 vault;
     AgentWalletV1 v1Implementation;
-    AgentWalletV2 v2Implementation;
+    AgentWalletV3 v3Implementation;
 
     address admin = makeAddr("admin");
     address operatorAddr = makeAddr("operator");
@@ -44,8 +44,8 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         factory = new AgentWalletFactory(admin, operatorAddr);
         v1Implementation = new AgentWalletV1(address(factory));
         factory.setAdapterRegistry(VAULT_PROFILE, registry);
-        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
-        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v1Implementation))));
+        factory.setFeeTracker(feeTracker);
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(v1Implementation))));
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
@@ -77,21 +77,21 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         vm.expectRevert();
         v1Wallet.withdrawAssetToUser(recipient, address(usdc), 100e6);
 
-        // 4. Deploy V2 and flip the factory's pointer — exactly the real deployment step: this
+        // 4. Deploy V3 and flip the factory's pointer — exactly the real deployment step: this
         //    only affects NEW wallet creation and what existing wallets are *eligible* to
         //    upgrade to. It does not touch v1Wallet's bytecode or storage by itself.
         vm.prank(admin);
-        v2Implementation = new AgentWalletV2(address(factory));
+        v3Implementation = new AgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(v3Implementation))));
 
         // 5. The wallet owner opts in. This is the ONLY step that changes v1Wallet's behavior.
         vm.prank(ownerAddr);
         AgentWalletV1(payable(address(v1Wallet))).upgradeToLatest();
 
-        AgentWalletV2 upgradedWallet = AgentWalletV2(payable(address(v1Wallet)));
+        AgentWalletV3 upgradedWallet = AgentWalletV3(payable(address(v1Wallet)));
 
-        // 6. Every field the wallet had under V1 must read back identically under V2 — same
+        // 6. Every field the wallet had under V1 must read back identically under V3 — same
         //    address, same storage, no re-initialization, no migration function was ever called.
         assertEq(upgradedWallet.owner(), ownerAddr, "owner must survive the upgrade");
         assertEq(address(upgradedWallet.baseAsset()), address(usdc), "baseAsset must survive the upgrade");
@@ -117,8 +117,9 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         AgentWalletV1 v1Wallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(v1Wallet), 1_000e6);
 
+        bytes32 vaultFee = feeTracker.VAULT_FEE();
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, vaultFee, 1000);
         vm.prank(address(v1Wallet));
         feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
         vm.prank(address(v1Wallet));
@@ -127,13 +128,13 @@ contract AgentWalletV1ToV2MigrationTest is Test {
         assertEq(feeTracker.getFeesOwed(address(v1Wallet)), 10e6);
 
         vm.prank(admin);
-        v2Implementation = new AgentWalletV2(address(factory));
+        v3Implementation = new AgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(v3Implementation))));
 
         vm.prank(ownerAddr);
         AgentWalletV1(payable(address(v1Wallet))).upgradeToLatest();
-        AgentWalletV2 upgradedWallet = AgentWalletV2(payable(address(v1Wallet)));
+        AgentWalletV3 upgradedWallet = AgentWalletV3(payable(address(v1Wallet)));
 
         vm.prank(ownerAddr);
         vm.expectRevert();
@@ -147,21 +148,21 @@ contract AgentWalletV1ToV2MigrationTest is Test {
     }
 
     function test_V1Wallet_ThatNeverUpgrades_IsUnaffectedByV2Existing() public {
-        // A second, sibling V1 wallet that never opts in. Deploying V2 and even having OTHER
+        // A second, sibling V1 wallet that never opts in. Deploying V3 and even having OTHER
         // wallets upgrade to it must not change this wallet's behavior at all.
         vm.prank(operatorAddr);
         AgentWalletV1 unupgradedWallet = AgentWalletV1(payable(address(factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_PROFILE))));
         usdc.mint(address(unupgradedWallet), 500e6);
 
         vm.prank(admin);
-        v2Implementation = new AgentWalletV2(address(factory));
+        v3Implementation = new AgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV2(payable(address(v2Implementation))));
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(v3Implementation))));
 
-        // New wallets now deploy on V2...
+        // New wallets now deploy on V3...
         vm.prank(operatorAddr);
         AgentWalletV1 freshWallet = AgentWalletV1(payable(address(factory.createAgentWallet(makeAddr("newOwner"), 1, address(usdc), VAULT_PROFILE))));
-        assertTrue(_isEntryPointRelayable(freshWallet), "a freshly created wallet after the flip must be on V2");
+        assertTrue(_isEntryPointRelayable(freshWallet), "a freshly created wallet after the flip must be on V3");
 
         // ...but the untouched sibling from before the flip is still plain V1 behavior: no
         // EntryPoint relay, direct owner calls unaffected.

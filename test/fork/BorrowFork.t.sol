@@ -6,15 +6,15 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
+import {YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
+import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerMorphoBlueLendingAdapter} from "../../src/adapters/MorphoBlueLendingAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
-import {YieldSeekerTransferAdapter} from "../../src/adapters/TransferAdapter.sol";
-import {YieldSeekerUniswapV3PairSwapAdapter} from "../../src/adapters/UniswapV3PairSwapAdapter.sol";
-import {AWKWalletLinkRegistry} from "../../src/agentwalletkit/AWKWalletLinkRegistry.sol";
+import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -39,13 +39,14 @@ contract BorrowForkTest is Test {
 
     AgentWalletFactory internal factory;
     AdapterRegistry internal borrowRegistry;
+    FeeTracker internal feeTracker;
     YieldSeekerBorrowFeeModule internal borrowFeeModule;
     YieldSeekerPriceOracle internal oracle;
-    AWKWalletLinkRegistry internal linkRegistry;
+    YieldSeekerWalletLinkRegistry internal linkRegistry;
     YieldSeekerAaveV3LendingAdapter internal aaveAdapter;
     YieldSeekerMorphoBlueLendingAdapter internal morphoAdapter;
-    YieldSeekerUniswapV3PairSwapAdapter internal swapAdapter;
-    YieldSeekerTransferAdapter internal transferAdapter;
+    YieldSeekerUniswapV3SwapAdapter internal swapAdapter;
+    YieldSeekerAgentTransferAdapter internal transferAdapter;
     AgentWallet internal wallet;
 
     function setUp() public {
@@ -55,22 +56,23 @@ contract BorrowForkTest is Test {
         oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(SEQUENCER_UPTIME_FEED));
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
-        borrowFeeModule = new YieldSeekerBorrowFeeModule(address(this), address(this), feeCollector, 200, 50);
-        FeeTracker vaultFeeModule = new FeeTracker(address(this), address(this), feeCollector, 5000, 1000);
+        feeTracker = new FeeTracker(address(this), address(this), feeCollector, 5000, 1000);
+        borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
+        feeTracker.addFeeModule(BORROW_FEE, borrowFeeModule);
+        feeTracker.setPlanRate(0, BORROW_FEE, 50);
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
         factory = new AgentWalletFactory(address(this), operator);
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
         factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
-        factory.setFeeTracker(BORROW_PROFILE, FeeTracker(address(borrowFeeModule)));
         factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
-        factory.setFeeTracker(VAULT_PROFILE, FeeTracker(address(vaultFeeModule)));
+        factory.setFeeTracker(feeTracker);
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter(oracle);
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter(oracle);
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        swapAdapter = new YieldSeekerUniswapV3PairSwapAdapter(UNISWAP_V3_ROUTER, address(rewardSellPolicy), oracle, 100);
-        linkRegistry = new AWKWalletLinkRegistry();
-        transferAdapter = new YieldSeekerTransferAdapter(linkRegistry);
+        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER, address(rewardSellPolicy), oracle, 100);
+        linkRegistry = new YieldSeekerWalletLinkRegistry();
+        transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
         _register(borrowRegistry, address(aaveAdapter), aaveAdapter.marketTarget(_aaveMarket()));
         _register(borrowRegistry, address(morphoAdapter), morphoAdapter.marketTarget(_morphoMarket()));
         _register(borrowRegistry, address(swapAdapter), UNISWAP_V3_ROUTER);

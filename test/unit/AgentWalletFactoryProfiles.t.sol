@@ -7,6 +7,8 @@ import {InvalidFeeTracker} from "../../src/AgentWalletV1.sol";
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
@@ -18,13 +20,12 @@ contract AgentWalletFactoryProfilesTest is Test {
     address private constant OPERATOR = address(0xA11CE);
     address private constant STRANGER = address(0xB0B);
     address private constant FEE_COLLECTOR_A = address(0xCAFE);
-    address private constant FEE_COLLECTOR_B = address(0xD00D);
 
     MockERC20 private baseAsset;
     YieldSeekerAdapterRegistry private registryVault;
     YieldSeekerAdapterRegistry private registryBorrow;
     YieldSeekerFeeTracker private feeVault;
-    YieldSeekerFeeTracker private feeBorrow;
+    YieldSeekerBorrowFeeModule private feeBorrow;
     YieldSeekerAgentWalletFactory private factory;
 
     function setUp() public {
@@ -32,18 +33,19 @@ contract AgentWalletFactoryProfilesTest is Test {
         registryVault = new YieldSeekerAdapterRegistry(address(this), address(this));
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
         feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A, 10_000, 1_000);
-        feeBorrow = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_B, 10_000, 500);
+        feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, 500);
+        feeVault.addFeeModule(BORROW_FEE, feeBorrow);
+        feeVault.setPlanRate(0, BORROW_FEE, 500);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
 
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         factory.setAdapterRegistry(PROFILE_VAULT, registryVault);
         factory.setAdapterRegistry(PROFILE_BORROW, registryBorrow);
-        factory.setFeeTracker(PROFILE_VAULT, feeVault);
-        factory.setFeeTracker(PROFILE_BORROW, feeBorrow);
+        factory.setFeeTracker(feeVault);
     }
 
-    function test_CreatedWalletsUseTheirProfileRegistryAndFeeModule() public {
+    function test_CreatedWalletsUseTheirProfileRegistryAndTheSharedFeeTracker() public {
         address walletOwner = makeAddr("wallet-owner");
         uint256 vaultIndex = 3;
         uint256 borrowIndex = 4;
@@ -62,12 +64,13 @@ contract AgentWalletFactoryProfilesTest is Test {
         assertEq(address(vaultWallet.adapterRegistry()), address(registryVault));
         assertEq(address(borrowWallet.adapterRegistry()), address(registryBorrow));
         assertEq(address(vaultWallet.feeTracker()), address(feeVault));
-        assertEq(address(borrowWallet.feeTracker()), address(feeBorrow));
+        assertEq(address(borrowWallet.feeTracker()), address(feeVault));
+        assertEq(address(feeVault.feeModules(BORROW_FEE)), address(feeBorrow));
     }
 
     function test_NonWalletCallerGetsNoProfileConfiguration() public view {
         assertEq(address(factory.adapterRegistry()), address(0));
-        assertEq(address(factory.feeTracker()), address(0));
+        assertEq(address(factory.feeTracker()), address(feeVault));
     }
 
     function test_CreateAgentWalletRequiresOperatorRole() public {
@@ -84,18 +87,18 @@ contract AgentWalletFactoryProfilesTest is Test {
         factory.createAgentWallet(makeAddr("wallet-owner"), 1, address(baseAsset), unknown);
     }
 
-    function test_ProfileZeroIsRejectedByBothProfileSetters() public {
+    function test_ProfileZeroAndZeroFeeTrackerAreRejected() public {
         vm.expectRevert(abi.encodeWithSelector(UnknownProfile.selector, bytes32(0)));
         factory.setAdapterRegistry(bytes32(0), registryVault);
 
-        vm.expectRevert(abi.encodeWithSelector(UnknownProfile.selector, bytes32(0)));
-        factory.setFeeTracker(bytes32(0), feeVault);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        factory.setFeeTracker(YieldSeekerFeeTracker(address(0)));
     }
 
     function test_FeeContractWithoutFeeModuleInterfaceIsRejected() public {
         YieldSeekerAdapterRegistry notAFeeModule = new YieldSeekerAdapterRegistry(address(this), address(this));
         vm.expectRevert(InvalidFeeTracker.selector);
-        factory.setFeeTracker(PROFILE_VAULT, YieldSeekerFeeTracker(address(notAFeeModule)));
+        factory.setFeeTracker(YieldSeekerFeeTracker(address(notAFeeModule)));
     }
 
     function test_DuplicateOwnerIndexReverts() public {

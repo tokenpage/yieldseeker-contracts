@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";
@@ -42,9 +42,9 @@ contract FeeTrackerSecurityTest is Test {
         feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV2 impl = new AgentWalletV2(address(factory));
+        AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_PROFILE, registry);
-        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(impl);
 
         vaultAdapter = new ERC4626Adapter();
@@ -53,20 +53,20 @@ contract FeeTrackerSecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV2 wallet) {
+    function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
     }
 
     function test_RecordYieldAccruesFees() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(1_000e6);
         assertEq(feeTracker.getFeesOwed(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
@@ -79,7 +79,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_PartialWithdrawWithVaultTokenFees_DoesNotDoubleChargeProfit() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         // Seed vault position
@@ -103,7 +103,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_MixedRewardAndDepositShares_WithdrawalRetainsRemainingRewardShares() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         // Deposit principal: 100 assets for 100 shares tracked in position
@@ -126,7 +126,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_LossWithdrawalDoesNotChargeFees() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
@@ -139,7 +139,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_YieldTokenFeeTrackedAndConvertedOnSwap() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         address rewardToken = address(0xDEAD);
 
         vm.prank(address(wallet));
@@ -154,7 +154,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_FeePaymentReducesFeesOwed() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
 
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(500e6);
@@ -166,8 +166,9 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function test_MaxFeeRateEnforced() public {
+        bytes32 vaultFeeType = feeTracker.VAULT_FEE();
         vm.prank(admin);
         vm.expectRevert(InvalidFeeRate.selector);
-        feeTracker.setPlanRate(0, 5001);
+        feeTracker.setPlanRate(0, vaultFeeType, 5001);
     }
 }

@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -39,9 +39,9 @@ contract AccessControlSecurityTest is Test {
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV2 impl = new AgentWalletV2(address(factory));
+        AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_PROFILE, registry);
-        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(impl);
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -62,7 +62,7 @@ contract AccessControlSecurityTest is Test {
 
     function test_OperatorCreatesWalletSetsOwner() public {
         address wallet = _createWallet();
-        assertEq(AgentWalletV2(payable(wallet)).owner(), user);
+        assertEq(AgentWalletV3(payable(wallet)).owner(), user);
     }
 
     function test_NonOwnerCannotBlockAdapter() public {
@@ -71,9 +71,9 @@ contract AccessControlSecurityTest is Test {
         bytes memory deposit = abi.encodeCall(vaultAdapter.deposit, (100e6));
         vm.prank(attacker);
         vm.expectRevert();
-        AgentWalletV2(payable(wallet)).blockAdapter(address(vaultAdapter));
+        AgentWalletV3(payable(wallet)).blockAdapter(address(vaultAdapter));
         vm.prank(user);
-        AgentWalletV2(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
+        AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
         assertEq(vault.balanceOf(wallet), 100e6);
     }
 
@@ -82,10 +82,10 @@ contract AccessControlSecurityTest is Test {
         usdc.mint(wallet, 1000e6);
         bytes memory deposit = abi.encodeCall(vaultAdapter.deposit, (100e6));
         vm.prank(user);
-        AgentWalletV2(payable(wallet)).blockAdapter(address(vaultAdapter));
+        AgentWalletV3(payable(wallet)).blockAdapter(address(vaultAdapter));
         vm.prank(user);
         vm.expectRevert();
-        AgentWalletV2(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
+        AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
     }
 
     function test_OnlyOwnerCanExecuteViaAdapter() public {
@@ -94,9 +94,9 @@ contract AccessControlSecurityTest is Test {
         bytes memory deposit = abi.encodeCall(vaultAdapter.deposit, (100e6));
         vm.prank(attacker);
         vm.expectRevert();
-        AgentWalletV2(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
+        AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
         vm.prank(user);
-        AgentWalletV2(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
+        AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
         assertEq(vault.balanceOf(wallet), 100e6);
     }
 
@@ -108,13 +108,14 @@ contract AccessControlSecurityTest is Test {
         registry.pause();
         vm.prank(user);
         vm.expectRevert();
-        AgentWalletV2(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
+        AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
     }
 
     function test_AdminCanUpdateFeeConfig() public {
+        bytes32 vaultFeeType = feeTracker.VAULT_FEE();
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 2000);
-        assertEq(feeTracker.planRateBps(0), 2000);
+        feeTracker.setPlanRate(0, vaultFeeType, 2000);
+        assertEq(feeTracker.planRateBps(0, vaultFeeType), 2000);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 

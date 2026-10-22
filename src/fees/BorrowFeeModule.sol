@@ -16,26 +16,32 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../AgentWalletV1.sol";
-import {IAgentWallet} from "../IAgentWallet.sol";
-import {YieldSeekerFeePlans} from "./FeePlans.sol";
+import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {InvalidFeeRate, YieldSeekerFeePlans} from "./FeePlans.sol";
+import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+bytes32 constant BORROW_FEE = keccak256("borrow");
 
 error FeePaidExceedsOwed(uint256 owed, uint256 paid);
 
 /**
  * @title YieldSeekerBorrowFeeModule
- * @notice Fee contract for borrow agents: a yearly fee on borrowed principal, owed and paid in the borrowed token
- * @dev Lending adapters report every borrow, repay and collateral withdrawal per market with the protocol's real debt.
+ * @notice Fee module for borrowing: a yearly fee on borrowed principal, owed and paid in the borrowed token
+ * @dev Plugged into the fee tracker as BORROW_FEE; the rate comes from the owner's plan in the tracker.
+ *      Lending adapters report every borrow, repay and collateral withdrawal per market with the protocol's real debt.
  *      Each period between two reports is charged on min(principal, debt at the start of the period), so repaying
  *      directly on the protocol cannot erase the fee, and a liquidation over-charges at most the period it happens in.
- *      Repayments pay interest first, then principal. Borrow agents pay no fee on rewards: those hooks are no-ops.
+ *      Repayments pay interest first, then principal.
  *      All recording functions use msg.sender, so callers can only affect their own accounting.
  */
-contract YieldSeekerBorrowFeeModule is YieldSeekerFeePlans {
+contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
 
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
+
+    YieldSeekerFeePlans public immutable FEE_TRACKER;
+    uint256 public immutable MAX_FEE_RATE_BPS;
 
     struct DebtPosition {
         uint128 principal;
@@ -52,7 +58,12 @@ contract YieldSeekerBorrowFeeModule is YieldSeekerFeePlans {
     event BorrowFeeCharged(address indexed wallet, bytes32 indexed market, address indexed token, uint256 fee);
     event FeePaid(address indexed wallet, address indexed token, uint256 amount, address paidToken, uint256 paidAmount);
 
-    constructor(address admin, address planManager, address initialFeeCollector, uint256 maxFeeRateBps, uint256 defaultRateBps) YieldSeekerFeePlans(admin, planManager, initialFeeCollector, maxFeeRateBps, defaultRateBps) {}
+    constructor(YieldSeekerFeePlans feeTracker, uint256 maxFeeRateBps) {
+        if (address(feeTracker) == address(0)) revert AWKErrors.ZeroAddress();
+        if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
+        FEE_TRACKER = feeTracker;
+        MAX_FEE_RATE_BPS = maxFeeRateBps;
+    }
 
     // ============ Lending Hooks ============
 
@@ -88,7 +99,7 @@ contract YieldSeekerBorrowFeeModule is YieldSeekerFeePlans {
         if (currentDebt < position.principal) position.principal = currentDebt.toUint128();
         position.lastDebt = currentDebt.toUint128();
         position.lastAccrual = uint64(block.timestamp);
-        position.rateBps = feeRateBpsForWallet(wallet).toUint16();
+        position.rateBps = FEE_TRACKER.feeRateBps(BORROW_FEE, wallet).toUint16();
     }
 
     function _pendingFee(DebtPosition memory position) internal view returns (uint256) {
@@ -107,16 +118,6 @@ contract YieldSeekerBorrowFeeModule is YieldSeekerFeePlans {
         emit FeePaid(msg.sender, token, amount, paidToken, paidAmount);
     }
 
-    // ============ YieldSeekerFeeTracker Interface (no fee on rewards for borrow agents) ============
-
-    function getFeesOwed(address) external pure returns (uint256) {
-        return 0;
-    }
-
-    function recordAgentYieldEarned(uint256) external {}
-
-    function recordAgentYieldTokenEarned(address, uint256) external {}
-
     // ============ Views ============
 
     function feesOwed(address wallet, address token) public view returns (uint256) {
@@ -130,11 +131,9 @@ contract YieldSeekerBorrowFeeModule is YieldSeekerFeePlans {
         return _pendingFee(debtPositions[wallet][market]);
     }
 
-    /// @notice The base asset (collateral) leaves freely; borrowed tokens leave minus fees owed in them
-    function withdrawable(address wallet, address token, uint256 balance) external view returns (uint256) {
-        if (token == address(IAgentWallet(wallet).baseAsset())) return balance;
-        if (!isBorrowedToken[wallet][token]) revert InvalidAsset();
-        uint256 owed = feesOwed(wallet, token);
-        return balance > owed ? balance - owed : 0;
+    /// @notice Borrowed tokens may leave minus the fees owed in them; other tokens are not this module's concern
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
+        if (!isBorrowedToken[wallet][token]) return (false, 0);
+        return (true, feesOwed(wallet, token));
     }
 }

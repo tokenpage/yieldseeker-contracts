@@ -4,12 +4,12 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidAsset} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV1, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
-import {AWKAgentWalletV2} from "../../src/agentwalletkit/AWKAgentWalletV2.sol";
+import {AWKAgentWalletV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -43,12 +43,12 @@ contract FactoryBoundNonUUPSImplementation {
     }
 }
 
-/// @title Agent Wallet V2 Authorization Unit Tests
-/// @notice Exercises the real AWKAgentWalletV2/YieldSeekerAgentWalletV2 onlyOwner /
+/// @title Agent Wallet V3 Authorization Unit Tests
+/// @notice Exercises the real AWKAgentWalletV3/YieldSeekerAgentWalletV3 onlyOwner /
 ///         _validateSignature logic: every owner action is EntryPoint-relayable with the owner's
 ///         signature, while operator signatures remain limited to the adapter-execution selectors.
 ///         V1 compatibility is covered separately by the migration suite.
-contract AgentWalletV2AuthorizationTest is Test {
+contract AgentWalletV3AuthorizationTest is Test {
     using MessageHashUtils for bytes32;
 
     address internal constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
@@ -56,6 +56,7 @@ contract AgentWalletV2AuthorizationTest is Test {
     uint256 internal constant SIG_VALIDATION_SUCCESS = 0;
     bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 internal constant VAULT_PROFILE = keccak256("vault");
+    bytes32 internal constant VAULT_FEE = keccak256("vault");
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
     event AdapterBlocked(address indexed adapter);
@@ -69,7 +70,7 @@ contract AgentWalletV2AuthorizationTest is Test {
     ERC4626Adapter vaultAdapter;
     MockERC20 usdc;
     MockERC4626 vault;
-    AgentWalletV2 wallet;
+    AgentWalletV3 wallet;
 
     address admin = makeAddr("admin");
     address ownerAddr;
@@ -92,17 +93,17 @@ contract AgentWalletV2AuthorizationTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, admin, 5000, 0);
         factory = new AgentWalletFactory(admin, operatorAddr);
-        AgentWalletV2 implementation = new AgentWalletV2(address(factory));
+        AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_PROFILE, registry);
-        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(implementation))));
+        factory.setFeeTracker(feeTracker);
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(implementation))));
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
 
         usdc.mint(address(wallet), 1_000e6);
     }
@@ -133,7 +134,7 @@ contract AgentWalletV2AuthorizationTest is Test {
 
         vm.prank(admin);
         vm.expectRevert(InvalidImplementationFactory.selector);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(foreignImplementation))));
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(foreignImplementation))));
     }
 
     // ============ _validateSignature: withdrawal selectors are owner-only ============
@@ -305,7 +306,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(admin);
         factory.setAdapterRegistry(VAULT_PROFILE, nextRegistry);
         vm.prank(admin);
-        factory.setFeeTracker(VAULT_PROFILE, nextTracker);
+        factory.setFeeTracker(nextTracker);
 
         assertEq(address(wallet.adapterRegistry()), address(registry));
         assertEq(address(wallet.feeTracker()), address(feeTracker));
@@ -314,7 +315,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         wallet.syncFromFactory();
 
         assertEq(address(wallet.adapterRegistry()), address(nextRegistry));
-        assertEq(address(wallet.feeTracker()), address(nextTracker));
+        assertEq(address(wallet.feeTracker()), address(feeTracker));
     }
 
     function test_SyncFromFactory_RemovesRevokedOperator() public {
@@ -341,7 +342,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(admin);
         nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(nextImplementation))));
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(nextImplementation))));
 
         vm.prank(ENTRY_POINT);
         wallet.upgradeToLatest();
@@ -355,7 +356,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(admin);
         nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(nextImplementation))));
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(nextImplementation))));
 
         vm.prank(ENTRY_POINT);
         wallet.upgradeToAndCall(address(nextImplementation), "");
@@ -714,7 +715,7 @@ contract AgentWalletV2AuthorizationTest is Test {
 
     function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
         feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
@@ -735,7 +736,7 @@ contract AgentWalletV2AuthorizationTest is Test {
 
     function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
         feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
@@ -751,7 +752,7 @@ contract AgentWalletV2AuthorizationTest is Test {
 
     function test_CollectFees_OwnerCanCollectOwedFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(100e6);
 
@@ -765,7 +766,7 @@ contract AgentWalletV2AuthorizationTest is Test {
 
     function test_CollectFees_CapsAtWalletBalanceAndUpdatesTracker() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(20_000e6);
 
@@ -782,7 +783,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         otherToken.mint(address(wallet), 500e6);
 
         vm.prank(ownerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector));
         wallet.withdrawAssetToUser(recipient, address(otherToken), 500e6);
     }
 
@@ -820,13 +821,13 @@ contract AgentWalletV2AuthorizationTest is Test {
         otherToken.mint(address(wallet), 500e6);
 
         vm.prank(ownerAddr);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector));
         wallet.withdrawAllAssetToUser(recipient, address(otherToken));
     }
 
     function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, 1000);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
         feeTracker.recordAgentYieldEarned(20_000e6);
 
@@ -916,7 +917,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         vm.prank(admin);
         nextImplementation = new MockAgentWalletV3(address(factory));
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(nextImplementation))));
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(nextImplementation))));
 
         vm.prank(ownerAddr);
         wallet.upgradeToAndCall(address(nextImplementation), "");
@@ -937,7 +938,7 @@ contract AgentWalletV2AuthorizationTest is Test {
         FactoryBoundNonUUPSImplementation badImplementation = new FactoryBoundNonUUPSImplementation(address(factory));
 
         vm.prank(admin);
-        factory.setAgentWalletImplementation(AWKAgentWalletV2(payable(address(badImplementation))));
+        factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(badImplementation))));
 
         vm.prank(ownerAddr);
         vm.expectRevert();

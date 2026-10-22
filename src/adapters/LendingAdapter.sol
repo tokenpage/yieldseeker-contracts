@@ -43,8 +43,9 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         PRICE_ORACLE = priceOracle;
     }
 
-    function _feeModule() internal view returns (YieldSeekerBorrowFeeModule) {
-        return YieldSeekerBorrowFeeModule(address(_feeTracker()));
+    function _feeModule() internal view returns (YieldSeekerBorrowFeeModule module) {
+        module = _borrowFeeModule();
+        if (address(module) == address(0)) revert AssetNotAllowed();
     }
 
     function _checkedMarketAssets(bytes memory market) internal view returns (address collateralAsset, address debtAsset) {
@@ -103,7 +104,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         uint256 payment = owedInPaymentAsset > balance ? balance : owedInPaymentAsset;
         if (payment == 0) return;
         uint256 owedCovered = payment == owedInPaymentAsset ? owed : (owed * payment) / owedInPaymentAsset;
-        IERC20(paymentAsset).safeTransfer(feeModule.feeCollector(), payment);
+        IERC20(paymentAsset).safeTransfer(_feeTracker().feeCollector(), payment);
         feeModule.recordFeePaid(debtAsset, owedCovered, paymentAsset, payment);
     }
 }

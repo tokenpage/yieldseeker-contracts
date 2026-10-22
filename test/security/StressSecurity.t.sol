@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -41,9 +41,9 @@ contract StressSecurityTest is Test {
         feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV2 impl = new AgentWalletV2(address(factory));
+        AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_PROFILE, registry);
-        factory.setFeeTracker(VAULT_PROFILE, feeTracker);
+        factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(impl);
 
         vaultAdapter = new ERC4626Adapter();
@@ -52,14 +52,14 @@ contract StressSecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet(address owner, uint32 idx) internal returns (AgentWalletV2 wallet) {
+    function _createWallet(address owner, uint32 idx) internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(owner, idx, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(owner, idx, address(usdc), VAULT_PROFILE))));
     }
 
     function test_MassWalletCreation_OperatorOnly() public {
         for (uint32 i = 0; i < 20; i++) {
-            AgentWalletV2 wallet = _createWallet(address(uint160(uint256(keccak256(abi.encode(i))))), i + 1);
+            AgentWalletV3 wallet = _createWallet(address(uint160(uint256(keccak256(abi.encode(i))))), i + 1);
             assertEq(wallet.owner(), address(uint160(uint256(keccak256(abi.encode(i))))));
         }
     }
@@ -71,7 +71,7 @@ contract StressSecurityTest is Test {
     }
 
     function test_LargeBatchExecution_Succeeds() public {
-        AgentWalletV2 wallet = _createWallet(user, AGENT_INDEX);
+        AgentWalletV3 wallet = _createWallet(user, AGENT_INDEX);
         usdc.mint(address(wallet), 5_000e6);
 
         address[] memory adapters = new address[](5);
@@ -90,7 +90,7 @@ contract StressSecurityTest is Test {
     }
 
     function test_LargeValueDepositAndWithdraw() public {
-        AgentWalletV2 wallet = _createWallet(user, AGENT_INDEX);
+        AgentWalletV3 wallet = _createWallet(user, AGENT_INDEX);
         usdc.mint(address(wallet), 1_000_000e6);
 
         vm.prank(user);
@@ -105,7 +105,7 @@ contract StressSecurityTest is Test {
     }
 
     function test_GasHeavySequentialDeposits() public {
-        AgentWalletV2 wallet = _createWallet(user, AGENT_INDEX);
+        AgentWalletV3 wallet = _createWallet(user, AGENT_INDEX);
         usdc.mint(address(wallet), 2_000e6);
 
         uint256 expectedShares;
@@ -119,7 +119,7 @@ contract StressSecurityTest is Test {
     }
 
     function test_BatchWithPausedRegistryReverts() public {
-        AgentWalletV2 wallet = _createWallet(user, AGENT_INDEX);
+        AgentWalletV3 wallet = _createWallet(user, AGENT_INDEX);
         usdc.mint(address(wallet), 500e6);
 
         address[] memory adapters = new address[](2);

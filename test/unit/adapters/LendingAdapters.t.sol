@@ -14,7 +14,7 @@ import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWallet
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
-import {YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
@@ -29,6 +29,7 @@ contract LendingAdaptersTest is Test {
     uint256 private constant COLLATERAL = 10e18;
     uint256 private constant BORROW_AMOUNT = 100e6;
 
+    YieldSeekerFeeTracker private feeTracker;
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private wallet;
     YieldSeekerAdapterRegistry private registry;
@@ -63,13 +64,16 @@ contract LendingAdaptersTest is Test {
         oracle.setSource(address(weth), IPriceFeed(address(wethFeed)), 1 days);
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
-        feeModule = new YieldSeekerBorrowFeeModule(address(this), address(this), FEE_COLLECTOR, 10_000, 50);
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR, 10_000, 0);
+        feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
+        feeTracker.addFeeModule(BORROW_FEE, feeModule);
+        feeTracker.setPlanRate(0, BORROW_FEE, 50);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
         factory.setAdapterRegistry(PROFILE, registry);
-        factory.setFeeTracker(PROFILE, YieldSeekerFeeTracker(address(feeModule)));
+        factory.setFeeTracker(feeTracker);
 
         aavePool = new MockLendingAaveV3Pool();
         morpho = new MockLendingMorpho();
@@ -78,7 +82,7 @@ contract LendingAdaptersTest is Test {
         variableDebtUsdc = new MockERC20("Variable Debt USDC", "vdUSDC");
         aavePool.setReserve(address(weth), address(aWeth), address(0));
         aavePool.setReserve(address(usdc), address(0), address(variableDebtUsdc));
-        aavePool.setFeeCollector(FEE_COLLECTOR);
+        aavePool.setFeeCollector(feeTracker.feeCollector());
         aaveV4Spoke.setReserve(1, address(weth), 18);
         aaveV4Spoke.setReserve(2, address(usdc), 6);
 
@@ -174,7 +178,7 @@ contract LendingAdaptersTest is Test {
 
         assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
-        assertEq(usdc.balanceOf(FEE_COLLECTOR), 500_000);
+        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 500_000);
         assertEq(aavePool.collectorBalanceAtRepay(), 500_000);
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT - 500_000);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20_500_000);
@@ -196,7 +200,7 @@ contract LendingAdaptersTest is Test {
 
         assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
-        assertEq(usdc.balanceOf(FEE_COLLECTOR), 500_000);
+        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 500_000);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 40e6);
         (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 40e6);
@@ -211,7 +215,7 @@ contract LendingAdaptersTest is Test {
 
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
 
-        assertEq(weth.balanceOf(FEE_COLLECTOR), collateralFee);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), collateralFee);
         assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
         assertEq(weth.balanceOf(address(wallet)), COLLATERAL - collateralFee);
@@ -231,7 +235,7 @@ contract LendingAdaptersTest is Test {
         _execute(OWNER, address(aaveV3Adapter), target, _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, COLLATERAL / 2));
 
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
-        assertEq(weth.balanceOf(FEE_COLLECTOR), 250_000_000_000_000);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), 250_000_000_000_000);
     }
 
     function test_StaleOracleSkipsCollateralFeePaymentAndDoesNotBlockExit() public {
@@ -239,7 +243,7 @@ contract LendingAdaptersTest is Test {
 
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
 
-        assertEq(weth.balanceOf(FEE_COLLECTOR), 0);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         assertEq(weth.balanceOf(address(wallet)), COLLATERAL);
         vm.prank(OWNER);

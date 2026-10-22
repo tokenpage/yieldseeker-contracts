@@ -43,6 +43,14 @@ contract RegisterVaultScript is Script {
     }
 
     function run(address vaultAddress, string memory adapterName, bytes32 predecessor) public {
+        _run(vaultAddress, adapterName, "vault", predecessor);
+    }
+
+    function run(address vaultAddress, string memory adapterName, string memory registryName) public {
+        _run(vaultAddress, adapterName, registryName, bytes32(0));
+    }
+
+    function _run(address vaultAddress, string memory adapterName, string memory registryName, bytes32 predecessor) internal {
         require(vaultAddress != address(0), "Invalid vault address");
 
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -50,7 +58,14 @@ contract RegisterVaultScript is Script {
         // Load deployment addresses
         // forge-lint: disable-next-line(unsafe-cheatcode)
         string memory json = vm.readFile("./deployments.json");
-        address registryAddress = json.readAddress(".adapterRegistry");
+        address registryAddress;
+        if (keccak256(bytes(registryName)) == keccak256(bytes("vault"))) {
+            registryAddress = json.readAddress(".adapterRegistry");
+        } else if (keccak256(bytes(registryName)) == keccak256(bytes("borrow"))) {
+            registryAddress = json.readAddress(".borrowAdapterRegistry");
+        } else {
+            revert(string.concat("Unknown registry: ", registryName));
+        }
         address timelockAddress = json.readAddress(".adminTimelock");
 
         // Get adapter address based on name
@@ -73,8 +88,10 @@ contract RegisterVaultScript is Script {
             adapterAddress = json.readAddress(".moonwellRewardAdapter");
         } else if (keccak256(bytes(adapterName)) == keccak256(bytes("compoundv2")) || keccak256(bytes(adapterName)) == keccak256(bytes("moonwell"))) {
             adapterAddress = json.readAddress(".compoundV2Adapter");
+        } else if (keccak256(bytes(adapterName)) == keccak256(bytes("transfer"))) {
+            adapterAddress = json.readAddress(".agentTransferAdapter");
         } else {
-            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'uniswapv3', 'aerodromev2', 'aerodromecl', 'merkl', 'aave', 'compound', 'compoundv2', 'moonwell', or 'moonwellrewards'"));
+            revert(string.concat("Unknown adapter name: ", adapterName, ". Use 'erc4626', 'uniswapv3', 'aerodromev2', 'aerodromecl', 'merkl', 'aave', 'compound', 'compoundv2', 'moonwell', 'moonwellrewards', or 'transfer'"));
         }
 
         console2.log("=================================================");
