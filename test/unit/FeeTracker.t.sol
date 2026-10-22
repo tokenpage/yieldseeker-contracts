@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidFeeRate} from "../../src/FeeTracker.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockFeeTracker} from "../mocks/MockFeeTracker.sol";
+import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @title FeeTracker Unit Tests
@@ -603,9 +606,27 @@ contract YieldSeekerFeeTrackerTest is Test {
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
 
     function setUp() public {
-        feeTracker = new YieldSeekerFeeTracker(admin);
-        vm.prank(admin);
-        feeTracker.setFeeConfig(DEFAULT_FEE_RATE, collector);
+        feeTracker = new YieldSeekerFeeTracker(admin, admin, collector, 5000, DEFAULT_FEE_RATE);
+        agent1 = address(new MockFeeWallet(agent1, IERC20(address(0))));
+    }
+
+    function test_VaultFeeModuleOnlyTrackerCanWrite() public {
+        YieldSeekerVaultFeeModule vaultFeeModule = feeTracker.VAULT_FEE_MODULE();
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, address(this)));
+        vaultFeeModule.recordAgentYieldEarned(address(agent1), 1_000);
+    }
+
+    function test_TrackerRecordsVaultFeesForTheCallingWalletOnly() public {
+        MockFeeWallet callerWallet = MockFeeWallet(agent1);
+        MockFeeWallet otherWallet = new MockFeeWallet(makeAddr("other-wallet-owner"), IERC20(address(0)));
+
+        callerWallet.execute(address(feeTracker), abi.encodeCall(feeTracker.recordAgentYieldEarned, (1_000)));
+        otherWallet.execute(address(feeTracker), abi.encodeCall(feeTracker.recordAgentYieldEarned, (2_000)));
+
+        assertEq(feeTracker.agentFeesCharged(agent1), 100);
+        assertEq(feeTracker.agentFeesCharged(address(otherWallet)), 200);
+        assertEq(feeTracker.getFeesOwed(agent1), 100);
+        assertEq(feeTracker.getFeesOwed(address(otherWallet)), 200);
     }
 
     function test_RecordAgentVaultShareWithdraw_DoubleChargingOnUntrackedSharesWithFeeOwed() public {
@@ -701,7 +722,7 @@ contract YieldSeekerFeeTrackerTest is Test {
         assertEq(feesBefore, 0, "No fees owed initially");
 
         // Expect the yield event
-        vm.expectEmit(true, false, false, true);
+        vm.expectEmit(true, false, false, true, address(feeTracker.VAULT_FEE_MODULE()));
         emit YieldRecorded(agent1, 1e6, 0.1e6); // profit=1, fee=0.1
 
         vm.prank(agent1);
@@ -924,7 +945,7 @@ contract YieldSeekerFeeTrackerTest is Test {
 
         // Rate rises to 20% before the position is withdrawn.
         vm.prank(admin);
-        feeTracker.setFeeConfig(2000, collector);
+        feeTracker.setPlanRate(0, VAULT_FEE, 2000);
 
         uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);
@@ -949,14 +970,14 @@ contract YieldSeekerFeeTrackerTest is Test {
         feeTracker.recordAgentVaultShareDeposit(vault, 1000e6, 1000e6);
         // Rate is 20% when the reward is recorded: 20% of 100 = 20 owed.
         vm.prank(admin);
-        feeTracker.setFeeConfig(2000, collector);
+        feeTracker.setPlanRate(0, VAULT_FEE, 2000);
         vm.prank(agent1);
         feeTracker.recordAgentYieldTokenEarned(vault, 100e6);
         assertEq(feeTracker.getAgentYieldTokenFeesOwed(agent1, vault), 20e6);
 
         // Rate falls to 10% before the position is withdrawn.
         vm.prank(admin);
-        feeTracker.setFeeConfig(1000, collector);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         uint256 rebasingRate = feeTracker.ASSET_EXCHANGE_RATE_PRECISION();
         vm.prank(agent1);

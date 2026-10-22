@@ -3,10 +3,10 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -29,6 +29,7 @@ contract EdgeCaseSecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
+    bytes32 constant VAULT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -38,14 +39,13 @@ contract EdgeCaseSecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV2 impl = new AgentWalletV2(address(factory));
-        factory.setAdapterRegistry(registry);
+        AgentWalletV3 impl = new AgentWalletV3(address(factory));
+        factory.setAdapterRegistry(VAULT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
+        factory.setAgentWalletImplementation(impl);
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -53,13 +53,13 @@ contract EdgeCaseSecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV2 wallet) {
+    function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
     }
 
     function test_DepositZeroAmountReverts() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
         vm.prank(user);
         vm.expectRevert();
@@ -67,7 +67,7 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_WithdrawZeroSharesReverts() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
         vm.prank(user);
         vm.expectRevert();
@@ -75,14 +75,14 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_WithdrawWithoutSharesReverts() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         vm.prank(user);
         vm.expectRevert();
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (1)));
     }
 
     function test_BatchAtomicityRevertsAndRollsBack() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         address[] memory adapters = new address[](2);
@@ -106,7 +106,7 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_BatchSuccessAccumulatesShares() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         address[] memory adapters = new address[](2);
@@ -127,8 +127,9 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_FeeRateAboveMaxReverts() public {
+        bytes32 vaultFeeType = VAULT_FEE;
         vm.prank(admin);
         vm.expectRevert();
-        feeTracker.setFeeConfig(6000, feeCollector);
+        feeTracker.setPlanRate(0, vaultFeeType, 6000);
     }
 }

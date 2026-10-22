@@ -16,26 +16,32 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKAerodromeV2SwapAdapter} from "../agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {YieldSeekerAdapter} from "./Adapter.sol";
-import {IYieldSeekerSwapSellPolicy} from "./SwapSellPolicy.sol";
+import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 
-contract YieldSeekerAerodromeV2SwapAdapter is AWKAerodromeV2SwapAdapter, YieldSeekerAdapter {
-    address public immutable SELL_POLICY;
+contract YieldSeekerAerodromeV2SwapAdapter is AWKAerodromeV2SwapAdapter, YieldSeekerSwapAdapter {
+    constructor(
+        address aerodromeV2Router,
+        address aerodromeV2Factory,
+        address sellPolicy,
+        IYieldSeekerPriceOracle priceOracle,
+        uint256 maxSlippageBps
+    )
+        AWKAerodromeV2SwapAdapter(aerodromeV2Router, aerodromeV2Factory)
+        YieldSeekerSwapAdapter(sellPolicy, priceOracle, maxSlippageBps)
+    {}
 
-    constructor(address aerodromeV2Router, address aerodromeV2Factory, address sellPolicy) AWKAerodromeV2SwapAdapter(aerodromeV2Router, aerodromeV2Factory) {
-        if (sellPolicy == address(0)) revert AWKErrors.ZeroAddress();
-        SELL_POLICY = sellPolicy;
+    function _beforeSwap(address sellToken, address buyToken) internal view override(AWKSwapAdapter, YieldSeekerSwapAdapter) {
+        super._beforeSwap(sellToken, buyToken);
     }
 
-    function _beforeSwap(address sellToken, address buyToken) internal view override {
-        IYieldSeekerSwapSellPolicy(SELL_POLICY).validateSellableToken(sellToken);
-        _requireNotBaseAsset(sellToken);
-        _requireBaseAsset(buyToken);
+    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) {
+        super._afterSwap(sellToken, soldAmount, buyAmount);
     }
 
-    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal override {
-        _feeTracker().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);
+    function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) returns (uint256, uint256) {
+        return super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
     }
 }

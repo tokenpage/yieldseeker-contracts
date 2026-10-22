@@ -33,8 +33,7 @@ contract MerklAdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         rewardToken = new MockERC20("Reward", "RWD");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
         adapter = new YieldSeekerMerklAdapter();
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         distributor = new MockMerklDistributor();

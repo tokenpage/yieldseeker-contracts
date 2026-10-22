@@ -38,8 +38,7 @@ contract MorphoERC4626ForkTest is Test {
         IERC4626 vault = IERC4626(vaultAddress);
         assertEq(vault.asset(), USDC, "Vault asset must be USDC");
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(FEE_RATE_BPS, address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerERC4626Adapter adapter = new YieldSeekerERC4626Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);

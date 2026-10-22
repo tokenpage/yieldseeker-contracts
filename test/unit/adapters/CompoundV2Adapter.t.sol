@@ -30,8 +30,7 @@ contract CompoundV2AdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         altAsset = new MockERC20("Alt", "ALT");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF)); // 10% fee
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000); // 10% fee
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         adapter = new YieldSeekerCompoundV2Adapter();
         cToken = new MockCToken(address(baseAsset), "Mock mUSDC", "mUSDC");

@@ -11,8 +11,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract AdapterWalletHarness is IAgentWallet {
     IERC20 private immutable _BASE_ASSET;
     YieldSeekerFeeTracker private immutable _FEE_TRACKER;
+    address public immutable owner;
 
     constructor(IERC20 baseAsset_, YieldSeekerFeeTracker feeTracker_) {
+        owner = msg.sender;
         _BASE_ASSET = baseAsset_;
         _FEE_TRACKER = feeTracker_;
     }

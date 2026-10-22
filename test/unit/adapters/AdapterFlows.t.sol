@@ -25,8 +25,7 @@ contract AdapterFlowsTest is Test {
 
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF)); // 10% fee
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000); // 10% fee
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         adapter = new YieldSeekerAaveV3Adapter();
         pool = new MockAaveV3Pool(address(baseAsset));

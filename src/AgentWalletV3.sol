@@ -20,22 +20,23 @@ import {InvalidAsset, InvalidFeeTracker, YieldSeekerStorageV1} from "./AgentWall
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
-import {AWKAgentWalletV2} from "./agentwalletkit/AWKAgentWalletV2.sol";
+import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
- * @title YieldSeekerAgentWalletV2
+ * @title YieldSeekerAgentWalletV3
  * @notice YieldSeeker agent wallet with fee tracking and base asset management
- * @dev Extends AWKAgentWalletV2 with YieldSeeker-specific functionality.
+ * @dev Extends AWKAgentWalletV3 with YieldSeeker-specific functionality. V3 pins the fee tracker it was created with
+ *      and lets the tracker decide what the owner may withdraw (e.g. borrowed tokens minus borrow fees owed).
  */
-contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
+contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     using SafeERC20 for IERC20;
 
     event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
 
-    constructor(address factory) AWKAgentWalletV2(factory) {}
+    constructor(address factory) AWKAgentWalletV3(factory) {}
 
     // ============ Initializers ============
 
@@ -75,9 +76,15 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
     // ============ Synchronization ============
 
     function _syncFromFactory() internal virtual override {
-        super._syncFromFactory();
-
         YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+
+        if (address(ys.feeTracker) != address(0)) {
+            AWKAgentWalletV3._syncFromFactory();
+            emit SyncedFromFactory(address(adapterRegistry()), address(ys.feeTracker));
+            return;
+        }
+
+        super._syncFromFactory();
 
         FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
         if (address(newTracker) == address(0)) revert InvalidFeeTracker();
@@ -111,12 +118,12 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
 
     /**
      * @notice Calculate withdrawable balance (total balance minus fees owed)
-     * @param asset Address of the asset to check (must be base asset)
+     * @param asset Address of the asset to check (must be allowed by the fee tracker, e.g. the base asset)
      */
     function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
-        if (asset != address(baseAsset())) revert InvalidAsset();
-        uint256 balance = baseAsset().balanceOf(address(this));
-        uint256 feesOwed = feeTracker().getFeesOwed(address(this));
+        (bool allowed, uint256 feesOwed) = feeTracker().withdrawReserve(address(this), asset);
+        if (!allowed) revert InvalidAsset();
+        uint256 balance = IERC20(asset).balanceOf(address(this));
         return balance > feesOwed ? balance - feesOwed : 0;
     }
 
@@ -125,8 +132,7 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw
      * @param amount Amount to withdraw
-     * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
-     *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
+     * @dev The fee tracker validates the asset and amount allowed for withdrawal.
      */
     function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwner {
         uint256 withdrawable = _getWithdrawableBalance(asset);
@@ -138,8 +144,7 @@ contract YieldSeekerAgentWalletV2 is AWKAgentWalletV2, IAgentWallet {
      * @notice User withdraws all of a specific ERC20 asset from agent wallet
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw
-     * @dev Only baseAsset withdrawals are allowed to ensure fee enforcement.
-     *      Non-base assets (vault shares, reward tokens) must be handled through adapters.
+     * @dev The fee tracker validates the asset and amount allowed for withdrawal.
      */
     function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwner {
         uint256 withdrawable = _getWithdrawableBalance(asset);

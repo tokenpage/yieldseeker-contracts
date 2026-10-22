@@ -15,6 +15,7 @@
 pragma solidity 0.8.28;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
+import {TooManyOperators} from "./AWKAgentWalletFactory.sol";
 import {AdapterExecutionFailed, AdapterIsBlocked, AgentWalletStorageV1, InvalidRegistry, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "./AWKAgentWalletV1.sol";
 import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
@@ -43,7 +44,7 @@ library AgentWalletStorageV2 {
 }
 
 /**
- * @title AWKAgentWalletV2
+ * @title AWKAgentWalletV3
  * @notice Abstract ERC-4337 v0.6 smart wallet with EntryPoint-relayed owner actions.
  * @dev Implements:
  *      - ERC-4337 v0.6 Account (BaseAccount)
@@ -51,13 +52,16 @@ library AgentWalletStorageV2 {
  *      - UUPS Upgradeability
  *      - ERC-7201 namespaced storage compatible with V1
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
+ *      - Self-managed mode: an implementation deployed with factory == address(0) lets the owner set the adapter
+ *        registry and operators and choose its own upgrades. Deploy such wallets behind an ERC1967Proxy that calls
+ *        initialize() in its constructor. With a factory, behaviour is the same as V2.
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
- *      1. Override withdrawal functions to enforce fee collection (see YieldSeekerAgentWalletV2)
+ *      1. Override withdrawal functions to enforce fee collection (see YieldSeekerAgentWalletV3)
  *      2. Add any protocol-specific storage and logic
  *      3. Ensure the paired Factory calls initialize() atomically during deployment
  */
-abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
@@ -65,6 +69,7 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     // ERC-4337 v0.6 canonical EntryPoint address
     IEntryPoint private constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
     IAWKAgentWalletFactory public immutable FACTORY;
+    uint256 public constant MAX_OPERATORS = 10;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
@@ -74,6 +79,8 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
     event TargetBlocked(address indexed target);
     event TargetUnblocked(address indexed target);
     event SyncedFromFactory(address indexed adapterRegistry);
+    event AdapterRegistrySet(address indexed adapterRegistry);
+    event AgentOperatorsSet(address[] operators);
 
     modifier onlyOwner() virtual {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
@@ -91,9 +98,18 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
         _;
     }
 
+    modifier onlySelfManaged() {
+        if (_hasFactory()) revert NotAllowed();
+        _;
+    }
+
     constructor(address factory) {
         FACTORY = IAWKAgentWalletFactory(factory);
         _disableInitializers();
+    }
+
+    function _hasFactory() internal view returns (bool) {
+        return address(FACTORY) != address(0);
     }
 
     receive() external payable {}
@@ -238,6 +254,7 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
      * @notice Internal helper to sync configuration from the factory
      */
     function _syncFromFactory() internal virtual {
+        if (!_hasFactory()) return;
         AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
 
         // Operators
@@ -256,6 +273,26 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
         $.adapterRegistry = AdapterRegistry(registryAddr);
 
         emit SyncedFromFactory(registryAddr);
+    }
+
+    function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external virtual onlyOwner onlySelfManaged {
+        if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
+        AgentWalletStorageV2.layout().adapterRegistry = newAdapterRegistry;
+        emit AdapterRegistrySet(address(newAdapterRegistry));
+    }
+
+    function setAgentOperators(address[] calldata operators) external virtual onlyOwner onlySelfManaged {
+        if (operators.length > MAX_OPERATORS) revert TooManyOperators();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
+        for (uint256 i = 0; i < $.agentOperators.length; i++) {
+            $.isAgentOperator[$.agentOperators[i]] = false;
+        }
+        for (uint256 i = 0; i < operators.length; i++) {
+            if (operators[i] == address(0)) revert AWKErrors.ZeroAddress();
+            $.isAgentOperator[operators[i]] = true;
+        }
+        $.agentOperators = operators;
+        emit AgentOperatorsSet(operators);
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============
@@ -355,19 +392,17 @@ abstract contract AWKAgentWalletV2 is IAWKAgentWallet, BaseAccount, Initializabl
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
     function upgradeToLatest() external virtual onlyOwner {
+        if (!_hasFactory()) revert NotAllowed();
         upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
         _syncFromFactory();
     }
 
     /**
      * @notice Authorize UUPS upgrades
-     * @dev Restricts upgrades to:
-     *      1. Owner only (user sovereignty)
-     *      2. Factory-approved implementations only
+     * @dev Only the owner may upgrade; factory-managed wallets require factory approval.
      */
     function _authorizeUpgrade(address newImplementation) internal view virtual override onlyOwner {
-        address approvedImplementation = FACTORY.agentWalletImplementation();
-        if (newImplementation != approvedImplementation) {
+        if (_hasFactory() && newImplementation != FACTORY.agentWalletImplementation()) {
             revert NotApprovedImplementation();
         }
     }

@@ -47,8 +47,7 @@ contract MoonwellRewardAdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         wellToken = new MockERC20("Moonwell", "WELL");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
         adapter = new YieldSeekerMoonwellRewardAdapter(address(wellToken));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         comptroller = new MockMoonwellComptroller(IERC20Like(address(wellToken)));
