@@ -3,17 +3,12 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {AWKAdapter} from "../../src/agentwalletkit/AWKAdapter.sol";
-import {AWKAgentWalletV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
-import {IAWKAgentWalletFactory} from "../../src/agentwalletkit/IAWKAgentWalletFactory.sol";
+import {AWKSelfManagedAgentWalletV3} from "../../src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol";
 import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 
-contract MockV3SelfManagedWallet is AWKAgentWalletV3 {
-    constructor(address factory) AWKAgentWalletV3(factory) {}
-}
+contract MockV3SelfManagedWallet is AWKSelfManagedAgentWalletV3 {}
 
 contract MockV3SelfManagedWalletV2 is MockV3SelfManagedWallet {
-    constructor(address factory) MockV3SelfManagedWallet(factory) {}
-
     function version() external pure returns (uint256) {
         return 2;
     }
@@ -52,30 +47,6 @@ contract MockV3BorrowReporter is AWKAdapter {
         (bytes32 market, address token, uint256 amount, uint256 debtBefore) = abi.decode(data, (bytes32, address, uint256, uint256));
         _feeModule.recordBorrow(market, token, amount, debtBefore);
         return abi.encode(amount);
-    }
-}
-
-contract MockV3WalletFactory is IAWKAgentWalletFactory {
-    address private _registry;
-    address private _implementation;
-    address[] private _operators;
-
-    function setConfiguration(address registry_, address implementation_, address[] calldata operators_) external {
-        _registry = registry_;
-        _implementation = implementation_;
-        _operators = operators_;
-    }
-
-    function agentWalletImplementation() external view override returns (address) {
-        return _implementation;
-    }
-
-    function adapterRegistry(bytes32) external view override returns (address) {
-        return _registry;
-    }
-
-    function listAgentOperators() external view override returns (address[] memory) {
-        return _operators;
     }
 }
 

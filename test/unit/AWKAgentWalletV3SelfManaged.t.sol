@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {NotAllowed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {MockV3EchoAdapter, MockV3SelfManagedWallet, MockV3SelfManagedWalletV2, MockV3WalletFactory} from "../mocks/MockV3TestHelpers.sol";
+import {MockV3EchoAdapter, MockV3SelfManagedWallet, MockV3SelfManagedWalletV2} from "../mocks/MockV3TestHelpers.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -81,7 +81,7 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         vm.startPrank(owner);
         wallet.setAdapterRegistry(registry);
         wallet.setAgentOperators(operators);
-        MockV3SelfManagedWalletV2 nextImplementation = new MockV3SelfManagedWalletV2(address(0));
+        MockV3SelfManagedWalletV2 nextImplementation = new MockV3SelfManagedWalletV2();
         wallet.upgradeToAndCall(address(nextImplementation), "");
         vm.stopPrank();
 
@@ -111,26 +111,8 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         wallet.executeViaAdapter(address(adapter), address(0xBEEF), hex"12345678");
     }
 
-    function test_FactoryManagedWalletCannotSetSelfManagedConfiguration() public {
-        MockV3WalletFactory mockFactory = new MockV3WalletFactory();
-        address[] memory operators = new address[](1);
-        operators[0] = operator;
-        mockFactory.setConfiguration(address(registry), address(0x1234), operators);
-        MockV3SelfManagedWallet implementation = new MockV3SelfManagedWallet(address(mockFactory));
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256,bytes32)", owner, 0, bytes32(0)));
-        MockV3SelfManagedWallet managedWallet = MockV3SelfManagedWallet(payable(address(proxy)));
-
-        vm.prank(owner);
-        vm.expectRevert(NotAllowed.selector);
-        managedWallet.setAdapterRegistry(registry);
-
-        vm.prank(owner);
-        vm.expectRevert(NotAllowed.selector);
-        managedWallet.setAgentOperators(operators);
-    }
-
     function _deploySelfManaged(address walletOwner) private returns (MockV3SelfManagedWallet deployed) {
-        MockV3SelfManagedWallet implementation = new MockV3SelfManagedWallet(address(0));
+        MockV3SelfManagedWallet implementation = new MockV3SelfManagedWallet();
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256,bytes32)", walletOwner, 0, bytes32(0)));
         deployed = MockV3SelfManagedWallet(payable(address(proxy)));
     }

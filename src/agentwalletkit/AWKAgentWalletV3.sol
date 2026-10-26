@@ -76,9 +76,6 @@ library AgentWalletStorageV3 {
  *      - UUPS Upgradeability
  *      - ERC-7201 namespaced storage compatible with V1
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
- *      - Self-managed mode: an implementation deployed with factory == address(0) lets the owner set the adapter
- *        registry and operators and choose its own upgrades. Deploy such wallets behind an ERC1967Proxy that calls
- *        initialize() in its constructor. With a factory, behaviour is the same as V2.
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
  *      1. Override withdrawal functions to enforce fee collection (see YieldSeekerAgentWalletV3)
@@ -102,8 +99,6 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     event TargetBlocked(address indexed target);
     event TargetUnblocked(address indexed target);
     event SyncedFromFactory(address indexed adapterRegistry);
-    event AdapterRegistrySet(address indexed adapterRegistry);
-    event AgentOperatorsSet(address[] operators);
 
     modifier onlyOwner() virtual {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
@@ -121,18 +116,9 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         _;
     }
 
-    modifier onlySelfManaged() {
-        if (_hasFactory()) revert NotAllowed();
-        _;
-    }
-
     constructor(address factory) {
         FACTORY = IAWKAgentWalletFactory(factory);
         _disableInitializers();
-    }
-
-    function _hasFactory() internal view returns (bool) {
-        return address(FACTORY) != address(0);
     }
 
     receive() external payable {}
@@ -291,7 +277,6 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @notice Internal helper to sync configuration from the factory
      */
     function _syncFromFactory() internal virtual {
-        if (!_hasFactory()) return;
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.layout();
 
         // Operators
@@ -304,17 +289,6 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         $.adapterRegistry = AdapterRegistry(registryAddr);
 
         emit SyncedFromFactory(registryAddr);
-    }
-
-    function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external virtual onlyOwner onlySelfManaged {
-        if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AgentWalletStorageV3.layout().adapterRegistry = newAdapterRegistry;
-        emit AdapterRegistrySet(address(newAdapterRegistry));
-    }
-
-    function setAgentOperators(address[] calldata operators) external virtual onlyOwner onlySelfManaged {
-        _setAgentOperators(operators);
-        emit AgentOperatorsSet(operators);
     }
 
     function _setAgentOperators(address[] memory operators) internal {
@@ -425,17 +399,19 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @notice Upgrade to latest approved implementation from factory and sync registry
      */
     function upgradeToLatest() external virtual onlyOwner {
-        if (!_hasFactory()) revert NotAllowed();
         upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
         _syncFromFactory();
     }
 
     /**
      * @notice Authorize UUPS upgrades
-     * @dev Only the owner may upgrade; factory-managed wallets require factory approval.
+     * @dev Restricts upgrades to:
+     *      1. Owner only (user sovereignty)
+     *      2. Factory-approved implementations only
      */
     function _authorizeUpgrade(address newImplementation) internal view virtual override onlyOwner {
-        if (_hasFactory() && newImplementation != FACTORY.agentWalletImplementation()) {
+        address approvedImplementation = FACTORY.agentWalletImplementation();
+        if (newImplementation != approvedImplementation) {
             revert NotApprovedImplementation();
         }
     }
