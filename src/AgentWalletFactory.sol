@@ -41,7 +41,7 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
 
     /**
      * @notice Update the FeeTracker address for future wallet deployments
-     * @dev V3 wallets pin the tracker they are created with, so it must support fee modules (withdrawReserve())
+     * @dev V3 wallets call withdrawReserve() on the tracker, so it must support fee modules
      * @param newFeeTracker The new tracker contract
      */
     function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {

@@ -313,7 +313,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         wallet.syncFromFactory();
 
         assertEq(address(wallet.adapterRegistry()), address(nextRegistry));
-        assertEq(address(wallet.feeTracker()), address(feeTracker));
+        assertEq(address(wallet.feeTracker()), address(nextTracker));
     }
 
     function test_SyncFromFactory_RemovesRevokedOperator() public {

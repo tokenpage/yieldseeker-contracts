@@ -95,7 +95,7 @@ contract AgentWalletV3Test is Test {
         weth.mint(address(borrowWallet), 400e6);
     }
 
-    function test_AgentProfileFeeTrackerIsPinnedWhileRegistryAndOperatorsResync() public {
+    function test_SyncFollowsFactoryRegistryOperatorsAndFeeTracker() public {
         YieldSeekerAdapterRegistry nextRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         YieldSeekerFeeTracker nextFees = new YieldSeekerFeeTracker(admin, admin, feeCollector, 10_000, 250);
         address nextOperator = makeAddr("next-operator");
@@ -109,7 +109,7 @@ contract AgentWalletV3Test is Test {
         vm.prank(owner);
         vaultWallet.syncFromFactory();
 
-        assertEq(address(vaultWallet.feeTracker()), address(vaultFees));
+        assertEq(address(vaultWallet.feeTracker()), address(nextFees));
         assertEq(address(vaultWallet.adapterRegistry()), address(nextRegistry));
         assertFalse(vaultWallet.isAgentOperator(operator));
         assertTrue(vaultWallet.isAgentOperator(nextOperator));

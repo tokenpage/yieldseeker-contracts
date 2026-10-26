@@ -123,7 +123,7 @@ abstract contract YieldSeekerFeePlans is AccessControl, IYieldSeekerFeeModuleHos
         return planRateBps[planOf[AWKAgentWalletV3(payable(wallet)).owner()]][feeType];
     }
 
-    /// @dev The factory only accepts trackers that report IYieldSeekerFeeModuleHost, since V3 wallets pin them for good
+    /// @dev The factory only accepts trackers that report IYieldSeekerFeeModuleHost, since V3 wallets call withdrawReserve()
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(IYieldSeekerFeeModuleHost).interfaceId || super.supportsInterface(interfaceId);
     }

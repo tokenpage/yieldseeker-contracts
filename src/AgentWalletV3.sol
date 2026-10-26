@@ -52,8 +52,8 @@ library YieldSeekerStorageV1 {
 /**
  * @title YieldSeekerAgentWalletV3
  * @notice YieldSeeker agent wallet with fee tracking and base asset management
- * @dev Extends AWKAgentWalletV3 with YieldSeeker-specific functionality. V3 pins the fee tracker it was created with
- *      and lets the tracker decide what the owner may withdraw (e.g. borrowed tokens minus borrow fees owed).
+ * @dev Extends AWKAgentWalletV3 with YieldSeeker-specific functionality. V3 lets the fee tracker decide what the owner
+ *      may withdraw (e.g. borrowed tokens minus borrow fees owed).
  */
 contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     using SafeERC20 for IERC20;
@@ -100,15 +100,9 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ Synchronization ============
 
     function _syncFromFactory() internal virtual override {
-        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
-
-        if (address(ys.feeTracker) != address(0)) {
-            AWKAgentWalletV3._syncFromFactory();
-            emit SyncedFromFactory(address(adapterRegistry()), address(ys.feeTracker));
-            return;
-        }
-
         super._syncFromFactory();
+
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
 
         FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
         if (address(newTracker) == address(0)) revert InvalidFeeTracker();
@@ -145,10 +139,10 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      * @param asset Address of the asset to check (must be allowed by the fee tracker, e.g. the base asset)
      */
     function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
-        (bool allowed, uint256 feesOwed) = feeTracker().withdrawReserve(address(this), asset);
+        (bool allowed, uint256 reserved) = feeTracker().withdrawReserve(address(this), asset);
         if (!allowed) revert InvalidAsset();
         uint256 balance = IERC20(asset).balanceOf(address(this));
-        return balance > feesOwed ? balance - feesOwed : 0;
+        return balance > reserved ? balance - reserved : 0;
     }
 
     /**

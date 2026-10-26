@@ -580,7 +580,7 @@ contract SystemIntegrationTest is Test {
         wallet.syncFromFactory();
 
         assertEq(address(wallet.adapterRegistry()), address(newRegistry));
-        assertEq(address(wallet.feeTracker()), address(feeTracker));
+        assertEq(address(wallet.feeTracker()), address(newFeeTracker));
         assertTrue(address(factory.adapterRegistry(VAULT_AGENT_PROFILE)) == address(newRegistry));
         assertEq(address(factory.feeTracker()), address(newFeeTracker));
     }

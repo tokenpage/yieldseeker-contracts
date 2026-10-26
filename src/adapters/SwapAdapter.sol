@@ -34,8 +34,8 @@ error SwapBelowOraclePrice(uint256 received, uint256 minimum);
  * @dev Reward tokens (in the sell policy) may be swapped to the base asset. The base asset may only be swapped into a
  *      token that a fee module accounts for in this wallet (e.g. a borrowed token), at most MAX_SLIPPAGE_BPS below
  *      the price oracle and without spending base asset held back for fees. Tokens a fee module accounts for cannot
- *      be swapped away, so their fees cannot be dodged. Wallets pinned to a tracker without fee modules (V1/V2) can
- *      only sell rewards.
+ *      be swapped away, so their fees cannot be dodged. V1/V2 wallets, whose tracker has no fee modules, can only
+ *      sell rewards.
  */
 abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
     address public immutable SELL_POLICY;
