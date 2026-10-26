@@ -44,6 +44,25 @@ library AgentWalletStorageV2 {
 }
 
 /**
+ * @title AgentWalletStorageV3
+ * @notice Fields added in V3, in their own namespace so the V1 layout is untouched
+ */
+library AgentWalletStorageV3 {
+    bytes32 private constant STORAGE_LOCATION = keccak256("agentwalletkit.agentwallet.storage.v3");
+
+    struct Layout {
+        bytes32 profile;
+    }
+
+    function layout() internal pure returns (Layout storage l) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            l.slot := slot
+        }
+    }
+}
+
+/**
  * @title AWKAgentWalletV3
  * @notice Abstract ERC-4337 v0.6 smart wallet with EntryPoint-relayed owner actions.
  * @dev Implements:
@@ -117,17 +136,24 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     // ============ Initializers ============
 
     /**
-     * @notice Initialize the wallet with owner and index
+     * @notice Initialize the wallet with owner, index and profile
      * @param _owner The owner address for the wallet
      * @param _ownerAgentIndex Index of this agent for the owner
+     * @param _profile The agent type profile that selects the factory's adapter registry (ignored without a factory)
      * @dev SECURITY: This function is intentionally public without caller restrictions because:
      *      1. The `initializer` modifier prevents re-initialization after first call
      *      2. Factory subclasses MUST call initialize() atomically in the same transaction as deployment
      *      3. See YieldSeekerAgentWalletFactory.createAgentWallet() for the correct pattern
      *      Factories that expose deployment without atomic initialization would create a vulnerability.
      */
-    function initialize(address _owner, uint256 _ownerAgentIndex) public virtual initializer {
+    function initialize(address _owner, uint256 _ownerAgentIndex, bytes32 _profile) public virtual initializer {
+        _initializeProfile(_profile);
         _initializeV1(_owner, _ownerAgentIndex);
+    }
+
+    /// @dev The profile is set once, before the first sync, and never changes
+    function _initializeProfile(bytes32 _profile) internal onlyInitializing {
+        AgentWalletStorageV3.layout().profile = _profile;
     }
 
     function _initializeV1(address _owner, uint256 _ownerAgentIndex) internal virtual {
@@ -155,6 +181,13 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      */
     function ownerAgentIndex() public view virtual returns (uint256) {
         return AgentWalletStorageV2.layout().ownerAgentIndex;
+    }
+
+    /**
+     * @notice Get the agent type profile
+     */
+    function profile() public view virtual returns (bytes32) {
+        return AgentWalletStorageV3.layout().profile;
     }
 
     /**
@@ -267,7 +300,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         }
 
         // AdapterRegistry
-        address registryAddr = FACTORY.adapterRegistry();
+        address registryAddr = FACTORY.profileAdapterRegistryMap(profile());
         if (registryAddr == address(0)) revert InvalidRegistry();
         if (registryAddr.code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = AdapterRegistry(registryAddr);

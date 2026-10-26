@@ -33,10 +33,10 @@ error NotLinkedWallet(address wallet);
 /**
  * @title YieldSeekerAgentTransferAdapter
  * @notice Move a token from this wallet to another agent wallet of the same owner that the owner linked
- * @dev Register LINK_REGISTRY as this adapter's target. The receiving wallet must be recorded by this wallet's
- *      factory (so it runs the factory's code and cannot be a look-alike contract), have the same owner, and be
- *      linked by that owner. The receiver's fee tracker must allow the token (so it can always be withdrawn there),
- *      and the sender may only move what its owner could withdraw (so fees owed stay behind).
+ * @dev Register LINK_REGISTRY as this adapter's target. Both wallets must be the ones this wallet's factory deployed
+ *      for the same owner (userWallets(owner, ownerAgentIndex) points back at them, so a look-alike contract cannot
+ *      pass), and the owner must have linked them. The receiver's fee tracker must allow the token (so it can always
+ *      be withdrawn there), and the sender may only move what its owner could withdraw (so fees owed stay behind).
  */
 contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
     using SafeERC20 for IERC20;
@@ -61,8 +61,9 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         if (amount == 0) revert AWKErrors.ZeroAmount();
         YieldSeekerAgentWalletV3 wallet = YieldSeekerAgentWalletV3(payable(address(this)));
         AWKAgentWalletFactory factory = AWKAgentWalletFactory(address(wallet.FACTORY()));
-        if (factory.walletProfile(address(this)) == bytes32(0) || factory.walletProfile(to) == bytes32(0)) revert NotLinkedWallet(to);
-        if (YieldSeekerAgentWalletV3(payable(to)).owner() != wallet.owner()) revert NotLinkedWallet(to);
+        address owner = wallet.owner();
+        if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotLinkedWallet(to);
+        if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);
         (bool receiverAllows,) = IAgentWallet(to).feeTracker().withdrawReserve(to, token);
         (bool senderAllows, uint256 feesOwed) = _feeTracker().withdrawReserve(address(this), token);

@@ -884,7 +884,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_InitializeCannotBeCalledTwice() public {
         vm.expectRevert();
-        wallet.initialize(ownerAddr, 2, address(usdc));
+        wallet.initialize(ownerAddr, 2, address(usdc), VAULT_PROFILE);
 
         assertEq(wallet.owner(), ownerAddr);
         assertEq(address(wallet.baseAsset()), address(usdc));

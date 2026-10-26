@@ -74,6 +74,10 @@ contract MockV3WalletFactory is IAWKAgentWalletFactory {
         return _registry;
     }
 
+    function profileAdapterRegistryMap(bytes32) external view override returns (address) {
+        return _registry;
+    }
+
     function listAgentOperators() external view override returns (address[] memory) {
         return _operators;
     }
@@ -81,12 +85,18 @@ contract MockV3WalletFactory is IAWKAgentWalletFactory {
 
 contract MockV3FakeWallet {
     address private immutable _owner;
+    uint256 private immutable _ownerAgentIndex;
 
-    constructor(address owner_) {
+    constructor(address owner_, uint256 ownerAgentIndex_) {
         _owner = owner_;
+        _ownerAgentIndex = ownerAgentIndex_;
     }
 
     function owner() external view returns (address) {
         return _owner;
+    }
+
+    function ownerAgentIndex() external view returns (uint256) {
+        return _ownerAgentIndex;
     }
 }

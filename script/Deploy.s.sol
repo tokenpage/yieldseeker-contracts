@@ -488,10 +488,10 @@ contract DeployScript is Script {
         if (address(agentWalletFactory.feeTracker()) != deployments.feeTracker) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (feeTracker)));
         }
-        if (agentWalletFactory.profileAdapterRegistry(VAULT_PROFILE) != adapterRegistry) {
+        if (agentWalletFactory.profileAdapterRegistryMap(VAULT_PROFILE) != adapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_PROFILE, adapterRegistry)));
         }
-        if (agentWalletFactory.profileAdapterRegistry(BORROW_PROFILE) != borrowAdapterRegistry) {
+        if (agentWalletFactory.profileAdapterRegistryMap(BORROW_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_PROFILE, borrowAdapterRegistry)));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) == address(0)) {

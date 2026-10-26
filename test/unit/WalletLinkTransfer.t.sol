@@ -121,9 +121,9 @@ contract WalletLinkTransferTest is Test {
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 1, abi.encodeWithSelector(NotLinkedWallet.selector, address(borrowWallet)));
     }
 
-    function test_TransferRejectsSpoofWalletEvenWhenItClaimsTheSameOwner() public {
+    function test_TransferRejectsSpoofWalletEvenWhenItClaimsTheSameOwnerAndIndex() public {
         _linkWallets();
-        MockV3FakeWallet fakeWallet = new MockV3FakeWallet(owner);
+        MockV3FakeWallet fakeWallet = new MockV3FakeWallet(owner, borrowWallet.ownerAgentIndex());
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(fakeWallet), 1, abi.encodeWithSelector(NotLinkedWallet.selector, address(fakeWallet)));
     }
 

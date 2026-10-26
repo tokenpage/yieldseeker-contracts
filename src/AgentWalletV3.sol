@@ -40,7 +40,8 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
 
     // ============ Initializers ============
 
-    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset) public virtual initializer {
+    function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset, bytes32 _profile) public virtual initializer {
+        _initializeProfile(_profile);
         _initializeYieldSeeker(_owner, _ownerAgentIndex, _baseAsset);
     }
 

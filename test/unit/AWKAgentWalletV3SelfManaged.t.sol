@@ -117,7 +117,7 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         operators[0] = operator;
         mockFactory.setConfiguration(address(registry), address(0x1234), operators);
         MockV3SelfManagedWallet implementation = new MockV3SelfManagedWallet(address(mockFactory));
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256)", owner, 0));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256,bytes32)", owner, 0, bytes32(0)));
         MockV3SelfManagedWallet managedWallet = MockV3SelfManagedWallet(payable(address(proxy)));
 
         vm.prank(owner);
@@ -131,7 +131,7 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
 
     function _deploySelfManaged(address walletOwner) private returns (MockV3SelfManagedWallet deployed) {
         MockV3SelfManagedWallet implementation = new MockV3SelfManagedWallet(address(0));
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256)", walletOwner, 0));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), abi.encodeWithSignature("initialize(address,uint256,bytes32)", walletOwner, 0, bytes32(0)));
         deployed = MockV3SelfManagedWallet(payable(address(proxy)));
     }
 }

@@ -66,7 +66,7 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
         if (baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (baseAsset.code.length == 0) revert AWKErrors.NotAContract(baseAsset);
         ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex, profile))));
-        ret.initialize(owner, ownerAgentIndex, baseAsset);
+        ret.initialize(owner, ownerAgentIndex, baseAsset, profile);
         emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset, profile);
     }
 }

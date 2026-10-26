@@ -59,18 +59,13 @@ contract AgentWalletFactoryProfilesTest is Test {
         assertEq(address(borrowWallet), factory.getAddress(walletOwner, borrowIndex));
         assertEq(factory.userWallets(walletOwner, vaultIndex), address(vaultWallet));
         assertEq(factory.userWallets(walletOwner, borrowIndex), address(borrowWallet));
-        assertEq(factory.walletProfile(address(vaultWallet)), PROFILE_VAULT);
-        assertEq(factory.walletProfile(address(borrowWallet)), PROFILE_BORROW);
+        assertEq(vaultWallet.profile(), PROFILE_VAULT);
+        assertEq(borrowWallet.profile(), PROFILE_BORROW);
         assertEq(address(vaultWallet.adapterRegistry()), address(registryVault));
         assertEq(address(borrowWallet.adapterRegistry()), address(registryBorrow));
         assertEq(address(vaultWallet.feeTracker()), address(feeVault));
         assertEq(address(borrowWallet.feeTracker()), address(feeVault));
         assertEq(address(feeVault.feeModules(BORROW_FEE)), address(feeBorrow));
-    }
-
-    function test_NonWalletCallerGetsNoProfileConfiguration() public view {
-        assertEq(address(factory.adapterRegistry()), address(0));
-        assertEq(address(factory.feeTracker()), address(feeVault));
     }
 
     function test_CreateAgentWalletRequiresOperatorRole() public {
