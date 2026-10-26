@@ -42,7 +42,7 @@ error NotAllowed();
 
 /**
  * @title AgentWalletStorageV1
- * @notice Storage layout for AgentWallet using ERC-7201 namespaced storage pattern (unchanged since V1)
+ * @notice Storage layout for AgentWallet V1 using ERC-7201 namespaced storage pattern
  * @dev Uses deterministic storage slot to avoid collisions with proxy storage and future versions
  */
 library AgentWalletStorageV1 {
@@ -171,13 +171,13 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      *      Factories that expose deployment without atomic initialization would create a vulnerability.
      */
     function initialize(address _owner, uint256 _ownerAgentIndex, bytes32 _agentProfile) public virtual initializer {
-        _initializeAgentProfile(_agentProfile);
-        _initializeV1(_owner, _ownerAgentIndex);
+        _initializeV3(_owner, _ownerAgentIndex, _agentProfile);
     }
 
     /// @dev The agent profile is set once, before the first sync, and never changes
-    function _initializeAgentProfile(bytes32 _agentProfile) internal onlyInitializing {
+    function _initializeV3(address _owner, uint256 _ownerAgentIndex, bytes32 _agentProfile) internal virtual onlyInitializing {
         AgentWalletStorageV3.layout().agentProfile = _agentProfile;
+        _initializeV1(_owner, _ownerAgentIndex);
     }
 
     function _initializeV1(address _owner, uint256 _ownerAgentIndex) internal virtual {

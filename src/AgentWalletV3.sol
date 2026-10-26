@@ -29,7 +29,7 @@ error InvalidFeeTracker();
 
 /**
  * @title YieldSeekerStorageV1
- * @notice YieldSeeker-specific storage for base asset and fee tracking (unchanged since V1)
+ * @notice YieldSeeker-specific storage for base asset and fee tracking
  * @dev Uses a different namespace than AWK to avoid collisions
  */
 library YieldSeekerStorageV1 {
@@ -65,11 +65,10 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ Initializers ============
 
     function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset, bytes32 _agentProfile) public virtual initializer {
-        _initializeAgentProfile(_agentProfile);
-        _initializeYieldSeeker(_owner, _ownerAgentIndex, _baseAsset);
+        _initializeYieldSeeker(_owner, _ownerAgentIndex, _baseAsset, _agentProfile);
     }
 
-    function _initializeYieldSeeker(address _owner, uint256 _ownerAgentIndex, address _baseAsset) internal onlyInitializing {
+    function _initializeYieldSeeker(address _owner, uint256 _ownerAgentIndex, address _baseAsset, bytes32 _agentProfile) internal onlyInitializing {
         if (_baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (_baseAsset.code.length == 0) revert AWKErrors.NotAContract(_baseAsset);
 
@@ -77,7 +76,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         ys.baseAsset = IERC20(_baseAsset);
 
         // Call parent initializer
-        super._initializeV1(_owner, _ownerAgentIndex);
+        super._initializeV3(_owner, _ownerAgentIndex, _agentProfile);
     }
 
     // ============ Storage Accessors ============
