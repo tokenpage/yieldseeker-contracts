@@ -101,15 +101,15 @@ The system uses a **cost-basis tracking model** to calculate platform fees on re
 
 ### How It Works
 
-1. **On Deposit**: FeeTracker records the deposit amount as "cost basis" for the wallet
-2. **On Withdrawal**: FeeTracker compares withdrawal value to cost basis
-   - If profit: Fee = `profitAmount * feeRate / 10000`
+1. **On Deposit**: the vault fee module records the deposit amount as "cost basis" for the wallet
+2. **On Withdrawal**: the vault fee module compares withdrawal value to cost basis
+   - If profit: Fee = `profitAmount * feeRate / 10000`, where `feeRate` is the owner's plan rate for `VAULT_FEE`
    - If loss: No fee, cost basis adjusted for remaining position
-3. **Fee Collection**: Platform can call `collectFees(wallet)` to transfer owed fees
+3. **Fee Collection**: the operator calls `wallet.collectFees()` to transfer owed vault fees to the fee collector
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for remaining shares is adjusted, and no fees are accrued.
-- **Transparency**: Users can query `feeTracker().getFeesOwed(wallet)` at any time to see their outstanding fee balance.
+- **Transparency**: Users can query `vaultFeeModule.getFeesOwed(wallet)` at any time to see their outstanding vault fee balance.
 - **Non-Custodial**: Fees are only collected from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---
@@ -292,18 +292,17 @@ The central registry that manages authorized adapters and their targets.
 
 ---
 
-#### FeeTracker (`src/FeeTracker.sol`)
+#### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-Tracks cost basis and calculates fees on realized gains.
+The fee tracker holds the fee plans, the fee collector and one module per fee type. Each module does its own fee type's accounting; wallets and their adapters call the modules directly, and every module records against `msg.sender`, so a caller can only affect its own accounting.
 
-**Key Functions:**
+| Contract | Role |
+|----------|------|
+| `YieldSeekerFeeTracker` | Plans (a rate per fee type per plan; every owner starts on plan 0), `feeCollector`, `addFeeModule` (add-only), `feeRateBps(feeType, wallet)`, and `withdrawReserve(wallet, token)`, which combines every module's answer (each called with a gas limit; a failing module counts as allowing nothing, and the base asset can always leave) |
+| `YieldSeekerVaultFeeModule` (`VAULT_FEE`) | Vault cost basis and realised profit, reward fees, `getFeesOwed`, `recordFeePaid`; called by the vault, reward and swap adapters and by `wallet.collectFees()` |
+| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Yearly fee on borrowed principal per market; called by the lending adapters |
 
-| Function | Access | Description |
-|----------|--------|-------------|
-| `recordDeposit(wallet, amount)` | Adapters only | Record deposit for cost basis |
-| `recordWithdrawal(wallet, shares, assets)` | Adapters only | Calculate fees on withdrawal |
-| `collectFees(wallet)` | Fee Collector | Transfer owed fees from wallet |
-| `getFeesOwed(wallet)` | View | Query outstanding fees |
+Adapters find a module with `wallet.feeTracker().feeModules(feeType)`.
 
 ---
 
@@ -415,17 +414,17 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 **Functions:**
 - `deposit(cToken, assetAmount)` - Mint cTokens by supplying underlying asset
 - `depositPercentage(cToken, percentageBps)` - Deposit percentage of wallet balance
-- `withdraw(cToken, assetAmount)` - Redeem underlying by burning cTokens
+- `withdraw(cToken, cTokenAmount)` - Redeem cTokens for underlying
 
 **Validation:**
 - Enforces that the cToken's underlying matches the wallet's `baseAsset`
-- Calls FeeTracker to record deposits/withdrawals for fee calculation
-- Uses cToken balance to track shares
+- Records deposits and withdrawals on the vault fee module with cTokens as shares (the same share-based cost basis as ERC4626 vaults)
+- Wraps underlying paid out as native ETH back into the base asset
 
 **Technical Notes:**
 - Compound V2 uses an exchange rate model where cTokens appreciate over time
 - `mint(amount)` supplies underlying and mints cTokens at the current exchange rate
-- `redeemUnderlying(amount)` redeems a specific amount of underlying, burning the required cTokens
+- `redeem(cTokens)` burns cTokens and pays out underlying at the current exchange rate
 - Exchange rate = (totalCash + totalBorrows - reserves) / totalSupply
 - Works with Moonwell (mTokens), Venus (vTokens), and other Compound V2 forks
 
@@ -805,7 +804,7 @@ The scripts target Base (chain ID 8453). `Deploy.s.sol` keeps the deployer as em
 
 ### Deploy
 
-`Deploy.s.sol` deploys contracts whose addresses are missing or zero in `deployments.json`. It preserves the existing vault registry and vault swap adapters, creates a separate borrow registry and borrow-only swap adapters, configures the static borrow targets, wires the factory and fee tracker, grants the operator role, and schedules a configuration batch.
+`Deploy.s.sol` deploys contracts whose addresses are missing or zero in `deployments.json`. It deploys the V3 vault registry and borrow registry with their adapters, the fee tracker and its vault and borrow fee modules, configures the static borrow targets, copies every V2 vault registry target into the V3 vault registry (see below), wires the factory and fee tracker, grants the operator role, and schedules a configuration batch. It never deploys or changes the V2 system, which stays in `deployments.json` under `agentWalletV2*` keys.
 
 ```bash
 forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify
@@ -813,9 +812,18 @@ forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --b
 
 New and reused addresses are saved to `deployments.json`. In production, execute the emitted deploy configuration batch and wait for it to complete before setting price sources or registering borrow markets.
 
+### Two vault registries
+
+V2 wallets keep using the V2 vault registry (`agentWalletV2AdapterRegistry`), whose adapters record fees on the legacy V2 FeeTracker. V3 vault wallets use the V3 vault registry (`vaultAdapterRegistry`), whose adapters record fees on the V3 vault fee module. A registry maps each target to one adapter, so the two systems can't share one registry. Until every V2 wallet has moved to V3, the two vault registries must hold exactly the same targets:
+- `Deploy.s.sol` maps every V2 vault registry target onto the V3 adapter of the same kind (and fails on a V2 adapter it doesn't know). Re-running it schedules any target the V3 registry is missing.
+- `RegisterVault.s.sol` always registers a vault in both registries in one timelock batch.
+- Sellable tokens live in the one `swapSellPolicy` that both registries' swap adapters read, so they can't drift.
+- An emergency `removeTarget` or `unregisterAdapter` on one registry must be repeated on the other.
+- The V3 vault registry also maps the wallet link registry to the agent transfer adapter; the V2 registry doesn't.
+
 ### Configure vaults and sellable tokens
 
-Register each vault target that vault agents may use. The existing vault registry already owns the swap adapters and router mappings; do not re-point its routers.
+Register each vault target that vault agents may use (in both vault registries, in one timelock batch):
 
 ```bash
 forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
@@ -900,7 +908,7 @@ In production, execute each emitted borrow-market timelock operation after the r
 
 ### Execute from the multisig
 
-In production, scripts schedule timelock operations rather than executing them immediately. Wait for each operation's delay, then execute the deploy configuration with `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` or an individual registration/source update with `execute(address,uint256,bytes,bytes32,bytes32)`. Copy the emitted arguments exactly; the deploy script outputs batch data and the smaller scripts output single-operation data.
+In production, scripts schedule timelock operations rather than executing them immediately. Wait for each operation's delay, then execute the deploy configuration and vault registrations with `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` or an individual market/source update with `execute(address,uint256,bytes,bytes32,bytes32)`. Copy the emitted arguments exactly.
 
 ### Selective redeployment
 
@@ -956,118 +964,12 @@ We have comprehensive tests in `test/`:
 
 ---
 
-### FeeTracker Migration Guide
+### Changing fee logic
 
-**IMPORTANT**: FeeTracker stores per-wallet fee accounting state. Changing the FeeTracker requires careful migration to prevent fee loss.
+Fee accounting lives in the fee modules, per wallet. Wallets follow the factory's fee tracker on every sync, so pointing the factory at a new tracker moves wallets to modules with **zero state**: vault cost basis, vault and reward fees owed, and borrow positions and fees owed stay behind in the old modules, and owners could withdraw without paying them.
 
-#### The Problem
-
-When `factory.setFeeTracker(newTracker)` is called and wallets subsequently call `syncFromFactory()`:
-- The wallet's `feeTracker` reference switches to the new contract
-- All historical fee data remains **orphaned** in the old FeeTracker:
-  - `agentFeesCharged[wallet]` - total fees charged
-  - `agentFeesPaid[wallet]` - total fees paid
-  - `agentVaultCostBasis[wallet][vault]` - cost basis for profit calculations
-  - `agentVaultShares[wallet][vault]` - tracked vault shares
-  - `agentYieldTokenFeesOwed[wallet][token]` - pending yield token fees
-- New FeeTracker has **zero state** for existing wallets
-- `newTracker.getFeesOwed(wallet)` returns **0** instead of the actual debt
-- Users could withdraw all funds without paying accrued fees
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  DANGEROUS: FeeTracker Switch Without Migration                      │
-│                                                                      │
-│  Day 1:  Wallet → FeeTrackerA (feesCharged: 1000 USDC)             │
-│  Day 30: Admin sets Factory.feeTracker = FeeTrackerB                │
-│  Day 31: Wallet.syncFromFactory() → points to FeeTrackerB           │
-│          FeeTrackerB.getFeesOwed(wallet) = 0  ← FEES LOST!         │
-│  Day 32: User withdraws all funds, platform never collects fees     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### Required Migration Pattern
-
-The new FeeTracker should store a reference to the previous tracker and aggregate fee queries:
-
-```solidity
-contract YieldSeekerFeeTrackerV2 is AccessControl {
-    // Reference to the previous FeeTracker for migration
-    YieldSeekerFeeTracker public immutable LEGACY_TRACKER;
-
-    // Track which wallets have been migrated
-    mapping(address wallet => bool) public migrated;
-
-    constructor(address admin, address legacyTracker) {
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        LEGACY_TRACKER = YieldSeekerFeeTracker(legacyTracker);
-    }
-
-    /**
-     * @notice Get fees owed, checking both legacy and current tracker
-     * @dev For unmigrated wallets, this returns the sum of:
-     *      - Legacy tracker fees (historical debt)
-     *      - Current tracker fees (new activity)
-     */
-    function getFeesOwed(address wallet) external view returns (uint256) {
-        uint256 currentOwed = _getCurrentFeesOwed(wallet);
-
-        // If not migrated, also include legacy fees
-        if (!migrated[wallet] && address(LEGACY_TRACKER) != address(0)) {
-            uint256 legacyOwed = LEGACY_TRACKER.getFeesOwed(wallet);
-            return currentOwed + legacyOwed;
-        }
-
-        return currentOwed;
-    }
-
-    /**
-     * @notice Migrate a wallet's fee state from legacy tracker
-     * @dev Called once per wallet to snapshot legacy state into new tracker
-     *      Can only be called by the wallet itself (msg.sender pattern)
-     */
-    function migrateFromLegacy() external {
-        address wallet = msg.sender;
-        require(!migrated[wallet], "Already migrated");
-        require(address(LEGACY_TRACKER) != address(0), "No legacy tracker");
-
-        // Copy fee accounting state
-        (uint256 charged, uint256 paid, ) = LEGACY_TRACKER.getWalletStats(wallet);
-        agentFeesCharged[wallet] = charged;
-        agentFeesPaid[wallet] = paid;
-
-        // Note: Vault positions (cost basis, shares) should also be migrated
-        // if the new tracker needs to continue tracking existing positions
-
-        migrated[wallet] = true;
-        emit WalletMigrated(wallet, charged, paid);
-    }
-}
-```
-
-#### State That Must Be Migrated
-
-| State Variable | Purpose | Migration Notes |
-|----------------|---------|-----------------|
-| `agentFeesCharged[wallet]` | Total fees charged to wallet | Direct copy |
-| `agentFeesPaid[wallet]` | Total fees paid by wallet | Direct copy |
-| `agentVaultCostBasis[wallet][vault]` | Cost basis for profit calculation | Requires knowing all vaults used by wallet |
-| `agentVaultShares[wallet][vault]` | Tracked shares for profit calculation | Requires knowing all vaults used by wallet |
-| `agentYieldTokenFeesOwed[wallet][token]` | Pending fees in yield tokens | Requires knowing all yield tokens received |
-
-**Note**: For vault positions (`costBasis`, `shares`) and yield token fees, you need to either:
-1. Track which vaults/tokens each wallet has interacted with (off-chain indexing)
-2. Have wallets self-report their positions during migration
-3. Accept that only `feesCharged` and `feesPaid` matter for fee enforcement (positions only affect future fee calculations)
-
-#### Why This Matters
-
-The FeeTracker is different from other factory configurations:
-- `AdapterRegistry`: Stateless - new registry just needs same adapters registered
-- `AgentOperators`: Cached locally but no critical accounting state
-- `FeeTracker`: **Stateful** - contains critical per-wallet accounting data
-
-Failing to migrate FeeTracker state allows users to avoid paying accrued platform fees, directly impacting revenue.
+- **New fee types:** add a module to the existing tracker with `addFeeModule` (no migration needed).
+- **Changing an existing module:** modules can't be replaced, so this needs a new tracker whose modules are seeded with each wallet's state before the factory switches to it. Each module keeps its state keyed by wallet (`VaultFeeModule`: `agentFeesCharged`, `agentFeesPaid`, the vault positions and `agentYieldTokenFeesOwed`; `BorrowFeeModule`: debt positions and fees per borrowed token), so the migration needs the list of vaults and tokens each wallet used (off-chain indexing).
 
 ---
 

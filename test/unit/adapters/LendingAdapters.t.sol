@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3} from "../../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAaveV4LendingAdapter} from "../../../src/adapters/AaveV4LendingAdapter.sol";
@@ -15,9 +14,11 @@ import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
+import {AdapterFeeSetup} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract LendingAdaptersTest is Test {
@@ -64,7 +65,8 @@ contract LendingAdaptersTest is Test {
         oracle.setSource(address(weth), IPriceFeed(address(wethFeed)), 1 days);
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR, 10_000, 0);
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR);
+        AdapterFeeSetup.addVaultModule(feeTracker, 10_000, 0);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.addFeeModule(BORROW_FEE, feeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);

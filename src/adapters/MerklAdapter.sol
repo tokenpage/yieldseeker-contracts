@@ -69,9 +69,9 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
             uint256 claimed = balanceAfter - balancesBefore[i];
             if (claimed > 0) {
                 if (token == baseAsset) {
-                    _feeTracker().recordAgentYieldEarned(claimed);
+                    _vaultFeeModule().recordAgentYieldEarned(claimed);
                 } else {
-                    _feeTracker().recordAgentYieldTokenEarned(token, claimed);
+                    _vaultFeeModule().recordAgentYieldTokenEarned(token, claimed);
                 }
             }
         }

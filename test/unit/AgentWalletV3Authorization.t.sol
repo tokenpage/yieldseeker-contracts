@@ -4,13 +4,13 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKAgentWalletV3, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
-import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -65,6 +65,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter;
     MockERC20 usdc;
     MockERC4626 vault;
@@ -89,7 +90,9 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, admin, 5000, 0);
+        feeTracker = new FeeTracker(admin, admin, admin);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -299,7 +302,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_SyncFromFactory_UpdatesRegistryAndFeeTracker() public {
         AdapterRegistry nextRegistry = new AdapterRegistry(admin, admin);
-        FeeTracker nextTracker = new FeeTracker(admin, admin, admin, 5000, 0);
+        FeeTracker nextTracker = new FeeTracker(admin, admin, admin);
 
         vm.prank(admin);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
@@ -716,11 +719,11 @@ contract AgentWalletV3AuthorizationTest is Test {
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
 
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 10e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 10e6);
 
         vm.prank(ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
@@ -737,9 +740,9 @@ contract AgentWalletV3AuthorizationTest is Test {
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
 
         vm.prank(ownerAddr);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
@@ -752,28 +755,28 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldEarned(100e6);
+        vaultFeeModule.recordAgentYieldEarned(100e6);
 
         vm.prank(ownerAddr);
         wallet.collectFees();
 
         assertEq(usdc.balanceOf(admin), 10e6);
         assertEq(usdc.balanceOf(address(wallet)), 990e6);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
     }
 
     function test_CollectFees_CapsAtWalletBalanceAndUpdatesTracker() public {
         vm.prank(admin);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldEarned(20_000e6);
+        vaultFeeModule.recordAgentYieldEarned(20_000e6);
 
         vm.prank(operatorAddr);
         wallet.collectFees();
 
         assertEq(usdc.balanceOf(admin), 1_000e6);
         assertEq(usdc.balanceOf(address(wallet)), 0);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 1_000e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 1_000e6);
     }
 
     function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
@@ -827,7 +830,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldEarned(20_000e6);
+        vaultFeeModule.recordAgentYieldEarned(20_000e6);
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
 
@@ -836,7 +839,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         assertEq(usdc.balanceOf(recipient), 0);
         assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 2_000e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 2_000e6);
     }
 
     function test_WithdrawEthToUser_ValidAmount() public {

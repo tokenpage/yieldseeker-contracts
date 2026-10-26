@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
@@ -17,6 +16,8 @@ import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agent
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
@@ -93,6 +94,7 @@ contract SwapAdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     YieldSeekerPriceOracle oracle;
     YieldSeekerSwapSellPolicy sellPolicy;
     UniswapV3SwapAdapter uniswapAdapter;
@@ -157,7 +159,10 @@ contract SwapAdapterIntegrationTest is Test {
         MockFeePriceFeed tokenPriceFeed = new MockFeePriceFeed(8, 1e8, now_);
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, 1000);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
@@ -306,14 +311,14 @@ contract SwapAdapterIntegrationTest is Test {
         AgentWalletV3 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(address(sellToken), 100e6);
-        assertEq(feeTracker.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 10e6);
+        vaultFeeModule.recordAgentYieldTokenEarned(address(sellToken), 100e6);
+        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 10e6);
         uniswapRouter.setBuyAmount(200e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(50e6), uint256(100e6)));
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
-        assertEq(feeTracker.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 0);
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 40e6);
+        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 0);
+        assertEq(vaultFeeModule.agentFeesCharged(address(wallet)), 40e6);
     }
 }

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockSwapAdapterPriceOracle} from "../../mocks/MockSwapAdapterPriceOracle.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract MockUniswapV3Router {
@@ -73,7 +73,7 @@ contract UniswapV3SwapAdapterTest is Test {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         sellToken = new MockERC20("Mock Token", "mTKN");
         otherToken = new MockERC20("Other Token", "oTKN");
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(sellToken));
         router = new MockUniswapV3Router();

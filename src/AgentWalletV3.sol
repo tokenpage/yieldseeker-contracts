@@ -16,11 +16,12 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "./fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -115,12 +116,13 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ Fee Collection ============
 
     /**
-     * @notice Collect any owed fees from the wallet
+     * @notice Collect vault fees owed by the wallet
      * @dev Can be called by executors during normal operations
      */
     function collectFees() external virtual onlyExecutors {
         FeeTracker tracker = feeTracker();
-        uint256 owed = tracker.getFeesOwed(address(this));
+        YieldSeekerVaultFeeModule vaultFees = YieldSeekerVaultFeeModule(address(tracker.feeModules(VAULT_FEE)));
+        uint256 owed = vaultFees.getFeesOwed(address(this));
         if (owed == 0) return;
         IERC20 asset = baseAsset();
         uint256 available = asset.balanceOf(address(this));
@@ -128,7 +130,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         if (toCollect > 0) {
             address collector = tracker.feeCollector();
             asset.safeTransfer(collector, toCollect);
-            tracker.recordFeePaid(toCollect);
+            vaultFees.recordFeePaid(toCollect);
         }
     }
 

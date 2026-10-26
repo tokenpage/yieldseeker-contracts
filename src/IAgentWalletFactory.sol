@@ -16,8 +16,8 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAWKAgentWalletFactory} from "./agentwalletkit/IAWKAgentWalletFactory.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 
 /**
  * @title IAgentWalletFactory

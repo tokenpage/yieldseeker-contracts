@@ -3,11 +3,11 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {InvalidFeeTracker, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
@@ -31,7 +31,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         baseAsset = new MockERC20("Base Asset", "BASE");
         registryVault = new YieldSeekerAdapterRegistry(address(this), address(this));
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
-        feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A, 10_000, 1_000);
+        feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A);
         feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, 500);
         feeVault.addFeeModule(BORROW_FEE, feeBorrow);
         feeVault.setPlanRate(0, BORROW_FEE, 500);
@@ -87,12 +87,6 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
 
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
         factory.setFeeTracker(YieldSeekerFeeTracker(address(0)));
-    }
-
-    function test_FeeContractWithoutFeeModuleInterfaceIsRejected() public {
-        YieldSeekerAdapterRegistry notAFeeModule = new YieldSeekerAdapterRegistry(address(this), address(this));
-        vm.expectRevert(InvalidFeeTracker.selector);
-        factory.setFeeTracker(YieldSeekerFeeTracker(address(notAFeeModule)));
     }
 
     function test_DuplicateOwnerIndexReverts() public {

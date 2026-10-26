@@ -16,9 +16,10 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker as FeeTracker} from "../FeeTracker.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error AssetNotAllowed();
@@ -27,7 +28,7 @@ error BaseAssetNotAllowed();
 /**
  * @title YieldSeekerAdapter
  * @notice Base class for all adapters in the YieldSeeker system.
- * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset and feeTracker
+ * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset, the fee tracker and the vault fee module
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
     // Helper to get the wallet as IAgentWallet instead of IAWKAgentWallet
@@ -53,5 +54,9 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
 
     function _feeTracker() internal view returns (FeeTracker) {
         return _ysAgentWallet().feeTracker();
+    }
+
+    function _vaultFeeModule() internal view returns (YieldSeekerVaultFeeModule) {
+        return YieldSeekerVaultFeeModule(address(_feeTracker().feeModules(VAULT_FEE)));
     }
 }

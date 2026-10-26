@@ -4,14 +4,14 @@ pragma solidity 0.8.28;
 import {InvalidAsset} from "../../src/AgentWalletV3.sol";
 import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";
-import {IYieldSeekerFeeModule, IYieldSeekerFeeModuleHost} from "../../src/fees/IYieldSeekerFeeModule.sol";
+import {InvalidFeeRate} from "../../src/fees/FeeTracker.sol";
+import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title MockFeeTracker
 /// @notice Mock implementation of FeeTracker for isolated unit testing
-contract MockFeeTracker is AccessControl, IYieldSeekerFeeModuleHost {
+contract MockFeeTracker is AccessControl {
     using SafeCast for uint256;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -19,7 +19,7 @@ contract MockFeeTracker is AccessControl, IYieldSeekerFeeModuleHost {
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE_RATE = BASIS_POINTS; // 100%
 
-    mapping(bytes32 feeType => IYieldSeekerFeeModule module) public override feeModules;
+    mapping(bytes32 feeType => IYieldSeekerFeeModule module) public feeModules;
     mapping(address => uint256) private _feesPaid;
     uint256 private _feeRate;
     address private _feeCollector;
@@ -98,13 +98,9 @@ contract MockFeeTracker is AccessControl, IYieldSeekerFeeModuleHost {
         return owed > paid ? owed - paid : 0;
     }
 
-    function withdrawReserve(address wallet, address token) external view override returns (bool allowed, uint256 reserved) {
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
         if (token != address(IAgentWallet(wallet).baseAsset())) return (false, 0);
         return (true, getFeesOwed(wallet));
-    }
-
-    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
-        return interfaceId == type(IYieldSeekerFeeModuleHost).interfaceId || super.supportsInterface(interfaceId);
     }
 
     // ============ Position Tracking ============

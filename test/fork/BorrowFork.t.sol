@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
@@ -15,6 +14,8 @@ import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapA
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -56,7 +57,10 @@ contract BorrowForkTest is Test {
         oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(SEQUENCER_UPTIME_FEED));
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
-        feeTracker = new FeeTracker(address(this), address(this), feeCollector, 5000, 1000);
+        feeTracker = new FeeTracker(address(this), address(this), feeCollector);
+        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
         feeTracker.addFeeModule(BORROW_FEE, borrowFeeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);

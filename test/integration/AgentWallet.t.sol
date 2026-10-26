@@ -12,9 +12,10 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../../src/AdminTimelock.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 
 // Test utilities
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -39,6 +40,7 @@ abstract contract AgentWalletIntegrationBase is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     AdminTimelock timelock;
     ERC4626Adapter vaultAdapter;
     MerklAdapter merklAdapter;
@@ -76,7 +78,10 @@ abstract contract AgentWalletIntegrationBase is Test {
 
         // Deploy real contracts in correct order
         registry = new AdapterRegistry(admin, admin); // admin as both admin and emergency admin
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         // Deploy timelock with admin as proposer and executor
         address[] memory proposers = new address[](1);
@@ -1004,7 +1009,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         assertEq(usdc.balanceOf(walletAddr), 0, "USDC should be in vault");
 
         console.log("\n=== After Step 2: Deposited to VAULT A ===");
-        (uint256 vaultACost, uint256 vaultASharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 vaultACost, uint256 vaultASharesTracked) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         console.log("VAULT A cost basis:", vaultACost);
         console.log("VAULT A shares tracked:", vaultASharesTracked);
 
@@ -1039,10 +1044,10 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
 
         console.log("\n=== After Step 3: Claimed VAULT B shares via Merkl ===");
         console.log("VAULT B shares in wallet:", vaultB.balanceOf(walletAddr));
-        (uint256 vaultBCost, uint256 vaultBSharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vaultB));
+        (uint256 vaultBCost, uint256 vaultBSharesTracked) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vaultB));
         console.log("VAULT B cost basis:", vaultBCost);
         console.log("VAULT B shares tracked:", vaultBSharesTracked);
-        uint256 vaultBFeesOwed = feeTracker.getAgentYieldTokenFeesOwed(walletAddr, address(vaultB));
+        uint256 vaultBFeesOwed = vaultFeeModule.agentYieldTokenFeesOwed(walletAddr, address(vaultB));
         console.log("VAULT B token fees owed:", vaultBFeesOwed);
 
         // Step 4: Executor withdraws from VAULT B and deposits converted USDC into VAULT A
@@ -1057,7 +1062,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
 
         console.log("\n=== After Step 4a: Withdrew from VAULT B ===");
         console.log("USDC balance:", usdcFromReward);
-        (vaultBCost, vaultBSharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vaultB));
+        (vaultBCost, vaultBSharesTracked) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vaultB));
         console.log("VAULT B cost basis:", vaultBCost);
         console.log("VAULT B shares tracked:", vaultBSharesTracked);
 
@@ -1068,36 +1073,25 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositRewardData);
 
         console.log("\n=== After Step 4b: Deposited reward USDC to VAULT A ===");
-        (vaultACost, vaultASharesTracked) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (vaultACost, vaultASharesTracked) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         console.log("VAULT A cost basis:", vaultACost);
         console.log("VAULT A shares tracked:", vaultASharesTracked);
 
-        // Step 5: Check final fee tracker state
-        console.log("\n=== Final Fee Tracker State ===");
-        (uint256 feesCharged, uint256 feesPaid, uint256 feesOwed) = feeTracker.getWalletStats(walletAddr);
+        // Step 5: Check final vault fee module state
+        console.log("\n=== Final Vault Fee Module State ===");
+        uint256 feesCharged = vaultFeeModule.agentFeesCharged(walletAddr);
+        uint256 feesPaid = vaultFeeModule.agentFeesPaid(walletAddr);
+        uint256 feesOwed = vaultFeeModule.getFeesOwed(walletAddr);
         console.log("Fees charged:", feesCharged);
         console.log("Fees paid:", feesPaid);
         console.log("Fees owed:", feesOwed);
 
-        console.log("\n=== Expected vs Actual ===");
-        console.log("Expected fee (10% of 1 USDC reward): 100000");
-        console.log("Actual fee owed:", feesOwed);
-        console.log("\nIssue: Vault share rewards aren't recognized as rewards.");
-        console.log("The FeeTracker sees VAULT B shares appear (not from deposit),");
-        console.log("then disappear (withdraw). But it has 0 cost basis, so no profit.");
-        console.log("It doesn't know those shares were a REWARD that should incur fees.");
-
-        // This assertion will FAIL, highlighting the issue
         assertEq(feesOwed, 100000, "Should owe 10% fee on vault share reward value");
     }
 
     // ============ Position Tracking Edge Cases ============
 
-    function test_DirectVaultShareTransfer_CausesUnderflow() public {
-        // This test demonstrates the auditor's finding:
-        // When vault shares are received outside the adapter system,
-        // position tracking breaks and causes underflow on withdrawal
-
+    function test_DirectVaultShareTransfer_CanBeWithdrawnWithoutUnderflow() public {
         // Step 1: Create wallet and deposit 1000 USDC via adapter
         address walletAddr = createWalletForUser(user);
         AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
@@ -1111,7 +1105,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
         // Verify tracked position
-        (uint256 costBasis, uint256 trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 costBasis, uint256 trackedShares) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(costBasis, 1000e6, "Cost basis should be 1000 USDC");
         assertEq(trackedShares, 1000e6, "Tracked shares should be 1000");
 
@@ -1121,7 +1115,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         console.log("Actual vault shares:", vault.balanceOf(walletAddr));
 
         // Step 2: Someone directly transfers 500 vault shares to the wallet
-        // (NOT through the adapter, so FeeTracker doesn't know about it)
+        // The module tracks adapter-routed deposits, not direct share transfers.
         usdc.mint(address(this), 500e6);
         usdc.approve(address(vault), 500e6);
         vault.deposit(500e6, address(this)); // Get vault shares
@@ -1129,22 +1123,16 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
 
         console.log("\n=== After Step 2: Direct transfer of 500 vault shares ===");
         console.log("Actual vault shares:", vault.balanceOf(walletAddr));
-        (costBasis, trackedShares) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (costBasis, trackedShares) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         console.log("Cost basis (still):", costBasis);
         console.log("Tracked shares (still):", trackedShares);
-        console.log("DISCREPANCY: Wallet has 1500 shares but FeeTracker only knows about 1000");
+        console.log("Position still reflects adapter-routed deposits:", trackedShares);
 
-        // Step 3: Try to withdraw all shares (1500) via adapter
-        // This should cause underflow in FeeTracker:
-        // proportionalCost = (1000 * 1500) / 1000 = 1500
-        // agentVaultCostBasis = 1000 - 1500 = UNDERFLOW
+        // Withdraw all tracked and directly transferred shares.
         uint256 totalShares = vault.balanceOf(walletAddr);
         assertEq(totalShares, 1500e6, "Wallet should have 1500 shares");
 
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (totalShares));
-
-        console.log("\n=== Step 3: Attempting to withdraw all 1500 shares ===");
-        console.log("User should be able to withdraw all shares they legitimately own...");
 
         // User should be able to withdraw all their shares
         vm.prank(user);
@@ -1154,6 +1142,9 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         uint256 finalUsdcBalance = usdc.balanceOf(walletAddr);
         assertApproxEqAbs(finalUsdcBalance, 1500e6, 100, "Should have ~1500 USDC from withdrawal");
         assertEq(vault.balanceOf(walletAddr), 0, "Should have no vault shares left");
+        (costBasis, trackedShares) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
+        assertEq(costBasis, 0);
+        assertEq(trackedShares, 0);
 
         console.log("\nFinal USDC balance:", finalUsdcBalance);
         console.log("Final vault shares:", vault.balanceOf(walletAddr));
@@ -1185,7 +1176,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
 
         // Should have 10 USDC fees (10% of 100 profit)
-        uint256 feesOwed = feeTracker.getFeesOwed(walletAddr);
+        uint256 feesOwed = vaultFeeModule.getFeesOwed(walletAddr);
         assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
 
         uint256 usdcBalance = usdc.balanceOf(walletAddr);
@@ -1231,7 +1222,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
 
         // Should have 10 USDC fees (10% of 100 profit)
-        uint256 feesOwed = feeTracker.getFeesOwed(walletAddr);
+        uint256 feesOwed = vaultFeeModule.getFeesOwed(walletAddr);
         assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
 
         uint256 usdcBalance = usdc.balanceOf(walletAddr);
@@ -1301,7 +1292,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1_000e6)));
 
         uint256 sharesBeforeUpgrade = vault.balanceOf(walletAddr);
-        (uint256 costBasisBeforeUpgrade, uint256 trackedSharesBeforeUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 costBasisBeforeUpgrade, uint256 trackedSharesBeforeUpgrade) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(sharesBeforeUpgrade, 1_000e6);
 
         vm.prank(user);
@@ -1324,7 +1315,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         assertTrue(upgradedWallet.isAdapterBlocked(address(merklAdapter)));
         assertEq(vault.balanceOf(walletAddr), sharesBeforeUpgrade);
 
-        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) = feeTracker.getAgentVaultPosition(walletAddr, address(vault));
+        (uint256 costBasisAfterUpgrade, uint256 trackedSharesAfterUpgrade) = vaultFeeModule.getAgentVaultPosition(walletAddr, address(vault));
         assertEq(costBasisAfterUpgrade, costBasisBeforeUpgrade);
         assertEq(trackedSharesAfterUpgrade, trackedSharesBeforeUpgrade);
 
@@ -1362,7 +1353,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         vm.prank(user);
         upgradedWallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (sharesBeforeUpgrade)));
 
-        assertEq(feeTracker.getFeesOwed(walletAddr), 10e6);
+        assertEq(vaultFeeModule.getFeesOwed(walletAddr), 10e6);
         assertApproxEqAbs(usdc.balanceOf(walletAddr), 1_100e6, 100);
 
         vm.prank(user);
@@ -1388,7 +1379,7 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (500e6)));
 
         assertEq(vault.balanceOf(address(wallet)), 500e6);
-        (uint256 costBasis, uint256 trackedShares) = feeTracker.getAgentVaultPosition(address(wallet), address(vault));
+        (uint256 costBasis, uint256 trackedShares) = vaultFeeModule.getAgentVaultPosition(address(wallet), address(vault));
         assertEq(costBasis, 500e6);
         assertEq(trackedShares, 500e6);
     }

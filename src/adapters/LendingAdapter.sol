@@ -20,7 +20,6 @@ import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../fees/BorrowFeeModule.sol";
-import {IYieldSeekerFeeModuleHost} from "../fees/IYieldSeekerFeeModule.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -46,7 +45,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
 
     /// @dev The borrow fee module of the wallet's tracker; only V3 wallets use lending adapters
     function _feeModule() internal view returns (YieldSeekerBorrowFeeModule module) {
-        module = YieldSeekerBorrowFeeModule(address(IYieldSeekerFeeModuleHost(address(_feeTracker())).feeModules(BORROW_FEE)));
+        module = YieldSeekerBorrowFeeModule(address(_feeTracker().feeModules(BORROW_FEE)));
         if (address(module) == address(0)) revert AssetNotAllowed();
     }
 

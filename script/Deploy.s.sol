@@ -5,7 +5,6 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../src/FeeTracker.sol";
 import {YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOracle.sol";
 import {YieldSeekerWalletLinkRegistry as WalletLinkRegistry} from "../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
@@ -23,6 +22,8 @@ import {YieldSeekerMorphoBlueLendingAdapter as MorphoBlueLendingAdapter} from ".
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule as BorrowFeeModule} from "../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule as VaultFeeModule} from "../src/fees/VaultFeeModule.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -31,6 +32,10 @@ import {console2} from "forge-std/console2.sol";
  * @title DeployScript
  * @notice Deploys the YieldSeeker AgentWallet system with selective contract deployment.
  * @dev Usage: forge script script/Deploy.s.sol:DeployScript --rpc-url <RPC> --broadcast
+ *      The V2 system (factory, fee tracker, vault registry and its adapters) stays live for V2 wallets and is kept in
+ *      deployments.json under agentWalletV2* keys; this script never deploys or configures it. The V3 vault registry
+ *      must hold the same targets as the V2 vault registry: this script copies every V2 target onto the matching V3
+ *      adapter, and RegisterVault.s.sol registers new vaults in both registries in one timelock batch.
  */
 contract DeployScript is Script {
     using stdJson for string;
@@ -53,40 +58,53 @@ contract DeployScript is Script {
     uint256 constant BORROW_DEFAULT_FEE_BPS = 50;
 
     address constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
+    address constant MERKL_DISTRIBUTOR = 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae;
 
     // State tracking
     struct Deployments {
         address adminTimelock;
         address agentWalletFactory;
-        address adapterRegistry;
         address agentWalletImplementation;
-        address agentWalletV1Implementation;
-        address agentWalletV2Implementation;
-        address agentWalletV2Factory;
-        address agentWalletV2FeeTracker;
         address feeTracker;
-        address erc4626Adapter;
-        address merklAdapter;
+        address vaultFeeModule;
+        address borrowFeeModule;
+        address priceOracle;
         address swapSellPolicy;
-        address uniswapV3SwapAdapter;
-        address aerodromeV2SwapAdapter;
-        address aerodromeClSwapAdapter;
-        address borrowUniswapV3SwapAdapter;
-        address borrowAerodromeV2SwapAdapter;
-        address borrowAerodromeClSwapAdapter;
+        address walletLinkRegistry;
+        address vaultAdapterRegistry;
+        address borrowAdapterRegistry;
+        address erc4626Adapter;
         address aaveV3Adapter;
         address compoundV3Adapter;
         address compoundV2Adapter;
         address moonwellRewardAdapter;
-        address borrowAdapterRegistry;
-        address borrowFeeModule;
-        address priceOracle;
-        address walletLinkRegistry;
+        address merklAdapter;
+        address uniswapV3SwapAdapter;
+        address aerodromeV2SwapAdapter;
+        address aerodromeClSwapAdapter;
         address aaveV3LendingAdapter;
         address aaveV4LendingAdapter;
         address morphoBlueLendingAdapter;
         address agentTransferAdapter;
     }
+
+    /// @dev V2-system entries kept in deployments.json as they are; never deployed or configured by this script
+    string[14] internal LEGACY_KEYS = [
+        "agentWalletV1Implementation",
+        "agentWalletV2Implementation",
+        "agentWalletV2Factory",
+        "agentWalletV2FeeTracker",
+        "agentWalletV2AdapterRegistry",
+        "agentWalletV2Erc4626Adapter",
+        "agentWalletV2AaveV3Adapter",
+        "agentWalletV2CompoundV3Adapter",
+        "agentWalletV2CompoundV2Adapter",
+        "agentWalletV2MoonwellRewardAdapter",
+        "agentWalletV2MerklAdapter",
+        "agentWalletV2UniswapV3SwapAdapter",
+        "agentWalletV2AerodromeV2SwapAdapter",
+        "agentWalletV2AerodromeCLSwapAdapter"
+    ];
 
     address[] internal _targets;
     bytes[] internal _datas;
@@ -191,42 +209,34 @@ contract DeployScript is Script {
         // Load existing deployments from JSON
         Deployments memory deployments;
         string memory path = "./deployments.json";
-        if (vm.exists(path)) {
-            // forge-lint: disable-next-line(unsafe-cheatcode)
-            string memory deployJson = vm.readFile(path);
-            deployments = Deployments({
-                adminTimelock: safeReadAddress(deployJson, ".adminTimelock"),
-                agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
-                adapterRegistry: safeReadAddress(deployJson, ".adapterRegistry"),
-                agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
-                agentWalletV1Implementation: safeReadAddress(deployJson, ".agentWalletV1Implementation"),
-                agentWalletV2Implementation: safeReadAddress(deployJson, ".agentWalletV2Implementation"),
-                agentWalletV2Factory: safeReadAddress(deployJson, ".agentWalletV2Factory"),
-                agentWalletV2FeeTracker: safeReadAddress(deployJson, ".agentWalletV2FeeTracker"),
-                feeTracker: safeReadAddress(deployJson, ".feeTracker"),
-                erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
-                merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
-                swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
-                uniswapV3SwapAdapter: safeReadAddress(deployJson, ".uniswapV3SwapAdapter"),
-                aerodromeV2SwapAdapter: safeReadAddress(deployJson, ".aerodromeV2SwapAdapter"),
-                aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
-                borrowUniswapV3SwapAdapter: safeReadAddress(deployJson, ".borrowUniswapV3SwapAdapter"),
-                borrowAerodromeV2SwapAdapter: safeReadAddress(deployJson, ".borrowAerodromeV2SwapAdapter"),
-                borrowAerodromeClSwapAdapter: safeReadAddress(deployJson, ".borrowAerodromeCLSwapAdapter"),
-                aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
-                compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
-                compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter"),
-                moonwellRewardAdapter: safeReadAddress(deployJson, ".moonwellRewardAdapter"),
-                borrowAdapterRegistry: safeReadAddress(deployJson, ".borrowAdapterRegistry"),
-                borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
-                priceOracle: safeReadAddress(deployJson, ".priceOracle"),
-                walletLinkRegistry: safeReadAddress(deployJson, ".walletLinkRegistry"),
-                aaveV3LendingAdapter: safeReadAddress(deployJson, ".aaveV3LendingAdapter"),
-                aaveV4LendingAdapter: safeReadAddress(deployJson, ".aaveV4LendingAdapter"),
-                morphoBlueLendingAdapter: safeReadAddress(deployJson, ".morphoBlueLendingAdapter"),
-                agentTransferAdapter: safeReadAddress(deployJson, ".agentTransferAdapter")
-            });
-        }
+        // forge-lint: disable-next-line(unsafe-cheatcode)
+        string memory deployJson = vm.exists(path) ? vm.readFile(path) : "{}";
+        deployments = Deployments({
+            adminTimelock: safeReadAddress(deployJson, ".adminTimelock"),
+            agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
+            agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
+            feeTracker: safeReadAddress(deployJson, ".feeTracker"),
+            vaultFeeModule: safeReadAddress(deployJson, ".vaultFeeModule"),
+            borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
+            priceOracle: safeReadAddress(deployJson, ".priceOracle"),
+            swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
+            walletLinkRegistry: safeReadAddress(deployJson, ".walletLinkRegistry"),
+            vaultAdapterRegistry: safeReadAddress(deployJson, ".vaultAdapterRegistry"),
+            borrowAdapterRegistry: safeReadAddress(deployJson, ".borrowAdapterRegistry"),
+            erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
+            aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
+            compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
+            compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter"),
+            moonwellRewardAdapter: safeReadAddress(deployJson, ".moonwellRewardAdapter"),
+            merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
+            uniswapV3SwapAdapter: safeReadAddress(deployJson, ".uniswapV3SwapAdapter"),
+            aerodromeV2SwapAdapter: safeReadAddress(deployJson, ".aerodromeV2SwapAdapter"),
+            aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
+            aaveV3LendingAdapter: safeReadAddress(deployJson, ".aaveV3LendingAdapter"),
+            aaveV4LendingAdapter: safeReadAddress(deployJson, ".aaveV4LendingAdapter"),
+            morphoBlueLendingAdapter: safeReadAddress(deployJson, ".morphoBlueLendingAdapter"),
+            agentTransferAdapter: safeReadAddress(deployJson, ".agentTransferAdapter")
+        });
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -260,42 +270,48 @@ contract DeployScript is Script {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
         }
 
-        // Deploy or reuse AdapterRegistry
-        if (deployments.adapterRegistry == address(0)) {
-            deployments.adapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)));
-            console2.log("-> AdapterRegistry deployed at:", deployments.adapterRegistry);
+        // Adapter registries (own salts: same init code as the V2 vault registry)
+        if (deployments.vaultAdapterRegistry == address(0)) {
+            deployments.vaultAdapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)), keccak256(abi.encode(SALT, "vaultAdapterRegistry")));
+            console2.log("-> Vault AdapterRegistry deployed at:", deployments.vaultAdapterRegistry);
         } else {
-            console2.log("-> Using existing adapterRegistry:", deployments.adapterRegistry);
+            console2.log("-> Using existing vaultAdapterRegistry:", deployments.vaultAdapterRegistry);
         }
 
-        // Deploy or reuse FeeTracker
+        if (deployments.borrowAdapterRegistry == address(0)) {
+            deployments.borrowAdapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)), keccak256(abi.encode(SALT, "borrowAdapterRegistry")));
+            console2.log("-> Borrow AdapterRegistry deployed at:", deployments.borrowAdapterRegistry);
+        } else {
+            console2.log("-> Using existing borrowAdapterRegistry:", deployments.borrowAdapterRegistry);
+        }
+
+        // Fee tracker and fee modules
         if (deployments.feeTracker == address(0)) {
-            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, planManagerAddress, feeCollectorAddress, VAULT_MAX_FEE_BPS, VAULT_DEFAULT_FEE_BPS)));
+            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, planManagerAddress, feeCollectorAddress)));
             console2.log("-> FeeTracker deployed at:", deployments.feeTracker);
         } else {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
         }
+
+        if (deployments.vaultFeeModule == address(0)) {
+            deployments.vaultFeeModule = deployCreate2(abi.encodePacked(type(VaultFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), VAULT_MAX_FEE_BPS)));
+            console2.log("-> VaultFeeModule deployed at:", deployments.vaultFeeModule);
+        } else {
+            console2.log("-> Using existing vaultFeeModule:", deployments.vaultFeeModule);
+        }
+
+        if (deployments.borrowFeeModule == address(0)) {
+            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), BORROW_MAX_FEE_BPS)));
+            console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
+        } else {
+            console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);
+        }
+
         if (deployments.priceOracle == address(0)) {
             deployments.priceOracle = deployCreate2(abi.encodePacked(type(PriceOracle).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, SEQUENCER_UPTIME_FEED)));
             console2.log("-> PriceOracle deployed at:", deployments.priceOracle);
         } else {
             console2.log("-> Using existing priceOracle:", deployments.priceOracle);
-        }
-
-        // Deploy or reuse ERC4626 Adapter
-        if (deployments.erc4626Adapter == address(0)) {
-            deployments.erc4626Adapter = deployCreate2(abi.encodePacked(type(ERC4626Adapter).creationCode));
-            console2.log("-> ERC4626Adapter deployed at:", deployments.erc4626Adapter);
-        } else {
-            console2.log("-> Using existing erc4626Adapter:", deployments.erc4626Adapter);
-        }
-
-        // Deploy or reuse Merkl Adapter
-        if (deployments.merklAdapter == address(0)) {
-            deployments.merklAdapter = deployCreate2(abi.encodePacked(type(MerklAdapter).creationCode));
-            console2.log("-> MerklAdapter deployed at:", deployments.merklAdapter);
-        } else {
-            console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
         }
 
         if (deployments.swapSellPolicy == address(0)) {
@@ -305,6 +321,58 @@ contract DeployScript is Script {
             console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
         }
 
+        if (deployments.walletLinkRegistry == address(0)) {
+            deployments.walletLinkRegistry = deployCreate2(type(WalletLinkRegistry).creationCode);
+            console2.log("-> WalletLinkRegistry deployed at:", deployments.walletLinkRegistry);
+        } else {
+            console2.log("-> Using existing walletLinkRegistry:", deployments.walletLinkRegistry);
+        }
+
+        // Vault adapters
+        if (deployments.erc4626Adapter == address(0)) {
+            deployments.erc4626Adapter = deployCreate2(abi.encodePacked(type(ERC4626Adapter).creationCode));
+            console2.log("-> ERC4626Adapter deployed at:", deployments.erc4626Adapter);
+        } else {
+            console2.log("-> Using existing erc4626Adapter:", deployments.erc4626Adapter);
+        }
+
+        if (deployments.aaveV3Adapter == address(0)) {
+            deployments.aaveV3Adapter = deployCreate2(abi.encodePacked(type(AaveV3Adapter).creationCode));
+            console2.log("-> AaveV3Adapter deployed at:", deployments.aaveV3Adapter);
+        } else {
+            console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
+        }
+
+        if (deployments.compoundV3Adapter == address(0)) {
+            deployments.compoundV3Adapter = deployCreate2(abi.encodePacked(type(CompoundV3Adapter).creationCode));
+            console2.log("-> CompoundV3Adapter deployed at:", deployments.compoundV3Adapter);
+        } else {
+            console2.log("-> Using existing compoundV3Adapter:", deployments.compoundV3Adapter);
+        }
+
+        // Compound V2 Adapter (for Moonwell and other Compound V2 forks)
+        if (deployments.compoundV2Adapter == address(0)) {
+            deployments.compoundV2Adapter = deployCreate2(abi.encodePacked(type(CompoundV2Adapter).creationCode));
+            console2.log("-> CompoundV2Adapter deployed at:", deployments.compoundV2Adapter);
+        } else {
+            console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
+        }
+
+        if (deployments.moonwellRewardAdapter == address(0)) {
+            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
+            console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
+        } else {
+            console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
+        }
+
+        if (deployments.merklAdapter == address(0)) {
+            deployments.merklAdapter = deployCreate2(abi.encodePacked(type(MerklAdapter).creationCode));
+            console2.log("-> MerklAdapter deployed at:", deployments.merklAdapter);
+        } else {
+            console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
+        }
+
+        // Swap adapters (shared by the vault and borrow registries)
         if (deployments.uniswapV3SwapAdapter == address(0)) {
             deployments.uniswapV3SwapAdapter = deployCreate2(abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy, deployments.priceOracle, 100)));
             console2.log("-> UniswapV3SwapAdapter deployed at:", deployments.uniswapV3SwapAdapter);
@@ -325,86 +393,8 @@ contract DeployScript is Script {
         } else {
             console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
         }
-        if (deployments.borrowUniswapV3SwapAdapter == address(0)) {
-            deployments.borrowUniswapV3SwapAdapter =
-                deployCreate2(abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy, deployments.priceOracle, 100)), keccak256(abi.encode(SALT, "borrowUniswapV3SwapAdapter")));
-            console2.log("-> Borrow UniswapV3SwapAdapter deployed at:", deployments.borrowUniswapV3SwapAdapter);
-        } else {
-            console2.log("-> Using existing borrowUniswapV3SwapAdapter:", deployments.borrowUniswapV3SwapAdapter);
-        }
 
-        if (deployments.borrowAerodromeV2SwapAdapter == address(0)) {
-            deployments.borrowAerodromeV2SwapAdapter = deployCreate2(
-                abi.encodePacked(type(AerodromeV2SwapAdapter).creationCode, abi.encode(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy, deployments.priceOracle, 100)),
-                keccak256(abi.encode(SALT, "borrowAerodromeV2SwapAdapter"))
-            );
-            console2.log("-> Borrow AerodromeV2SwapAdapter deployed at:", deployments.borrowAerodromeV2SwapAdapter);
-        } else {
-            console2.log("-> Using existing borrowAerodromeV2SwapAdapter:", deployments.borrowAerodromeV2SwapAdapter);
-        }
-
-        if (deployments.borrowAerodromeClSwapAdapter == address(0)) {
-            deployments.borrowAerodromeClSwapAdapter = deployCreate2(
-                abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter, deployments.swapSellPolicy, deployments.priceOracle, 100)), keccak256(abi.encode(SALT, "borrowAerodromeCLSwapAdapter"))
-            );
-            console2.log("-> Borrow AerodromeCLSwapAdapter deployed at:", deployments.borrowAerodromeClSwapAdapter);
-        } else {
-            console2.log("-> Using existing borrowAerodromeCLSwapAdapter:", deployments.borrowAerodromeClSwapAdapter);
-        }
-
-        // Deploy or reuse Aave V3 Adapter
-        if (deployments.aaveV3Adapter == address(0)) {
-            deployments.aaveV3Adapter = deployCreate2(abi.encodePacked(type(AaveV3Adapter).creationCode));
-            console2.log("-> AaveV3Adapter deployed at:", deployments.aaveV3Adapter);
-        } else {
-            console2.log("-> Using existing aaveV3Adapter:", deployments.aaveV3Adapter);
-        }
-
-        // Deploy or reuse Compound V3 Adapter
-        if (deployments.compoundV3Adapter == address(0)) {
-            deployments.compoundV3Adapter = deployCreate2(abi.encodePacked(type(CompoundV3Adapter).creationCode));
-            console2.log("-> CompoundV3Adapter deployed at:", deployments.compoundV3Adapter);
-        } else {
-            console2.log("-> Using existing compoundV3Adapter:", deployments.compoundV3Adapter);
-        }
-
-        // Deploy or reuse Compound V2 Adapter (for Moonwell and other Compound V2 forks)
-        if (deployments.compoundV2Adapter == address(0)) {
-            deployments.compoundV2Adapter = deployCreate2(abi.encodePacked(type(CompoundV2Adapter).creationCode));
-            console2.log("-> CompoundV2Adapter deployed at:", deployments.compoundV2Adapter);
-        } else {
-            console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
-        }
-
-        // Deploy or reuse Moonwell Reward Adapter
-        if (deployments.moonwellRewardAdapter == address(0)) {
-            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
-            console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
-        } else {
-            console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
-        }
-
-        if (deployments.borrowAdapterRegistry == address(0)) {
-            deployments.borrowAdapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)), keccak256(abi.encode(SALT, "borrowAdapterRegistry")));
-            console2.log("-> Borrow AdapterRegistry deployed at:", deployments.borrowAdapterRegistry);
-        } else {
-            console2.log("-> Using existing borrowAdapterRegistry:", deployments.borrowAdapterRegistry);
-        }
-
-        if (deployments.borrowFeeModule == address(0)) {
-            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), BORROW_MAX_FEE_BPS)));
-            console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
-        } else {
-            console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);
-        }
-
-        if (deployments.walletLinkRegistry == address(0)) {
-            deployments.walletLinkRegistry = deployCreate2(type(WalletLinkRegistry).creationCode);
-            console2.log("-> WalletLinkRegistry deployed at:", deployments.walletLinkRegistry);
-        } else {
-            console2.log("-> Using existing walletLinkRegistry:", deployments.walletLinkRegistry);
-        }
-
+        // Lending adapters
         if (deployments.aaveV3LendingAdapter == address(0)) {
             deployments.aaveV3LendingAdapter = deployCreate2(abi.encodePacked(type(AaveV3LendingAdapter).creationCode, abi.encode(deployments.priceOracle)));
             console2.log("-> AaveV3LendingAdapter deployed at:", deployments.aaveV3LendingAdapter);
@@ -435,32 +425,30 @@ contract DeployScript is Script {
 
         // Export deployments to JSON
         string memory json = "json";
+        for (uint256 i = 0; i < LEGACY_KEYS.length; i++) {
+            address legacyAddress = safeReadAddress(deployJson, string.concat(".", LEGACY_KEYS[i]));
+            if (legacyAddress != address(0)) vm.serializeAddress(json, LEGACY_KEYS[i], legacyAddress);
+        }
         vm.serializeAddress(json, "adminTimelock", deployments.adminTimelock);
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
-        vm.serializeAddress(json, "adapterRegistry", deployments.adapterRegistry);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
-        vm.serializeAddress(json, "agentWalletV1Implementation", deployments.agentWalletV1Implementation);
-        vm.serializeAddress(json, "agentWalletV2Implementation", deployments.agentWalletV2Implementation);
-        vm.serializeAddress(json, "agentWalletV2Factory", deployments.agentWalletV2Factory);
-        vm.serializeAddress(json, "agentWalletV2FeeTracker", deployments.agentWalletV2FeeTracker);
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
-        vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
-        vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
+        vm.serializeAddress(json, "vaultFeeModule", deployments.vaultFeeModule);
+        vm.serializeAddress(json, "borrowFeeModule", deployments.borrowFeeModule);
+        vm.serializeAddress(json, "priceOracle", deployments.priceOracle);
         vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
-        vm.serializeAddress(json, "uniswapV3SwapAdapter", deployments.uniswapV3SwapAdapter);
-        vm.serializeAddress(json, "aerodromeV2SwapAdapter", deployments.aerodromeV2SwapAdapter);
-        vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
-        vm.serializeAddress(json, "borrowUniswapV3SwapAdapter", deployments.borrowUniswapV3SwapAdapter);
-        vm.serializeAddress(json, "borrowAerodromeV2SwapAdapter", deployments.borrowAerodromeV2SwapAdapter);
-        vm.serializeAddress(json, "borrowAerodromeCLSwapAdapter", deployments.borrowAerodromeClSwapAdapter);
+        vm.serializeAddress(json, "walletLinkRegistry", deployments.walletLinkRegistry);
+        vm.serializeAddress(json, "vaultAdapterRegistry", deployments.vaultAdapterRegistry);
+        vm.serializeAddress(json, "borrowAdapterRegistry", deployments.borrowAdapterRegistry);
+        vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
         vm.serializeAddress(json, "compoundV3Adapter", deployments.compoundV3Adapter);
         vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
         vm.serializeAddress(json, "moonwellRewardAdapter", deployments.moonwellRewardAdapter);
-        vm.serializeAddress(json, "borrowAdapterRegistry", deployments.borrowAdapterRegistry);
-        vm.serializeAddress(json, "borrowFeeModule", deployments.borrowFeeModule);
-        vm.serializeAddress(json, "priceOracle", deployments.priceOracle);
-        vm.serializeAddress(json, "walletLinkRegistry", deployments.walletLinkRegistry);
+        vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
+        vm.serializeAddress(json, "uniswapV3SwapAdapter", deployments.uniswapV3SwapAdapter);
+        vm.serializeAddress(json, "aerodromeV2SwapAdapter", deployments.aerodromeV2SwapAdapter);
+        vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
         vm.serializeAddress(json, "aaveV3LendingAdapter", deployments.aaveV3LendingAdapter);
         vm.serializeAddress(json, "aaveV4LendingAdapter", deployments.aaveV4LendingAdapter);
         vm.serializeAddress(json, "morphoBlueLendingAdapter", deployments.morphoBlueLendingAdapter);
@@ -473,7 +461,7 @@ contract DeployScript is Script {
         console2.log("=================================================");
         console2.log("POST-DEPLOYMENT CONFIGURATION");
         console2.log("=================================================");
-        AdapterRegistry adapterRegistry = AdapterRegistry(deployments.adapterRegistry);
+        AdapterRegistry vaultAdapterRegistry = AdapterRegistry(deployments.vaultAdapterRegistry);
         AdapterRegistry borrowAdapterRegistry = AdapterRegistry(deployments.borrowAdapterRegistry);
         AgentWalletFactory agentWalletFactory = AgentWalletFactory(deployments.agentWalletFactory);
         FeeTracker feeTracker = FeeTracker(deployments.feeTracker);
@@ -488,11 +476,17 @@ contract DeployScript is Script {
         if (address(agentWalletFactory.feeTracker()) != deployments.feeTracker) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (feeTracker)));
         }
-        if (agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE) != adapterRegistry) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, adapterRegistry)));
+        if (agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE) != vaultAdapterRegistry) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, vaultAdapterRegistry)));
         }
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
+        }
+        if (address(feeTracker.feeModules(VAULT_FEE)) == address(0)) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.addFeeModule, (VAULT_FEE, VaultFeeModule(deployments.vaultFeeModule))));
+        }
+        if (feeTracker.planRateBps(0, VAULT_FEE) != VAULT_DEFAULT_FEE_BPS) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, VAULT_FEE, VAULT_DEFAULT_FEE_BPS)));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) == address(0)) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.addFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
@@ -502,32 +496,34 @@ contract DeployScript is Script {
         }
         // 2. Register Adapters
         console2.log("-> Preparing adapter registration...");
-        _registerAdapter(adapterRegistry, deployments.erc4626Adapter);
-        _registerAdapter(adapterRegistry, deployments.aaveV3Adapter);
-        _registerAdapter(adapterRegistry, deployments.compoundV3Adapter);
-        _registerAdapter(adapterRegistry, deployments.compoundV2Adapter);
-        _registerAdapter(adapterRegistry, deployments.moonwellRewardAdapter);
-        _registerAdapter(adapterRegistry, deployments.uniswapV3SwapAdapter);
-        _registerAdapter(adapterRegistry, deployments.aerodromeV2SwapAdapter);
-        _registerAdapter(adapterRegistry, deployments.aerodromeClSwapAdapter);
-        _registerAdapter(adapterRegistry, deployments.merklAdapter);
-        _registerAdapter(adapterRegistry, deployments.agentTransferAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.erc4626Adapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aaveV3Adapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.compoundV3Adapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.compoundV2Adapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.moonwellRewardAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.merklAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.uniswapV3SwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aerodromeV2SwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aerodromeClSwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.agentTransferAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV3LendingAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV4LendingAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.morphoBlueLendingAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.borrowUniswapV3SwapAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.borrowAerodromeV2SwapAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.borrowAerodromeClSwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.merklAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.uniswapV3SwapAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aerodromeV2SwapAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aerodromeClSwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.agentTransferAdapter);
-        // 3. Set Borrow Registry Targets
-        _setTarget(borrowAdapterRegistry, uniswapV3Router, deployments.borrowUniswapV3SwapAdapter);
-        _setTarget(borrowAdapterRegistry, aerodromeV2Router, deployments.borrowAerodromeV2SwapAdapter);
-        _setTarget(borrowAdapterRegistry, aerodromeClRouter, deployments.borrowAerodromeClSwapAdapter);
-        _setTarget(borrowAdapterRegistry, 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae, deployments.merklAdapter);
+        // 3. Set Vault Registry Targets: every V2 vault registry target, plus wallet links
+        _copyV2VaultTargets(deployJson, vaultAdapterRegistry, deployments);
+        _setTarget(vaultAdapterRegistry, deployments.walletLinkRegistry, deployments.agentTransferAdapter);
+        // 4. Set Borrow Registry Targets
+        _setTarget(borrowAdapterRegistry, uniswapV3Router, deployments.uniswapV3SwapAdapter);
+        _setTarget(borrowAdapterRegistry, aerodromeV2Router, deployments.aerodromeV2SwapAdapter);
+        _setTarget(borrowAdapterRegistry, aerodromeClRouter, deployments.aerodromeClSwapAdapter);
+        _setTarget(borrowAdapterRegistry, MERKL_DISTRIBUTOR, deployments.merklAdapter);
         _setTarget(borrowAdapterRegistry, deployments.walletLinkRegistry, deployments.agentTransferAdapter);
-        _setTarget(adapterRegistry, deployments.walletLinkRegistry, deployments.agentTransferAdapter);
-        // 4. Set Agent Operator
+        // 5. Set Agent Operator
         if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
             console2.log("-> Preparing AGENT_OPERATOR_ROLE grant for server:", serverAddress);
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)));
@@ -543,9 +539,48 @@ contract DeployScript is Script {
             console2.log("-> No configuration needed, all settings are up to date!");
         }
         console2.log("=================================================");
-        console2.log("You will need to register any specific vaults manually");
+        console2.log("Register new vaults with RegisterVault.s.sol (it registers them in both vault registries)");
         console2.log("=================================================");
         vm.stopBroadcast();
+    }
+
+    /// @dev Maps every target of the V2 vault registry onto the V3 adapter of the same kind in the V3 vault registry
+    function _copyV2VaultTargets(string memory deployJson, AdapterRegistry vaultAdapterRegistry, Deployments memory deployments) internal {
+        address v2Registry = safeReadAddress(deployJson, ".agentWalletV2AdapterRegistry");
+        if (v2Registry == address(0)) return;
+        address[9] memory v2Adapters = [
+            safeReadAddress(deployJson, ".agentWalletV2Erc4626Adapter"),
+            safeReadAddress(deployJson, ".agentWalletV2AaveV3Adapter"),
+            safeReadAddress(deployJson, ".agentWalletV2CompoundV3Adapter"),
+            safeReadAddress(deployJson, ".agentWalletV2CompoundV2Adapter"),
+            safeReadAddress(deployJson, ".agentWalletV2MoonwellRewardAdapter"),
+            safeReadAddress(deployJson, ".agentWalletV2MerklAdapter"),
+            safeReadAddress(deployJson, ".agentWalletV2UniswapV3SwapAdapter"),
+            safeReadAddress(deployJson, ".agentWalletV2AerodromeV2SwapAdapter"),
+            safeReadAddress(deployJson, ".agentWalletV2AerodromeCLSwapAdapter")
+        ];
+        address[9] memory v3Adapters = [
+            deployments.erc4626Adapter,
+            deployments.aaveV3Adapter,
+            deployments.compoundV3Adapter,
+            deployments.compoundV2Adapter,
+            deployments.moonwellRewardAdapter,
+            deployments.merklAdapter,
+            deployments.uniswapV3SwapAdapter,
+            deployments.aerodromeV2SwapAdapter,
+            deployments.aerodromeClSwapAdapter
+        ];
+        address[] memory targets = AdapterRegistry(v2Registry).getAllTargets();
+        console2.log("-> Copying V2 vault registry targets:", targets.length);
+        for (uint256 i = 0; i < targets.length; i++) {
+            address v2Adapter = AdapterRegistry(v2Registry).getTargetAdapter(targets[i]);
+            address v3Adapter = address(0);
+            for (uint256 j = 0; j < v2Adapters.length; j++) {
+                if (v2Adapters[j] == v2Adapter) v3Adapter = v3Adapters[j];
+            }
+            require(v3Adapter != address(0), string.concat("No V3 adapter for V2 adapter ", vm.toString(v2Adapter), " of target ", vm.toString(targets[i])));
+            _setTarget(vaultAdapterRegistry, targets[i], v3Adapter);
+        }
     }
 
     function _op(address target, bytes memory data) internal {

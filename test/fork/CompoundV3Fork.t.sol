@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerCompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Test} from "forge-std/Test.sol";
@@ -30,7 +31,10 @@ contract CompoundV3ForkTest is Test {
         IERC20Metadata asset = IERC20Metadata(USDC);
         IComet comet = IComet(COMET_USDC);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV3Adapter adapter = new YieldSeekerCompoundV3Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
@@ -40,10 +44,12 @@ contract CompoundV3ForkTest is Test {
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Compound V3 deposit must consume the full requested amount");
         assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 1, "Compound V3 balance must increase ~1:1 with deposited assets");
         assertEq(comet.balanceOf(address(wallet)), shares, "Comet balance must match minted shares");
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), COMET_USDC), DEPOSIT_AMOUNT, "Cost basis must match deposit");
+        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), COMET_USDC);
+        assertEq(costBasis, DEPOSIT_AMOUNT, "Cost basis must match deposit");
+        assertEq(trackedShares, shares, "Tracked shares must match deposited shares");
 
         // Advance time on the fork so the rebasing Comet balance accrues real interest.
-        vm.warp(block.timestamp + 90 days);
+        vm.warp(vm.getBlockTimestamp() + 90 days);
         vm.roll(block.number + 1);
 
         uint256 totalVaultBalanceBefore = comet.balanceOf(address(wallet));
@@ -56,8 +62,9 @@ contract CompoundV3ForkTest is Test {
 
         uint256 expectedProfit = totalVaultBalanceBefore - DEPOSIT_AMOUNT;
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), COMET_USDC), 0, "Cost basis should clear after full withdrawal");
-        assertEq(feeTracker.agentVaultShares(address(wallet), COMET_USDC), 0, "Tracked shares should clear after full withdrawal");
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Live Compound V3 interest fee mismatch");
+        (costBasis, trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), COMET_USDC);
+        assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
+        assertEq(trackedShares, 0, "Tracked shares should clear after full withdrawal");
+        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedFee, "Live Compound V3 interest fee mismatch");
     }
 }

@@ -16,12 +16,10 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
 import {AWKAgentWalletFactory} from "./agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
-import {IYieldSeekerFeeModuleHost} from "./fees/IYieldSeekerFeeModule.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 
 /**
  * @title YieldSeekerAgentWalletFactory
@@ -41,13 +39,11 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
 
     /**
      * @notice Update the FeeTracker address for future wallet deployments
-     * @dev V3 wallets call withdrawReserve() on the tracker, so it must support fee modules
      * @param newFeeTracker The new tracker contract
      */
     function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(newFeeTracker) == address(0)) revert AWKErrors.ZeroAddress();
         if (address(newFeeTracker).code.length == 0) revert AWKErrors.NotAContract(address(newFeeTracker));
-        if (!IERC165(address(newFeeTracker)).supportsInterface(type(IYieldSeekerFeeModuleHost).interfaceId)) revert InvalidFeeTracker();
         FeeTracker oldFeeTracker = feeTracker;
         feeTracker = newFeeTracker;
         emit TrackerUpdated(address(oldFeeTracker), address(newFeeTracker));

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockAToken, MockAaveV3Pool} from "../../mocks/MockAaveV3.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract AaveV3AdapterTest is Test {
@@ -26,7 +26,7 @@ contract AaveV3AdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         altAsset = new MockERC20("Alt", "ALT");
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000); // 10% fee
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         adapter = new YieldSeekerAaveV3Adapter();
         pool = new MockAaveV3Pool(address(baseAsset));
@@ -40,8 +40,9 @@ contract AaveV3AdapterTest is Test {
         uint256 shares = _decodeUint(result);
         assertEq(shares, amount, "Should receive 1:1 shares for Aave");
         assertEq(aToken.balanceOf(address(wallet)), amount, "Wallet should have aTokens");
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), address(aToken)), amount, "Cost basis should be recorded");
-        assertEq(feeTracker.agentVaultShares(address(wallet), address(aToken)), amount, "Shares should be recorded");
+        (uint256 costBasis, uint256 trackedShares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(costBasis, amount, "Cost basis should be recorded");
+        assertEq(trackedShares, amount, "Shares should be recorded");
     }
 
     function test_Execute_DepositPercentage_UsesBalance() public {
@@ -72,7 +73,7 @@ contract AaveV3AdapterTest is Test {
         uint256 assetsReceived = _decodeUint(result);
         assertEq(assetsReceived, 1_200e6, "Should receive correct assets");
         assertEq(baseAsset.balanceOf(address(wallet)), walletBalanceBefore + assetsReceived, "Wallet balance should increase");
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 800e6, "Cost basis should be updated");
         assertEq(shares, 800e6, "Shares should be updated");
     }
@@ -85,8 +86,8 @@ contract AaveV3AdapterTest is Test {
     function test_FeeAccrual_PartialWithdraw_NoYield() public {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(500e6)));
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 0, "Should not charge fee when no profit");
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 0, "Should not charge fee when no profit");
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 500e6, "Cost basis should be halved after 50% withdrawal");
         assertEq(shares, 500e6, "Shares should be halved after 50% withdrawal");
     }
@@ -94,7 +95,7 @@ contract AaveV3AdapterTest is Test {
     function test_SequentialDeposits_AccumulateCostBasis() public {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 3_000e6, "Cost basis should accumulate");
         assertEq(shares, 3_000e6, "Shares should accumulate");
     }
@@ -102,7 +103,7 @@ contract AaveV3AdapterTest is Test {
     function test_PartialWithdraw_ProportionalCostBasis() public {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 1_000e6, "Cost basis should be reduced proportionally");
         assertEq(shares, 1_000e6, "Shares should be reduced");
     }
@@ -110,7 +111,7 @@ contract AaveV3AdapterTest is Test {
     function test_FullWithdraw_ClearsCostBasis() public {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 0, "Cost basis should be zero after full withdrawal");
         assertEq(shares, 0, "Shares should be zero after full withdrawal");
     }
@@ -118,7 +119,7 @@ contract AaveV3AdapterTest is Test {
     function test_VirtualShares_YieldAccrual_FeeCharged() public {
         uint256 depositAmount = 1_000e6;
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        (uint256 costBasisBefore, uint256 sharesBefore) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasisBefore, uint256 sharesBefore) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasisBefore, depositAmount, "Cost basis should match deposit");
         assertEq(sharesBefore, depositAmount, "Virtual shares should match deposit");
         uint256 yieldAmount = 100e6;
@@ -129,8 +130,8 @@ contract AaveV3AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, fullBalance));
         uint256 profit = fullBalance - depositAmount;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
-        (uint256 costBasisAfter, uint256 sharesAfter) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
+        (uint256 costBasisAfter, uint256 sharesAfter) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasisAfter, 0, "Cost basis should be zero after full withdrawal");
         assertEq(sharesAfter, 0, "Shares should be zero after full withdrawal");
     }
@@ -149,8 +150,8 @@ contract AaveV3AdapterTest is Test {
         uint256 proportionalCost = (depositAmount * withdrawAmount) / totalBalance;
         uint256 profit = assetsReceived - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Should charge correct fee");
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Should charge correct fee");
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
         assertEq(shares, depositAmount - proportionalCost, "Shares should be reduced proportionally");
     }
@@ -160,16 +161,15 @@ contract AaveV3AdapterTest is Test {
     function test_RebasingFeeConversion_NotInflated() public {
         uint256 depositAmount = 100e6;
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(address(aToken), 10e6);
-        uint256 feeOwed = feeTracker.getAgentYieldTokenFeesOwed(address(wallet), address(aToken));
+        wallet.recordAgentYieldTokenEarned(address(aToken), 10e6);
+        uint256 feeOwed = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(aToken));
         assertEq(feeOwed, 1e6, "Should owe 1 aToken in fees (10% of 10)");
         aToken.addYield(address(wallet), 10e6);
         baseAsset.mint(address(aToken), 10e6);
         assertEq(aToken.balanceOf(address(wallet)), 110e6);
-        uint256 feesBefore = feeTracker.agentFeesCharged(address(wallet));
+        uint256 feesBefore = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(50e6)));
-        uint256 feesAfter = feeTracker.agentFeesCharged(address(wallet));
+        uint256 feesAfter = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
         uint256 feesCharged = feesAfter - feesBefore;
         // feeTokenSettled = (1e6 * 50e6) / 110e6 = 454545
         // With 1:1 rate: feeInBaseAsset = 454545 (correct)
@@ -193,12 +193,11 @@ contract AaveV3AdapterTest is Test {
     function test_LargeReward_NoUnderflowDoS() public {
         uint256 depositAmount = 50e6;
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(address(aToken), 1000e6);
+        wallet.recordAgentYieldTokenEarned(address(aToken), 1000e6);
         aToken.addYield(address(wallet), 1000e6);
         baseAsset.mint(address(aToken), 1000e6);
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(200e6)));
-        uint256 feesCharged = feeTracker.agentFeesCharged(address(wallet));
+        uint256 feesCharged = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
         assertTrue(feesCharged > 0, "Fees should be charged");
         assertTrue(feesCharged <= 200e6, "Fee should not exceed withdrawal amount");
     }
@@ -206,12 +205,11 @@ contract AaveV3AdapterTest is Test {
     function test_FeeCapAtAssetsReceived() public {
         uint256 depositAmount = 10e6;
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(address(aToken), 10_000e6);
+        wallet.recordAgentYieldTokenEarned(address(aToken), 10_000e6);
         aToken.addYield(address(wallet), 10_000e6);
         baseAsset.mint(address(aToken), 10_000e6);
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(5e6)));
-        uint256 feesCharged = feeTracker.agentFeesCharged(address(wallet));
+        uint256 feesCharged = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
         assertTrue(feesCharged <= 5e6, "Fee should be capped at assets received");
     }
 
@@ -221,20 +219,19 @@ contract AaveV3AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.deposit.selector, uint256(1_000e6)));
         aToken.addYield(address(wallet), 50e6);
         baseAsset.mint(address(aToken), 50e6);
-        vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(address(aToken), 20e6);
+        wallet.recordAgentYieldTokenEarned(address(aToken), 20e6);
         aToken.addYield(address(wallet), 20e6);
         baseAsset.mint(address(aToken), 20e6);
         assertEq(aToken.balanceOf(address(wallet)), 1070e6);
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, uint256(500e6)));
-        uint256 feesAfterPartial = feeTracker.agentFeesCharged(address(wallet));
+        uint256 feesAfterPartial = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
         assertTrue(feesAfterPartial > 0, "Should have charged fees on partial withdraw");
         uint256 remaining = aToken.balanceOf(address(wallet));
         wallet.executeAdapter(address(adapter), address(aToken), abi.encodeWithSelector(adapter.withdraw.selector, remaining));
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(aToken));
+        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
         assertEq(costBasis, 0, "Cost basis should be zero after full withdraw");
         assertEq(shares, 0, "Shares should be zero after full withdraw");
-        assertEq(feeTracker.getAgentYieldTokenFeesOwed(address(wallet), address(aToken)), 0, "All token fees should be settled");
+        assertEq(wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(aToken)), 0, "All token fees should be settled");
     }
 
     function test_DecimalVariant_CbBTC() public {
@@ -262,8 +259,8 @@ contract AaveV3AdapterTest is Test {
         bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantAToken), abi.encodeWithSelector(adapter.withdraw.selector, amount + yieldAmount));
 
         assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
-        assertEq(feeTracker.agentFeesCharged(address(variantWallet)), yieldAmount / 10);
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantAToken));
+        assertEq(variantWallet.vaultFeeModule().agentFeesCharged(address(variantWallet)), yieldAmount / 10);
+        (uint256 costBasis, uint256 shares) = variantWallet.vaultFeeModule().getAgentVaultPosition(address(variantWallet), address(variantAToken));
         assertEq(costBasis, 0);
         assertEq(shares, 0);
     }

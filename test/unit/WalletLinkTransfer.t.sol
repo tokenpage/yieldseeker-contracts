@@ -4,13 +4,14 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {InvalidAsset, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {SameWallet, YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {InvalidTransferTarget, NotLinkedWallet} from "../../src/adapters/AgentTransferAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV3BorrowReporter, MockV3FakeWallet, MockV3YieldSeekerWalletV1} from "../mocks/MockV3TestHelpers.sol";
 import {Test} from "forge-std/Test.sol";
@@ -30,6 +31,7 @@ contract WalletLinkTransferTest is Test {
     YieldSeekerAdapterRegistry private vaultRegistry;
     YieldSeekerAdapterRegistry private borrowRegistry;
     YieldSeekerFeeTracker private vaultFees;
+    YieldSeekerVaultFeeModule private vaultFeeModule;
     YieldSeekerBorrowFeeModule private borrowFees;
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerWalletLinkRegistry private linkRegistry;
@@ -46,7 +48,10 @@ contract WalletLinkTransferTest is Test {
         unrelated = new MockERC20("Unrelated", "NOPE");
         vaultRegistry = new YieldSeekerAdapterRegistry(address(this), address(this));
         borrowRegistry = new YieldSeekerAdapterRegistry(address(this), address(this));
-        vaultFees = new YieldSeekerFeeTracker(address(this), address(this), feeCollector, 10_000, 1_000);
+        vaultFees = new YieldSeekerFeeTracker(address(this), address(this), feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(vaultFees, 10_000);
+        vaultFees.addFeeModule(VAULT_FEE, vaultFeeModule);
+        vaultFees.setPlanRate(0, VAULT_FEE, 1_000);
         borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
         vaultFees.addFeeModule(BORROW_FEE, borrowFees);
         vaultFees.setPlanRate(0, BORROW_FEE, 1_000);
@@ -145,7 +150,7 @@ contract WalletLinkTransferTest is Test {
         _linkWallets();
         _recordBorrowedUsdc();
         vm.prank(address(vaultWallet));
-        vaultFees.recordAgentYieldEarned(100e6);
+        vaultFeeModule.recordAgentYieldEarned(100e6);
 
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 290e6 + 1, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
     }

@@ -7,10 +7,11 @@ import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 
 // Test utilities
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
@@ -26,6 +27,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     AaveV3Adapter aaveAdapter;
     CompoundV3Adapter compoundV3Adapter;
     CompoundV2Adapter compoundV2Adapter;
@@ -56,7 +58,10 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
@@ -136,10 +141,12 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         uint256 expectedShares = _cTokenSharesForAssets(5_000e6);
         assertEq(shares, expectedShares, "Should receive exchange-rate-adjusted shares");
         assertEq(cToken.balanceOf(address(wallet)), expectedShares, "Wallet should have cTokens");
+        uint256 sharesToWithdraw = _cTokenSharesForAssets(3_000e6);
         vm.prank(user);
-        bytes memory withdrawResult = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.withdraw, (3_000e6)));
+        bytes memory withdrawResult = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.withdraw, (sharesToWithdraw)));
         uint256 assetsReceived = _decodeUint(withdrawResult);
         assertEq(assetsReceived, 3_000e6, "Should withdraw correct amount");
+        assertEq(cToken.balanceOf(address(wallet)), expectedShares - sharesToWithdraw, "Should have remaining cTokens");
     }
 
     // ========================================
@@ -188,6 +195,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         vm.prank(operator);
         AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 9_000e6);
+        uint256 compoundV2Shares = _cTokenSharesForAssets(3_000e6);
         address[] memory adapters = new address[](3);
         address[] memory targets = new address[](3);
         bytes[] memory calls = new bytes[](3);
@@ -213,7 +221,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         calls[1] = abi.encodeCall(compoundV3Adapter.withdraw, (3_000e6));
         adapters[2] = address(compoundV2Adapter);
         targets[2] = address(cToken);
-        calls[2] = abi.encodeCall(compoundV2Adapter.withdraw, (3_000e6));
+        calls[2] = abi.encodeCall(compoundV2Adapter.withdraw, (compoundV2Shares));
         vm.prank(user);
         wallet.executeViaAdapterBatch(adapters, targets, calls);
         assertEq(aToken.balanceOf(address(wallet)), 0, "Should have 0 in Aave");

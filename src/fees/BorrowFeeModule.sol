@@ -17,7 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {InvalidFeeRate, YieldSeekerFeePlans} from "./FeePlans.sol";
+import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -40,7 +40,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
 
-    YieldSeekerFeePlans public immutable FEE_TRACKER;
+    YieldSeekerFeeTracker public immutable FEE_TRACKER;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
     struct DebtPosition {
@@ -58,7 +58,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     event BorrowFeeCharged(address indexed wallet, bytes32 indexed market, address indexed token, uint256 fee);
     event FeePaid(address indexed wallet, address indexed token, uint256 amount, address paidToken, uint256 paidAmount);
 
-    constructor(YieldSeekerFeePlans feeTracker, uint256 maxFeeRateBps) {
+    constructor(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps) {
         if (address(feeTracker) == address(0)) revert AWKErrors.ZeroAddress();
         if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
         FEE_TRACKER = feeTracker;

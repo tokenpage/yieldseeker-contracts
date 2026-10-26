@@ -18,7 +18,7 @@ pragma solidity 0.8.28;
 
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {InvalidFeeRate, YieldSeekerFeePlans} from "./FeePlans.sol";
+import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -26,17 +26,15 @@ bytes32 constant VAULT_FEE = keccak256("vault");
 
 /**
  * @title YieldSeekerVaultFeeModule
- * @notice Fee module for vault yield: a share of realised profit and rewards, owed and paid in the base asset
- * @dev The accounting of the audited YieldSeekerFeeTracker, moved into a module. The fee tracker creates it, forwards
- *      the original tracker interface to it with the calling wallet, and is its only writer.
- *      The rate comes from the owner's plan in the tracker (VAULT_FEE).
+ * @notice Vault fee: a share of realised vault profit and rewards, owed and paid in the base asset
+ * @dev Called by wallets (and the vault adapters running in them) to record yield and calculate fees.
+ *      All recording functions use msg.sender, so callers can only affect their own accounting.
+ *      The rate comes from the owner's plan in the fee tracker (VAULT_FEE).
  */
 contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
 
-    uint256 public constant ASSET_EXCHANGE_RATE_PRECISION = 1e18;
-
-    YieldSeekerFeePlans public immutable FEE_TRACKER;
+    YieldSeekerFeeTracker public immutable FEE_TRACKER;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
     struct VaultPosition {
@@ -54,12 +52,7 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
     event FeePaid(address indexed wallet, uint256 amount);
 
-    modifier onlyFeeTracker() {
-        if (msg.sender != address(FEE_TRACKER)) revert AWKErrors.Unauthorized(msg.sender);
-        _;
-    }
-
-    constructor(YieldSeekerFeePlans feeTracker, uint256 maxFeeRateBps) {
+    constructor(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps) {
         if (address(feeTracker) == address(0)) revert AWKErrors.ZeroAddress();
         if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
         FEE_TRACKER = feeTracker;
@@ -78,12 +71,11 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
 
     /**
      * @notice Record a fee payment
-     * @param wallet The wallet that paid
      * @param amount The amount of fees paid
      */
-    function recordFeePaid(address wallet, uint256 amount) external onlyFeeTracker {
-        agentFeesPaid[wallet] += amount;
-        emit FeePaid(wallet, amount);
+    function recordFeePaid(uint256 amount) external {
+        agentFeesPaid[msg.sender] += amount;
+        emit FeePaid(msg.sender, amount);
     }
 
     /**
@@ -95,19 +87,6 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
         uint256 charged = agentFeesCharged[wallet];
         uint256 paid = agentFeesPaid[wallet];
         return charged > paid ? charged - paid : 0;
-    }
-
-    /**
-     * @notice Get wallet fee statistics
-     * @param wallet The wallet address
-     * @return agentFeesCharged_ Total fees charged to the wallet
-     * @return agentFeesPaid_ Total fees paid by the wallet
-     * @return feesOwed Current fees owed
-     */
-    function getWalletStats(address wallet) external view returns (uint256 agentFeesCharged_, uint256 agentFeesPaid_, uint256 feesOwed) {
-        agentFeesCharged_ = agentFeesCharged[wallet];
-        agentFeesPaid_ = agentFeesPaid[wallet];
-        feesOwed = getFeesOwed(wallet);
     }
 
     /**
@@ -123,35 +102,16 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
         shares = pos.shares;
     }
 
-    function agentVaultCostBasis(address wallet, address vault) external view returns (uint256) {
-        return _agentVaultPositions[wallet][vault].costBasis;
-    }
-
-    function agentVaultShares(address wallet, address vault) external view returns (uint256) {
-        return _agentVaultPositions[wallet][vault].shares;
-    }
-
-    /**
-     * @notice Get yield token fees owed for a wallet
-     * @param wallet The wallet address
-     * @param token The token in which yield was earned
-     * @return feesOwed The amount of fees owed denominated in the token
-     */
-    function getAgentYieldTokenFeesOwed(address wallet, address token) external view returns (uint256 feesOwed) {
-        feesOwed = agentYieldTokenFeesOwed[wallet][token];
-    }
-
     // ============ Position Tracking ============
 
     /**
      * @notice Record a vault share deposit for cost-basis tracking
-     * @param wallet The wallet that deposited
      * @param vault The vault address
      * @param assetsDeposited The amount of assets deposited
      * @param sharesReceived The amount of shares received
      */
-    function recordAgentVaultShareDeposit(address wallet, address vault, uint256 assetsDeposited, uint256 sharesReceived) external onlyFeeTracker {
-        VaultPosition storage pos = _agentVaultPositions[wallet][vault];
+    function recordAgentVaultShareDeposit(address vault, uint256 assetsDeposited, uint256 sharesReceived) external {
+        VaultPosition storage pos = _agentVaultPositions[msg.sender][vault];
         pos.costBasis = (uint256(pos.costBasis) + assetsDeposited).toUint128();
         pos.shares = (uint256(pos.shares) + sharesReceived).toUint128();
     }
@@ -164,13 +124,13 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
 
     /**
      * @notice Record a vault share withdrawal and calculate yield
-     * @param wallet The wallet that withdrew
      * @param vault The vault address
      * @param sharesSpent The amount of shares withdrawn
      * @param assetsReceived The amount of assets received
      */
-    function recordAgentVaultShareWithdraw(address wallet, address vault, uint256 sharesSpent, uint256 assetsReceived) external onlyFeeTracker {
+    function recordAgentVaultShareWithdraw(address vault, uint256 sharesSpent, uint256 assetsReceived) external {
         if (sharesSpent == 0) return;
+        address wallet = msg.sender;
         uint256 feeRateBps = _feeRateBps(wallet);
         VaultPosition storage pos = _agentVaultPositions[wallet][vault];
         uint256 totalShares = pos.shares;
@@ -222,16 +182,14 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
 
     /**
      * @notice Record a vault asset withdrawal and calculate yield using actual vault balance
-     * @param wallet The wallet that withdrew
      * @param vault The vault address
      * @param assetsReceived The amount of base assets received from the withdrawal
      * @param totalVaultBalanceBefore The total vault balance (in base asset terms) before withdrawal
-     * @param vaultTokenToBaseAssetRate The exchange rate from vault tokens to base asset (18-decimal fixed point).
-     *        For rebasing tokens (Aave, CompoundV3), this should be 1e18 (1:1 with underlying).
-     *        For exchange-rate tokens (CompoundV2), this should be the cToken exchange rate.
+     * @dev For rebasing vault tokens (Aave, CompoundV3) that are 1:1 with the base asset.
      */
-    function recordAgentVaultAssetWithdraw(address wallet, address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore, uint256 vaultTokenToBaseAssetRate) external onlyFeeTracker {
+    function recordAgentVaultAssetWithdraw(address vault, uint256 assetsReceived, uint256 totalVaultBalanceBefore) external {
         if (assetsReceived == 0 || totalVaultBalanceBefore == 0) return;
+        address wallet = msg.sender;
         uint256 feeRateBps = _feeRateBps(wallet);
         VaultPosition storage pos = _agentVaultPositions[wallet][vault];
         uint256 totalCostBasis = pos.costBasis;
@@ -247,7 +205,7 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
                 feeTokenSettled = (vaultTokenFeesOwed * assetsReceived) / totalVaultBalanceBefore;
             }
             agentYieldTokenFeesOwed[wallet][vault] = vaultTokenFeesOwed - feeTokenSettled;
-            feeInBaseAsset = (feeTokenSettled * vaultTokenToBaseAssetRate) / ASSET_EXCHANGE_RATE_PRECISION;
+            feeInBaseAsset = feeTokenSettled;
             if (feeInBaseAsset > assetsReceived) {
                 feeInBaseAsset = assetsReceived;
             }
@@ -284,52 +242,49 @@ contract YieldSeekerVaultFeeModule is IYieldSeekerFeeModule {
 
     /**
      * @notice Record yield earned in base asset
-     * @param wallet The wallet that earned
      * @param amount The amount of yield earned in base asset
      */
-    function recordAgentYieldEarned(address wallet, uint256 amount) external onlyFeeTracker {
-        uint256 fee = (amount * _feeRateBps(wallet)) / 1e4;
-        agentFeesCharged[wallet] += fee;
-        emit YieldRecorded(wallet, amount, fee);
+    function recordAgentYieldEarned(uint256 amount) external {
+        uint256 fee = (amount * _feeRateBps(msg.sender)) / 1e4;
+        agentFeesCharged[msg.sender] += fee;
+        emit YieldRecorded(msg.sender, amount, fee);
     }
 
     /**
      * @notice Record yield earned in a non-base asset token and calculate fees owed
-     * @param wallet The wallet that earned
      * @param token The token in which yield was earned
      * @param amount The amount of yield earned in the token
      * @dev Treats yield earned in any token the same way. Calculates fee immediately
      *      and stores the fee portion to be collected when swapped to base asset.
      */
-    function recordAgentYieldTokenEarned(address wallet, address token, uint256 amount) external onlyFeeTracker {
-        uint256 feeInToken = (amount * _feeRateBps(wallet)) / 1e4;
-        agentYieldTokenFeesOwed[wallet][token] += feeInToken;
+    function recordAgentYieldTokenEarned(address token, uint256 amount) external {
+        uint256 feeInToken = (amount * _feeRateBps(msg.sender)) / 1e4;
+        agentYieldTokenFeesOwed[msg.sender][token] += feeInToken;
     }
 
     /**
      * @notice Record a token swap to base asset and collect fees on yield tokens
-     * @param wallet The wallet that swapped
      * @param swappedToken The token being swapped
      * @param swappedAmount The amount of tokens swapped
      * @param baseAssetReceived The amount of base asset received
      * @dev Converts yield earned in non-base asset (tracked as fees owed in that token)
      *      to base asset fees when the token is swapped.
      */
-    function recordAgentTokenSwap(address wallet, address swappedToken, uint256 swappedAmount, uint256 baseAssetReceived) external onlyFeeTracker {
+    function recordAgentTokenSwap(address swappedToken, uint256 swappedAmount, uint256 baseAssetReceived) external {
         // Guard against division by zero - can happen with broken/paused tokens
         // Allows swap to proceed without charging fees rather than reverting
         if (swappedAmount == 0) return;
 
-        uint256 feeTokenOwed = agentYieldTokenFeesOwed[wallet][swappedToken];
+        uint256 feeTokenOwed = agentYieldTokenFeesOwed[msg.sender][swappedToken];
         if (feeTokenOwed > 0) {
             // Determine how much of the fee-owed tokens are being swapped
             uint256 feeTokenSwapped = swappedAmount > feeTokenOwed ? feeTokenOwed : swappedAmount;
             // Deduct from the tracked fee owed in this token
-            agentYieldTokenFeesOwed[wallet][swappedToken] = feeTokenOwed - feeTokenSwapped;
+            agentYieldTokenFeesOwed[msg.sender][swappedToken] = feeTokenOwed - feeTokenSwapped;
             // Calculate the fee in base asset terms (proportional to amount swapped)
             uint256 feeInBaseAsset = (baseAssetReceived * feeTokenSwapped) / swappedAmount;
-            agentFeesCharged[wallet] += feeInBaseAsset;
-            emit YieldRecorded(wallet, feeInBaseAsset, feeInBaseAsset);
+            agentFeesCharged[msg.sender] += feeInBaseAsset;
+            emit YieldRecorded(msg.sender, feeInBaseAsset, feeInBaseAsset);
         }
     }
 }

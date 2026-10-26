@@ -35,7 +35,7 @@ contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeek
         uint256 wellBalanceAfter = WELL_TOKEN.balanceOf(address(this));
         uint256 claimed = wellBalanceAfter - wellBalanceBefore;
         if (claimed > 0) {
-            _feeTracker().recordAgentYieldTokenEarned(address(WELL_TOKEN), claimed);
+            _vaultFeeModule().recordAgentYieldTokenEarned(address(WELL_TOKEN), claimed);
         }
     }
 }

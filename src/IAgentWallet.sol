@@ -16,8 +16,8 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAWKAgentWallet} from "./agentwalletkit/IAWKAgentWallet.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**

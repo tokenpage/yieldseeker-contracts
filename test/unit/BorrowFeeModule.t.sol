@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {BORROW_FEE, FeePaidExceedsOwed, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
 import {Test} from "forge-std/Test.sol";
@@ -23,17 +24,21 @@ contract BorrowFeeModuleTest is Test {
     MockFeeWallet internal wallet;
     YieldSeekerFeeTracker internal tracker;
     YieldSeekerBorrowFeeModule internal module;
+    YieldSeekerVaultFeeModule internal vaultModule;
 
     function setUp() public {
         baseAsset = new MockERC20WithDecimals("Base", "BASE", 18);
         debtToken = new MockERC20WithDecimals("Debt", "DEBT", 6);
         unrelatedToken = new MockERC20WithDecimals("Other", "OTHER", 18);
         wallet = new MockFeeWallet(owner, baseAsset);
-        tracker = new YieldSeekerFeeTracker(admin, planManager, collector, 1_000, 1_000);
+        tracker = new YieldSeekerFeeTracker(admin, planManager, collector);
         module = new YieldSeekerBorrowFeeModule(tracker, 1_000);
+        vaultModule = new YieldSeekerVaultFeeModule(tracker, 5_000);
         vm.startPrank(admin);
         tracker.addFeeModule(BORROW_FEE, module);
+        tracker.addFeeModule(VAULT_FEE, vaultModule);
         tracker.setPlanRate(0, BORROW_FEE, 1_000);
+        tracker.setPlanRate(0, VAULT_FEE, 1_000);
         vm.stopPrank();
     }
 
@@ -134,9 +139,9 @@ contract BorrowFeeModuleTest is Test {
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {
-        wallet.execute(address(tracker), abi.encodeCall(tracker.recordAgentYieldEarned, (100)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordAgentYieldEarned, (100)));
 
-        assertEq(tracker.getFeesOwed(address(wallet)), 10);
+        assertEq(vaultModule.getFeesOwed(address(wallet)), 10);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
     }
 

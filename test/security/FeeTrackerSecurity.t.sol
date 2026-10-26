@@ -4,10 +4,9 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";
-import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
+import {InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -18,6 +17,7 @@ contract FeeTrackerSecurityTest is Test {
     AdapterRegistry registry;
     FeeTracker feeTracker;
     ERC4626Adapter vaultAdapter;
+    YieldSeekerVaultFeeModule vaultFeeModule;
 
     MockERC20 usdc;
     MockERC4626 vault;
@@ -40,7 +40,10 @@ contract FeeTrackerSecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5_000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -62,8 +65,8 @@ contract FeeTrackerSecurityTest is Test {
     function test_RecordYieldAccruesFees() public {
         AgentWalletV3 wallet = _createWallet();
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldEarned(1_000e6);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 100e6);
+        vaultFeeModule.recordAgentYieldEarned(1_000e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
@@ -71,35 +74,30 @@ contract FeeTrackerSecurityTest is Test {
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 1_200e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 1_200e6);
 
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 20e6);
     }
 
     function test_PartialWithdrawWithVaultTokenFees_DoesNotDoubleChargeProfit() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        // Seed vault position
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
 
-        // Accrue vault shares as a reward token, creating fee liability of 100e6 shares
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(vaultAddr, 1_000e6);
+        vaultFeeModule.recordAgentYieldTokenEarned(vaultAddr, 1_000e6);
 
-        uint256 initialFees = feeTracker.getFeesOwed(address(wallet));
+        uint256 initialFees = vaultFeeModule.getFeesOwed(address(wallet));
 
-        // Partial withdraw: spend 100e6 shares worth 120e6 assets, all of which are fee-designated
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 100e6, 120e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 100e6, 120e6);
 
-        uint256 finalFees = feeTracker.getFeesOwed(address(wallet));
-
-        // Only the fee conversion (120e6) should be charged; profit fee should not apply to fee-designated value
+        uint256 finalFees = vaultFeeModule.getFeesOwed(address(wallet));
         assertEq(finalFees - initialFees, 120e6);
     }
 
@@ -107,21 +105,16 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        // Deposit principal: 100 assets for 100 shares tracked in position
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 100e6, 100e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 100e6, 100e6);
 
-        // Receive 50 vault shares as rewards (tracked only as token fees, not as position shares)
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(vaultAddr, 50e6);
+        vaultFeeModule.recordAgentYieldTokenEarned(vaultAddr, 50e6);
 
-        // Withdraw 120 shares for 150 assets (spends all principal shares plus 20 reward shares)
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 120e6, 150e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 120e6, 150e6);
 
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), vaultAddr);
-
-        // FeeTracker only tracks fee-related positions, not total holdings; reward shares are not tracked
+        (uint256 costBasis, uint256 shares) = vaultFeeModule.getAgentVaultPosition(address(wallet), vaultAddr);
         assertEq(costBasis, 0);
         assertEq(shares, 0);
     }
@@ -131,12 +124,12 @@ contract FeeTrackerSecurityTest is Test {
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 800e6);
+        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 800e6);
 
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
     }
 
     function test_YieldTokenFeeTrackedAndConvertedOnSwap() public {
@@ -144,32 +137,31 @@ contract FeeTrackerSecurityTest is Test {
         address rewardToken = address(0xDEAD);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldTokenEarned(rewardToken, 1_000e6);
-        assertEq(feeTracker.getAgentYieldTokenFeesOwed(address(wallet), rewardToken), 100e6);
+        vaultFeeModule.recordAgentYieldTokenEarned(rewardToken, 1_000e6);
+        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), rewardToken), 100e6);
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentTokenSwap(rewardToken, 100e6, 50e6);
+        vaultFeeModule.recordAgentTokenSwap(rewardToken, 100e6, 50e6);
 
-        assertEq(feeTracker.getAgentYieldTokenFeesOwed(address(wallet), rewardToken), 0);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 50e6);
+        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), rewardToken), 0);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 50e6);
     }
 
     function test_FeePaymentReducesFeesOwed() public {
         AgentWalletV3 wallet = _createWallet();
 
         vm.prank(address(wallet));
-        feeTracker.recordAgentYieldEarned(500e6);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 50e6);
+        vaultFeeModule.recordAgentYieldEarned(500e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 50e6);
 
         vm.prank(address(wallet));
-        feeTracker.recordFeePaid(30e6);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 20e6);
+        vaultFeeModule.recordFeePaid(30e6);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 20e6);
     }
 
     function test_MaxFeeRateEnforced() public {
-        bytes32 vaultFeeType = VAULT_FEE;
-        vm.prank(admin);
         vm.expectRevert(InvalidFeeRate.selector);
-        feeTracker.setPlanRate(0, vaultFeeType, 5001);
+        vm.prank(admin);
+        feeTracker.setPlanRate(0, VAULT_FEE, 5_001);
     }
 }

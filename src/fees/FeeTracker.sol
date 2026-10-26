@@ -16,9 +16,10 @@
 //
 pragma solidity 0.8.28;
 
+import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAgentWalletV3} from "../agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {IYieldSeekerFeeModule, IYieldSeekerFeeModuleHost} from "./IYieldSeekerFeeModule.sol";
+import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 error InvalidFeeRate();
@@ -28,16 +29,18 @@ error UnknownFeeType(bytes32 feeType);
 error FeeModuleAlreadySet(bytes32 feeType);
 
 /**
- * @title YieldSeekerFeePlans
- * @notice Fee plans per user (wallet owner) and the fee modules plugged into a fee tracker
- * @dev Every owner starts on plan 0. A plan has a rate per fee type, and every fee type is a module. The admin
- *      (timelock) sets plan rates, the fee collector, adds modules and can assign any plan. The plan manager can only
- *      move an owner to a plan that is not more expensive for any fee type.
+ * @title YieldSeekerFeeTracker
+ * @notice Fee plans per user (wallet owner), the fee collector and the fee modules that do each fee type's accounting
+ * @dev Every fee type is a module (e.g. the vault fee, the borrow fee) that wallets and their adapters call directly.
+ *      Every owner starts on plan 0. A plan has a rate per fee type. The admin (timelock) sets plan rates and the fee
+ *      collector, adds modules and can assign any plan. The plan manager can only move an owner to a plan that is not
+ *      more expensive for any fee type.
  *      Modules can be added but never replaced or removed, so fees they hold for wallets cannot be dropped.
  *      No rate can exceed its module's MAX_FEE_RATE_BPS, which is fixed at deployment.
  */
-abstract contract YieldSeekerFeePlans is AccessControl, IYieldSeekerFeeModuleHost {
+contract YieldSeekerFeeTracker is AccessControl {
     bytes32 public constant PLAN_MANAGER_ROLE = keccak256("PLAN_MANAGER_ROLE");
+    uint256 public constant MODULE_GAS_LIMIT = 200_000;
 
     address public feeCollector;
     bytes32[] internal _moduleFeeTypes;
@@ -67,10 +70,6 @@ abstract contract YieldSeekerFeePlans is AccessControl, IYieldSeekerFeeModuleHos
 
     /// @notice Plug in a fee type; set its plan rates with setPlanRate (unset rates are 0)
     function addFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _addFeeModule(feeType, module);
-    }
-
-    function _addFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) internal {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
         if (address(feeModules[feeType]) != address(0)) revert FeeModuleAlreadySet(feeType);
         feeModules[feeType] = module;
@@ -83,10 +82,6 @@ abstract contract YieldSeekerFeePlans is AccessControl, IYieldSeekerFeeModuleHos
     }
 
     function setPlanRate(uint256 planId, bytes32 feeType, uint256 rateBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setPlanRate(planId, feeType, rateBps);
-    }
-
-    function _setPlanRate(uint256 planId, bytes32 feeType, uint256 rateBps) internal {
         if (rateBps > maxFeeRateBps(feeType)) revert InvalidFeeRate();
         planRateBps[planId][feeType] = rateBps;
         planExists[planId] = true;
@@ -123,8 +118,18 @@ abstract contract YieldSeekerFeePlans is AccessControl, IYieldSeekerFeeModuleHos
         return planRateBps[planOf[AWKAgentWalletV3(payable(wallet)).owner()]][feeType];
     }
 
-    /// @dev The factory only accepts trackers that report IYieldSeekerFeeModuleHost, since V3 wallets call withdrawReserve()
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IYieldSeekerFeeModuleHost).interfaceId || super.supportsInterface(interfaceId);
+    /**
+     * @notice Whether `token` may leave `wallet`, and how much of it the wallet must keep for fees owed
+     * @dev The base asset may always leave; other tokens only if a module accounts for them. Each module is called
+     *      with a gas limit and a module that fails counts as (false, 0), so no module can block a wallet's exits.
+     */
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
+        allowed = token == address(IAgentWallet(wallet).baseAsset());
+        for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
+            try feeModules[_moduleFeeTypes[i]].withdrawReserve{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool moduleAllows, uint256 moduleReserved) {
+                allowed = allowed || moduleAllows;
+                reserved += moduleReserved;
+            } catch {}
+        }
     }
 }

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -38,7 +39,10 @@ contract MorphoERC4626ForkTest is Test {
         IERC4626 vault = IERC4626(vaultAddress);
         assertEq(vault.asset(), USDC, "Vault asset must be USDC");
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerERC4626Adapter adapter = new YieldSeekerERC4626Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
@@ -48,11 +52,12 @@ contract MorphoERC4626ForkTest is Test {
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Vault deposit must consume the full requested amount");
         assertGt(shares, 0, "Deposit returned no vault shares");
         assertEq(vault.balanceOf(address(wallet)), shares, "Tracked shares must match live vault share balance");
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), vaultAddress), DEPOSIT_AMOUNT, "Cost basis must match deposit");
-        assertEq(feeTracker.agentVaultShares(address(wallet), vaultAddress), shares, "Tracked shares must match minted shares");
+        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), vaultAddress);
+        assertEq(costBasis, DEPOSIT_AMOUNT, "Cost basis must match deposit");
+        assertEq(trackedShares, shares, "Tracked shares must match minted shares");
 
         // Advance time on the fork so the vault's price-per-share accrues real yield.
-        vm.warp(block.timestamp + 90 days);
+        vm.warp(vm.getBlockTimestamp() + 90 days);
         vm.roll(block.number + 1);
 
         uint256 previewedAssets = vault.previewRedeem(shares);
@@ -65,8 +70,9 @@ contract MorphoERC4626ForkTest is Test {
 
         uint256 expectedProfit = assetsReceived - DEPOSIT_AMOUNT;
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), vaultAddress), 0, "Cost basis should clear after full withdrawal");
-        assertEq(feeTracker.agentVaultShares(address(wallet), vaultAddress), 0, "Tracked shares should clear after full withdrawal");
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), expectedFee, "Live Morpho vault yield fee mismatch");
+        (costBasis, trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), vaultAddress);
+        assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
+        assertEq(trackedShares, 0, "Tracked shares should clear after full withdrawal");
+        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedFee, "Live Morpho vault yield fee mismatch");
     }
 }

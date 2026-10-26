@@ -9,9 +9,9 @@ import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {VAULT_FEE} from "../../src/fees/VaultFeeModule.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 
 // Test utilities
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -26,6 +26,7 @@ contract SystemIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter;
 
     // Test utilities
@@ -56,7 +57,10 @@ contract SystemIntegrationTest is Test {
 
         // Deploy real contracts in correct order
         registry = new AdapterRegistry(admin, admin); // admin as both admin and emergency admin
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         // Deploy factory
         factory = new AgentWalletFactory(admin, operator);
@@ -415,7 +419,7 @@ contract SystemIntegrationTest is Test {
         uint256 assetsReceived = abi.decode(abi.decode(result, (bytes)), (uint256));
         assertEq(assetsReceived, 550e6);
 
-        uint256 feesOwed = feeTracker.getFeesOwed(address(wallet));
+        uint256 feesOwed = vaultFeeModule.getFeesOwed(address(wallet));
         assertEq(feesOwed, 5e6);
         uint256 netValueBeforeCollection = usdc.balanceOf(address(wallet)) - feesOwed;
         uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
@@ -427,7 +431,7 @@ contract SystemIntegrationTest is Test {
         wallet.collectFees();
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
-        assertEq(feeTracker.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), netValueBeforeCollection);
 
         vm.prank(operator);
@@ -442,13 +446,13 @@ contract SystemIntegrationTest is Test {
 
         // Record multiple yield events from the wallet
         vm.startPrank(address(wallet));
-        feeTracker.recordAgentYieldEarned(100e6);
-        feeTracker.recordAgentYieldEarned(50e6);
-        feeTracker.recordAgentYieldEarned(75e6);
+        vaultFeeModule.recordAgentYieldEarned(100e6);
+        vaultFeeModule.recordAgentYieldEarned(50e6);
+        vaultFeeModule.recordAgentYieldEarned(75e6);
         vm.stopPrank();
 
         // Get total fees owed for the wallet
-        uint256 feesOwed = feeTracker.getFeesOwed(address(wallet));
+        uint256 feesOwed = vaultFeeModule.getFeesOwed(address(wallet));
 
         // Should be sum of all yields * feeRate (0.1 = 10%)
         uint256 expectedFees = (100e6 + 50e6 + 75e6) * 1000 / 10000; // 10% of 225e6 = 22.5e6
@@ -568,7 +572,7 @@ contract SystemIntegrationTest is Test {
 
         // Create new registry and fee tracker
         AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
-        FeeTracker newFeeTracker = new FeeTracker(admin, admin, feeCollector, 5000, 0);
+        FeeTracker newFeeTracker = new FeeTracker(admin, admin, feeCollector);
 
         // Update factory configuration
         vm.startPrank(admin);

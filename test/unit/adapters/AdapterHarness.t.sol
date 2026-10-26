@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {IAgentWallet} from "../../../src/IAgentWallet.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../../src/fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+library AdapterFeeSetup {
+    function deploy(address feeCollector, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerFeeTracker feeTracker, YieldSeekerVaultFeeModule vaultFees) {
+        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), feeCollector);
+        vaultFees = addVaultModule(feeTracker, maxFeeRateBps, rateBps);
+    }
+
+    function addVaultModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerVaultFeeModule vaultFees) {
+        vaultFees = new YieldSeekerVaultFeeModule(feeTracker, maxFeeRateBps);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, rateBps);
+    }
+}
 
 /// @title AdapterWalletHarness
 /// @notice Minimal wallet harness to execute adapters via delegatecall in tests
@@ -27,8 +41,12 @@ contract AdapterWalletHarness is IAgentWallet {
         return _FEE_TRACKER;
     }
 
+    function vaultFeeModule() external view returns (YieldSeekerVaultFeeModule) {
+        return YieldSeekerVaultFeeModule(address(_FEE_TRACKER.feeModules(VAULT_FEE)));
+    }
+
     function recordAgentYieldTokenEarned(address token, uint256 amount) external {
-        _FEE_TRACKER.recordAgentYieldTokenEarned(token, amount);
+        YieldSeekerVaultFeeModule(address(_FEE_TRACKER.feeModules(VAULT_FEE))).recordAgentYieldTokenEarned(token, amount);
     }
 
     /// @notice Execute adapter logic via delegatecall

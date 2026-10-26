@@ -8,8 +8,9 @@ import {Test} from "forge-std/Test.sol";
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 
 // Test utilities
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -23,6 +24,7 @@ contract AdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerVaultFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter1;
     ERC4626Adapter vaultAdapter2;
     ERC4626Adapter vaultAdapter3;
@@ -55,7 +57,10 @@ contract AdapterIntegrationTest is Test {
 
         // Deploy infrastructure
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
+        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -341,7 +346,7 @@ contract AdapterIntegrationTest is Test {
         usdc.mint(address(vault1), 1e6);
 
         // Withdraw all shares; assets should be 11 USDC after growth
-        uint256 feesBefore = feeTracker.getFeesOwed(address(wallet));
+        uint256 feesBefore = vaultFeeModule.getFeesOwed(address(wallet));
 
         vm.prank(user);
         bytes memory withdrawResult = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.withdraw, (10e6)));
@@ -349,7 +354,7 @@ contract AdapterIntegrationTest is Test {
         uint256 assetsReceived = abi.decode(withdrawInner, (uint256));
         assertEq(assetsReceived, 11e6, "Should withdraw 11 USDC after appreciation");
 
-        uint256 feesAfter = feeTracker.getFeesOwed(address(wallet));
+        uint256 feesAfter = vaultFeeModule.getFeesOwed(address(wallet));
         uint256 feesCharged = feesAfter - feesBefore;
 
         // Profit = 1 USDC, fee at 10% should be 0.1 USDC

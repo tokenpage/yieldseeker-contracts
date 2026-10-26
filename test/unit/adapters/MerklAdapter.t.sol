@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerMerklAdapter} from "../../../src/adapters/MerklAdapter.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract MockMerklDistributor {
@@ -33,7 +33,7 @@ contract MerklAdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         rewardToken = new MockERC20("Reward", "RWD");
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(0xBEEF), 5000, 1000);
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         adapter = new YieldSeekerMerklAdapter();
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         distributor = new MockMerklDistributor();
@@ -54,7 +54,7 @@ contract MerklAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 1_000e6);
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 100e6);
+        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 100e6);
     }
 
     function test_Claim_DuplicateTokens_DeduplicatesFeeTracking() public {
@@ -77,7 +77,7 @@ contract MerklAdapterTest is Test {
 
         uint256 totalClaimed = amounts[0] + amounts[1] + amounts[2];
         uint256 expectedFeeToken = (totalClaimed * 1000) / 10_000;
-        uint256 owed = feeTracker.agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
+        uint256 owed = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
         assertEq(owed, expectedFeeToken);
     }
 
@@ -97,8 +97,8 @@ contract MerklAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 50e6);
-        uint256 owed = feeTracker.agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
+        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 50e6);
+        uint256 owed = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
         assertEq(owed, (amounts[1] * 1000) / 10_000);
     }
 

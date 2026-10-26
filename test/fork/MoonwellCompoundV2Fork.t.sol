@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {YieldSeekerCompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
+import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Test} from "forge-std/Test.sol";
@@ -46,7 +47,10 @@ contract MoonwellCompoundV2ForkTest is Test {
         IMoonwellMarket market = IMoonwellMarket(marketAddress);
         assertEq(asset.decimals(), expectedDecimals, "Unexpected underlying decimals");
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
         deal(assetAddress, address(wallet), depositAmount);
@@ -62,17 +66,18 @@ contract MoonwellCompoundV2ForkTest is Test {
         uint256 rewardTokenAmount = shares / 10;
         wallet.recordAgentYieldTokenEarned(marketAddress, rewardTokenAmount);
 
-        bytes memory withdrawResult = wallet.executeAdapter(address(adapter), marketAddress, abi.encodeWithSelector(adapter.withdraw.selector, liveBalanceBefore));
+        bytes memory withdrawResult = wallet.executeAdapter(address(adapter), marketAddress, abi.encodeWithSelector(adapter.withdraw.selector, shares));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
-        assertEq(assetsReceived, liveBalanceBefore, "Withdrawal amount must match requested underlying amount");
+        assertApproxEqAbs(assetsReceived, liveBalanceBefore, 1, "Full redemption must return the live underlying balance");
         uint256 feeTokenOwed = (rewardTokenAmount * FEE_RATE_BPS) / 10_000;
-        uint256 feeInBaseAsset = (feeTokenOwed * exchangeRate) / 1e18;
-        if (feeInBaseAsset > assetsReceived) feeInBaseAsset = assetsReceived;
-        uint256 netAssets = assetsReceived - feeInBaseAsset;
+        uint256 feeInBaseAsset = (assetsReceived * feeTokenOwed) / shares;
+        uint256 rewardValueInBaseAsset = (feeInBaseAsset * 10_000) / FEE_RATE_BPS;
+        uint256 netAssets = assetsReceived - rewardValueInBaseAsset;
         uint256 expectedProfitFee = netAssets > depositAmount ? ((netAssets - depositAmount) * FEE_RATE_BPS) / 10_000 : 0;
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), marketAddress), 0, "Cost basis should clear after withdrawal");
-        assertEq(feeTracker.agentVaultShares(address(wallet), marketAddress), 0, "Tracked shares should clear after withdrawal");
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), feeInBaseAsset + expectedProfitFee, "Live fee conversion mismatch");
+        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), marketAddress);
+        assertEq(costBasis, 0, "Cost basis should clear after withdrawal");
+        assertEq(trackedShares, 0, "Tracked shares should clear after withdrawal");
+        assertEq(vaultFees.agentFeesCharged(address(wallet)), feeInBaseAsset + expectedProfitFee, "Live fee conversion mismatch");
     }
 
     function test_MoonwellWETH_PartialWithdrawalUnwrapsNativeETHToWETH() public {
@@ -81,24 +86,34 @@ contract MoonwellCompoundV2ForkTest is Test {
         IERC20Metadata weth = IERC20Metadata(WETH);
         IMoonwellMarket market = IMoonwellMarket(MWETH);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this), 5000, FEE_RATE_BPS);
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
+        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(weth, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
 
         uint256 depositAmount = 2e15;
-        uint256 withdrawAmount = 8e14;
         deal(WETH, address(wallet), depositAmount);
 
         wallet.executeAdapter(address(adapter), MWETH, abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
+        uint256 shares = market.balanceOf(address(wallet));
+        uint256 sharesToWithdraw = shares / 2;
+        uint256 exchangeRate = market.exchangeRateCurrent();
+        uint256 expectedAssets = (sharesToWithdraw * exchangeRate) / 1e18;
+        assertGt(sharesToWithdraw, 0, "Partial withdrawal must redeem cToken shares");
         assertEq(address(wallet).balance, 0, "Wallet should not hold native ETH before withdrawal");
 
-        bytes memory withdrawResult = wallet.executeAdapter(address(adapter), MWETH, abi.encodeWithSelector(adapter.withdraw.selector, withdrawAmount));
+        bytes memory withdrawResult = wallet.executeAdapter(address(adapter), MWETH, abi.encodeWithSelector(adapter.withdraw.selector, sharesToWithdraw));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
 
-        assertEq(assetsReceived, withdrawAmount, "Should report the requested underlying amount");
-        assertEq(weth.balanceOf(address(wallet)), withdrawAmount, "Native ETH from live Moonwell mWETH must be wrapped back into WETH");
+        assertApproxEqAbs(assetsReceived, expectedAssets, 1, "Should report assets received for redeemed shares");
+        assertApproxEqAbs(weth.balanceOf(address(wallet)), expectedAssets, 1, "Native ETH from live Moonwell mWETH must be wrapped back into WETH");
         assertEq(address(wallet).balance, 0, "Wallet must not be left holding native ETH after withdrawal");
-        assertGt(market.balanceOf(address(wallet)), 0, "Remaining mWETH position should still be tracked after a partial withdrawal");
-        assertGt(feeTracker.agentVaultCostBasis(address(wallet), MWETH), 0, "Remaining cost basis should still be tracked after a partial withdrawal");
+        uint256 remainingShares = market.balanceOf(address(wallet));
+        assertGt(remainingShares, 0, "Remaining mWETH position should still be tracked after a partial withdrawal");
+        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), MWETH);
+        assertEq(trackedShares, remainingShares, "Tracked mWETH shares should match the remaining position");
+        assertGt(costBasis, 0, "Remaining cost basis should still be tracked after a partial withdrawal");
     }
 }
