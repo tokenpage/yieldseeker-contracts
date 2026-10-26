@@ -35,7 +35,7 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _vaultFeeModule().recordDeposit({vault: vault, assetsDeposited: assetsDeposited});
+        _reportDeposit(vault, assetsDeposited);
     }
 
     /**
@@ -47,7 +47,6 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         _requireBaseAsset(asset);
         uint256 heldBefore = IERC4626(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _vaultFeeModule().recordWithdraw({vault: vault, spent: shares, heldBefore: heldBefore, assetsReceived: assets});
-        _payVaultFees();
+        _reportWithdraw(vault, shares, heldBefore, assets);
     }
 }

@@ -32,7 +32,7 @@ error SwapBelowOraclePrice(uint256 received, uint256 minimum);
  * @dev Reward tokens (in the sell policy) may be swapped to the base asset. The base asset may only be swapped into a
  *      token that a fee module accounts for in this wallet (e.g. a borrowed token), at most MAX_SLIPPAGE_BPS below
  *      the price oracle and without spending base asset held back for fees. Tokens a fee module accounts for cannot
- *      be swapped away, so their fees cannot be dodged.
+ *      be swapped away. Every swap is reported to the fee modules, which decide what it costs.
  */
 abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
     address public immutable SELL_POLICY;
@@ -57,13 +57,6 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
         _requireBaseAsset(buyToken);
     }
 
-    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal virtual override {
-        if (sellToken != _baseAssetAddress()) {
-            _vaultFeeModule().recordYield(buyAmount);
-            _payVaultFees();
-        }
-    }
-
     /// @dev Whether a fee module (not the base asset) accounts for `token` in this wallet
     function _isFeeModuleToken(address token) internal view returns (bool) {
         if (token == _baseAssetAddress()) return false;
@@ -73,10 +66,12 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
 
     function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal virtual override returns (uint256 buyAmount, uint256 soldAmount) {
         (buyAmount, soldAmount) = super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
-        if (sellToken != _baseAssetAddress()) return (buyAmount, soldAmount);
-        uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
-        if (buyAmount < minimum) revert SwapBelowOraclePrice(buyAmount, minimum);
-        (, uint256 feesReserved) = _feeTracker().withdrawReserve(address(this), sellToken);
-        if (IERC20(sellToken).balanceOf(address(this)) < feesReserved) revert AWKErrors.InsufficientBalance();
+        if (sellToken == _baseAssetAddress()) {
+            uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
+            if (buyAmount < minimum) revert SwapBelowOraclePrice(buyAmount, minimum);
+            (, uint256 feesReserved) = _feeTracker().withdrawReserve(address(this), sellToken);
+            if (IERC20(sellToken).balanceOf(address(this)) < feesReserved) revert AWKErrors.InsufficientBalance();
+        }
+        _reportSwap(sellToken, soldAmount, buyToken, buyAmount);
     }
 }

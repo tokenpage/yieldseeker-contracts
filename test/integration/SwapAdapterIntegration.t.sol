@@ -17,7 +17,7 @@ import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwall
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
@@ -94,7 +94,7 @@ contract SwapAdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
-    YieldSeekerVaultFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     YieldSeekerPriceOracle oracle;
     YieldSeekerSwapSellPolicy sellPolicy;
     UniswapV3SwapAdapter uniswapAdapter;
@@ -160,9 +160,9 @@ contract SwapAdapterIntegrationTest is Test {
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
@@ -318,7 +318,7 @@ contract SwapAdapterIntegrationTest is Test {
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
         assertEq(vaultFeeModule.feesCharged(address(wallet)), 20e6);
         assertEq(vaultFeeModule.feesPaid(address(wallet)), 20e6);
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesDue(address(wallet)), 0);
         assertEq(baseAsset.balanceOf(feeCollector) - feeCollectorBalanceBefore, 20e6);
         assertEq(baseAsset.balanceOf(address(wallet)), 180e6);
     }

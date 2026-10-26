@@ -38,7 +38,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _vaultFeeModule().recordDeposit({vault: vault, assetsDeposited: assetsDeposited});
+        _reportDeposit(vault, assetsDeposited);
     }
 
     /**
@@ -54,7 +54,6 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         if (nativeAssetsReceived > 0) {
             IWETH(asset).deposit{value: nativeAssetsReceived}();
         }
-        _vaultFeeModule().recordWithdraw({vault: vault, spent: shares, heldBefore: heldBefore, assetsReceived: assets});
-        _payVaultFees();
+        _reportWithdraw(vault, shares, heldBefore, assets);
     }
 }

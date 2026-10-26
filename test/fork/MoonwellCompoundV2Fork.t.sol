@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerCompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Test} from "forge-std/Test.sol";
@@ -48,9 +48,9 @@ contract MoonwellCompoundV2ForkTest is Test {
         assertEq(asset.decimals(), expectedDecimals, "Unexpected underlying decimals");
 
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
-        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
         deal(assetAddress, address(wallet), depositAmount);
@@ -88,9 +88,9 @@ contract MoonwellCompoundV2ForkTest is Test {
         IMoonwellMarket market = IMoonwellMarket(MWETH);
 
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
-        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(weth, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
 

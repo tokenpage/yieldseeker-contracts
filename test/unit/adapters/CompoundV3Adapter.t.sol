@@ -38,7 +38,7 @@ contract CompoundV3AdapterTest is Test {
         uint256 shares = _decodeUint(result);
         assertEq(shares, amount, "Should receive 1:1 shares for Compound V3");
         assertEq(comet.balanceOf(address(wallet)), amount, "Wallet should have Comet balance");
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, amount, "Cost basis should be recorded");
     }
 
@@ -69,7 +69,7 @@ contract CompoundV3AdapterTest is Test {
         uint256 assetsReceived = _decodeUint(result);
         assertEq(assetsReceived, 1_200e6, "Should receive correct assets");
         assertEq(baseAsset.balanceOf(address(wallet)), walletBalanceBefore + assetsReceived, "Wallet balance should increase");
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 800e6, "Cost basis should be updated");
     }
 
@@ -81,36 +81,36 @@ contract CompoundV3AdapterTest is Test {
     function test_FeeAccrual_PartialWithdraw_NoYield() public {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(500e6)));
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0, "Should not charge fee when no profit");
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 0, "Should not charge fee when no profit");
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 500e6, "Cost basis should be halved after 50% withdrawal");
     }
 
     function test_SequentialDeposits_AccumulateCostBasis() public {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 3_000e6, "Cost basis should accumulate");
     }
 
     function test_PartialWithdraw_ProportionalCostBasis() public {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, 2_000e6));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 1_000e6, "Cost basis should be reduced proportionally");
     }
 
     function test_FullWithdraw_ClearsCostBasis() public {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 0, "Cost basis should be zero after full withdrawal");
     }
 
     function test_VirtualShares_YieldAccrual_FeeCharged() public {
         uint256 depositAmount = 1_000e6;
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        uint256 costBasisBefore = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasisBefore = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasisBefore, depositAmount, "Cost basis should match deposit");
         uint256 yieldAmount = 100e6;
         comet.addYield(address(wallet), yieldAmount);
@@ -120,8 +120,8 @@ contract CompoundV3AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, fullBalance));
         uint256 profit = fullBalance - depositAmount;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
-        uint256 costBasisAfter = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
+        uint256 costBasisAfter = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasisAfter, 0, "Cost basis should be zero after full withdrawal");
     }
 
@@ -139,8 +139,8 @@ contract CompoundV3AdapterTest is Test {
         uint256 proportionalCost = (depositAmount * withdrawAmount) / totalBalance;
         uint256 profit = assetsReceived - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge correct fee");
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge correct fee");
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
     }
 
@@ -150,7 +150,7 @@ contract CompoundV3AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
         comet.addYield(address(wallet), rewardAmount);
         baseAsset.mint(address(comet), rewardAmount);
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 0);
 
         uint256 heldBefore = comet.balanceOf(address(wallet));
         uint256 withdrawAmount = 50e6;
@@ -158,8 +158,8 @@ contract CompoundV3AdapterTest is Test {
         uint256 expectedFee = ((withdrawAmount - releasedBasis) * 1000) / 10_000;
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, withdrawAmount));
 
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee);
-        assertEq(wallet.vaultFeeModule().costBasis(address(wallet), address(comet)), depositAmount - releasedBasis);
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee);
+        assertEq(wallet.yieldFeeModule().costBasis(address(wallet), address(comet)), depositAmount - releasedBasis);
     }
 
     // ============ Audit Fix: Deposit records actual amount, not type(uint256).max (Issue 4) ============
@@ -167,12 +167,12 @@ contract CompoundV3AdapterTest is Test {
     function test_DepositRecordsAssetsDeposited() public {
         uint256 depositAmount = 500e6;
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, depositAmount, "Cost basis should be actual deposited amount");
         comet.addYield(address(wallet), 50e6);
         baseAsset.mint(address(comet), 50e6);
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(250e6)));
-        uint256 costBasisAfter = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasisAfter = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertTrue(costBasisAfter < costBasis, "Cost basis should decrease after partial withdrawal");
     }
 
@@ -184,7 +184,7 @@ contract CompoundV3AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(300e6)));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(300e6)));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(300e6)));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertTrue(costBasis < depositAmount, "Cost basis should be reduced");
     }
 
@@ -192,16 +192,16 @@ contract CompoundV3AdapterTest is Test {
 
     function test_FullLifecycle_CorrectFees() public {
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.deposit.selector, uint256(1_000e6)));
-        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasis, 1_000e6, "Cost basis should be actual amount");
         comet.addYield(address(wallet), 100e6);
         baseAsset.mint(address(comet), 100e6);
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, uint256(550e6)));
         uint256 remaining = comet.balanceOf(address(wallet));
         wallet.executeAdapter(address(adapter), address(comet), abi.encodeWithSelector(adapter.withdraw.selector, remaining));
-        uint256 costBasisAfter = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
+        uint256 costBasisAfter = wallet.yieldFeeModule().costBasis(address(wallet), address(comet));
         assertEq(costBasisAfter, 0);
-        uint256 totalFees = wallet.vaultFeeModule().feesCharged(address(wallet));
+        uint256 totalFees = wallet.yieldFeeModule().feesCharged(address(wallet));
         uint256 expectedFee = (100e6 * 1000) / 10_000;
         assertEq(totalFees, expectedFee, "Total fees should equal 10% of 100 USDC yield");
     }
@@ -230,8 +230,8 @@ contract CompoundV3AdapterTest is Test {
         bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantComet), abi.encodeWithSelector(adapter.withdraw.selector, amount + yieldAmount));
 
         assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
-        assertEq(variantWallet.vaultFeeModule().feesCharged(address(variantWallet)), yieldAmount / 10);
-        uint256 costBasis = variantWallet.vaultFeeModule().costBasis(address(variantWallet), address(variantComet));
+        assertEq(variantWallet.yieldFeeModule().feesCharged(address(variantWallet)), yieldAmount / 10);
+        uint256 costBasis = variantWallet.yieldFeeModule().costBasis(address(variantWallet), address(variantComet));
         assertEq(costBasis, 0);
     }
 }

@@ -10,7 +10,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -24,7 +24,7 @@ contract AdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
-    YieldSeekerVaultFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter1;
     ERC4626Adapter vaultAdapter2;
     ERC4626Adapter vaultAdapter3;
@@ -58,9 +58,9 @@ contract AdapterIntegrationTest is Test {
         // Deploy infrastructure
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -364,7 +364,7 @@ contract AdapterIntegrationTest is Test {
         assertEq(feesCharged, 0.1e6, "Should charge 0.1 USDC fee on 1 USDC profit");
         assertEq(feesPaid, 0.1e6, "Should pay the 0.1 USDC fee immediately");
         assertEq(feeCollectorBalanceAfter - feeCollectorBalanceBefore, 0.1e6, "Fee collector should receive the fee");
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0, "No base-asset fees should remain owed");
+        assertEq(vaultFeeModule.feesDue(address(wallet)), 0, "No base-asset fees should remain owed");
         assertEq(usdc.balanceOf(address(wallet)), 10.9e6, "Wallet should retain 10.9 USDC after fees");
 
         // Position should be cleared

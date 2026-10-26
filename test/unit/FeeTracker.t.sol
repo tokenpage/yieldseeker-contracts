@@ -4,9 +4,10 @@ pragma solidity 0.8.28;
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {InvalidFeeRate, PlanRateIncrease, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
+import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -21,8 +22,9 @@ contract FeeTrackerTest is Test {
     MockERC20 internal baseAsset;
     MockERC20 internal debtToken;
     MockFeeWallet internal wallet;
+    MockSwapAdapterPriceOracle internal oracle;
     YieldSeekerFeeTracker internal tracker;
-    YieldSeekerVaultFeeModule internal vaultModule;
+    YieldSeekerYieldFeeModule internal vaultModule;
     YieldSeekerBorrowFeeModule internal borrowModule;
 
     function setUp() public {
@@ -30,45 +32,46 @@ contract FeeTrackerTest is Test {
         debtToken = new MockERC20("Debt", "DEBT");
         wallet = new MockFeeWallet(ownerA, IERC20(address(baseAsset)));
         tracker = new YieldSeekerFeeTracker(admin, planManager, collector);
-        vaultModule = new YieldSeekerVaultFeeModule(tracker, 2_000);
-        borrowModule = new YieldSeekerBorrowFeeModule(tracker, 500);
+        oracle = new MockSwapAdapterPriceOracle();
+        vaultModule = new YieldSeekerYieldFeeModule(tracker, 2_000);
+        borrowModule = new YieldSeekerBorrowFeeModule(tracker, oracle, 500);
 
         vm.startPrank(admin);
         tracker.setFeeModule(BORROW_FEE, borrowModule);
-        tracker.setFeeModule(VAULT_FEE, vaultModule);
+        tracker.setFeeModule(YIELD_FEE, vaultModule);
         tracker.setPlanRate(0, BORROW_FEE, 300);
-        tracker.setPlanRate(0, VAULT_FEE, 1_000);
+        tracker.setPlanRate(0, YIELD_FEE, 1_000);
         vm.stopPrank();
     }
 
     function testAdminSetsRatesThroughMaximumAndRejectsHigherRate() public {
-        uint256 maximumRate = tracker.maxFeeRateBps(VAULT_FEE);
+        uint256 maximumRate = tracker.maxFeeRateBps(YIELD_FEE);
         vm.prank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, maximumRate);
+        tracker.setPlanRate(1, YIELD_FEE, maximumRate);
         vm.expectRevert(InvalidFeeRate.selector);
         vm.prank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, maximumRate + 1);
+        tracker.setPlanRate(1, YIELD_FEE, maximumRate + 1);
 
         vm.prank(admin);
         tracker.assignPlan(ownerA, 1);
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordYield, (10_000)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10_000)));
         assertEq(vaultModule.feesCharged(address(wallet)), 2_000);
     }
 
     function testPlanManagerMayAssignEqualOrCheaperRateButNotMoreExpensive() public {
         vm.startPrank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, 750);
+        tracker.setPlanRate(1, YIELD_FEE, 750);
         tracker.setPlanRate(1, BORROW_FEE, 300);
-        tracker.setPlanRate(2, VAULT_FEE, 750);
+        tracker.setPlanRate(2, YIELD_FEE, 750);
         tracker.setPlanRate(2, BORROW_FEE, 300);
-        tracker.setPlanRate(3, VAULT_FEE, 500);
+        tracker.setPlanRate(3, YIELD_FEE, 500);
         tracker.setPlanRate(3, BORROW_FEE, 301);
         vm.stopPrank();
 
         vm.startPrank(planManager);
         tracker.assignPlan(ownerA, 1);
         tracker.assignPlan(ownerA, 2);
-        vm.expectRevert(abi.encodeWithSelector(PlanRateIncrease.selector, VAULT_FEE, 750, 1_000));
+        vm.expectRevert(abi.encodeWithSelector(PlanRateIncrease.selector, YIELD_FEE, 750, 1_000));
         tracker.assignPlan(ownerA, 0);
         vm.expectRevert(abi.encodeWithSelector(PlanRateIncrease.selector, BORROW_FEE, 300, 301));
         tracker.assignPlan(ownerA, 3);
@@ -79,11 +82,11 @@ contract FeeTrackerTest is Test {
 
     function testAdminMayAssignHigherRateAndUnknownPlansAreRejected() public {
         vm.prank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, 1_500);
+        tracker.setPlanRate(1, YIELD_FEE, 1_500);
 
         vm.prank(admin);
         tracker.assignPlan(ownerA, 1);
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordYield, (10_000)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10_000)));
         assertEq(vaultModule.feesCharged(address(wallet)), 1_500);
 
         vm.expectRevert(abi.encodeWithSelector(UnknownPlan.selector, 99));
@@ -101,19 +104,19 @@ contract FeeTrackerTest is Test {
 
     function testWalletYieldUsesItsOwnersAssignedPlanRate() public {
         vm.prank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, 500);
+        tracker.setPlanRate(1, YIELD_FEE, 500);
         vm.prank(planManager);
         tracker.assignPlan(ownerA, 1);
 
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordYield, (10e6)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10e6)));
 
         assertEq(vaultModule.feesCharged(address(wallet)), 500_000);
-        assertEq(vaultModule.feesOwed(address(wallet)), 500_000);
+        assertEq(vaultModule.feesDue(address(wallet)), 500_000);
     }
 
     function testFeeModulesCanBeReplacedAndRatesUseEachTypeMaximum() public {
         vm.startPrank(admin);
-        tracker.setPlanRate(1, VAULT_FEE, 2_000);
+        tracker.setPlanRate(1, YIELD_FEE, 2_000);
         tracker.setPlanRate(1, BORROW_FEE, 500);
         vm.expectRevert(InvalidFeeRate.selector);
         tracker.setPlanRate(1, BORROW_FEE, 501);
@@ -123,12 +126,12 @@ contract FeeTrackerTest is Test {
         vm.stopPrank();
 
         bytes32 market = keccak256("market");
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.recordBorrow, (market, address(debtToken), 1_000, 0)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (market, address(debtToken), 0, 1_000, 0)));
         (bool borrowedBeforeReplacement, uint256 reserveBeforeReplacement) = tracker.withdrawReserve(address(wallet), address(debtToken));
         assertTrue(borrowedBeforeReplacement);
         assertEq(reserveBeforeReplacement, 0);
 
-        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, 750);
+        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, replacement);
 
@@ -142,16 +145,16 @@ contract FeeTrackerTest is Test {
         bytes32[] memory feeTypes = tracker.moduleFeeTypes();
         assertEq(feeTypes.length, 2);
         assertEq(feeTypes[0], BORROW_FEE);
-        assertEq(feeTypes[1], VAULT_FEE);
+        assertEq(feeTypes[1], YIELD_FEE);
     }
 
     function testWithdrawReserveAggregatesRegisteredFeeModules() public {
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordYield, (100e6)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 100e6)));
 
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.recordBorrow, (keccak256("market"), address(debtToken), 1_000, 0)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (keccak256("market"), address(debtToken), 0, 1_000, 0)));
         uint256 start = vm.getBlockTimestamp();
         vm.warp(start + YEAR);
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.checkpoint, (keccak256("market"), address(debtToken), 1_000)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (keccak256("market"), address(debtToken), 1_000, 0, 0)));
 
         (bool baseAllowed, uint256 baseReserved) = tracker.withdrawReserve(address(wallet), address(baseAsset));
         (bool debtAllowed, uint256 debtReserved) = tracker.withdrawReserve(address(wallet), address(debtToken));

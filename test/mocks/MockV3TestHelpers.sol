@@ -44,9 +44,9 @@ contract MockV3BorrowReporter is AWKAdapter {
     }
 
     function execute(address, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
-        (bytes32 market, address token, uint256 amount, uint256 debtBefore) = abi.decode(data, (bytes32, address, uint256, uint256));
-        _feeModule.recordBorrow(market, token, amount, debtBefore);
-        return abi.encode(amount);
+        (bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) = abi.decode(data, (bytes32, address, uint256, uint256, uint256));
+        _feeModule.onDebtChange(market, token, debtBefore, borrowed, repaid);
+        return abi.encode(borrowed);
     }
 }
 

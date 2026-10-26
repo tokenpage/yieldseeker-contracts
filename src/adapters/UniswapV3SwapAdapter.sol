@@ -28,10 +28,6 @@ contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapter, YieldSeeker
         super._beforeSwap(sellToken, buyToken);
     }
 
-    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) {
-        super._afterSwap(sellToken, soldAmount, buyAmount);
-    }
-
     function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) returns (uint256, uint256) {
         return super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
     }

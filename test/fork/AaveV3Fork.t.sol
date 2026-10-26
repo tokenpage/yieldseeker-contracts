@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {AdapterWalletHarness} from "../unit/adapters/AdapterHarness.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Test} from "forge-std/Test.sol";
@@ -32,9 +32,9 @@ contract AaveV3ForkTest is Test {
         IAaveAToken aToken = IAaveAToken(A_BAS_USDC);
 
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
-        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerAaveV3Adapter adapter = new YieldSeekerAaveV3Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);

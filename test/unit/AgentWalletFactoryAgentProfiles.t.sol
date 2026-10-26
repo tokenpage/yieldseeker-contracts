@@ -9,6 +9,7 @@ import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -32,7 +33,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         registryVault = new YieldSeekerAdapterRegistry(address(this), address(this));
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
         feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A);
-        feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, 500);
+        feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, new MockSwapAdapterPriceOracle(), 500);
         feeVault.setFeeModule(BORROW_FEE, feeBorrow);
         feeVault.setPlanRate(0, BORROW_FEE, 500);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);

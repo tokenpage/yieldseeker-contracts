@@ -34,7 +34,7 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _vaultFeeModule().recordDeposit({vault: vault, assetsDeposited: assetsDeposited});
+        _reportDeposit(vault, assetsDeposited);
     }
 
     /**
@@ -46,7 +46,6 @@ contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
         // aTokens rebase 1:1 with underlying, so balanceOf is already in base asset terms
         uint256 heldBefore = IAaveAToken(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _vaultFeeModule().recordWithdraw({vault: vault, spent: assets, heldBefore: heldBefore, assetsReceived: assets});
-        _payVaultFees();
+        _reportWithdraw(vault, assets, heldBefore, assets);
     }
 }

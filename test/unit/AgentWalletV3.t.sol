@@ -9,8 +9,9 @@ import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {MockV3YieldSeekerWalletV1, MockV3YieldSeekerWalletV2} from "../mocks/MockV3TestHelpers.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
@@ -21,7 +22,23 @@ contract RevertingWithdrawReserveModule is IYieldSeekerFeeModule {
         return 10_000;
     }
 
-    function withdrawReserve(address, address) external pure override returns (bool, uint256) {
+    function feesDue(address) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function recordFeePaid(uint256) external pure override {}
+
+    function onDeposit(address, uint256) external pure override {}
+
+    function onWithdraw(address, uint256, uint256, uint256) external pure override {}
+
+    function onSwap(address, uint256, address, uint256) external pure override {}
+
+    function onClaim(address, uint256) external pure override {}
+
+    function onDebtChange(bytes32, address, uint256, uint256, uint256) external pure override {}
+
+    function withdrawReserve(address, address) external pure override returns (bool allowed, uint256 reserved) {
         revert();
     }
 }
@@ -31,7 +48,23 @@ contract GasBurningWithdrawReserveModule is IYieldSeekerFeeModule {
         return 10_000;
     }
 
-    function withdrawReserve(address, address) external view override returns (bool, uint256) {
+    function feesDue(address) external pure override returns (uint256) {
+        return 0;
+    }
+
+    function recordFeePaid(uint256) external pure override {}
+
+    function onDeposit(address, uint256) external pure override {}
+
+    function onWithdraw(address, uint256, uint256, uint256) external pure override {}
+
+    function onSwap(address, uint256, address, uint256) external pure override {}
+
+    function onClaim(address, uint256) external pure override {}
+
+    function onDebtChange(bytes32, address, uint256, uint256, uint256) external pure override {}
+
+    function withdrawReserve(address, address) external pure override returns (bool allowed, uint256 reserved) {
         while (true) {}
     }
 }
@@ -58,7 +91,7 @@ contract AgentWalletV3Test is Test {
     YieldSeekerAdapterRegistry private vaultRegistry;
     YieldSeekerAdapterRegistry private borrowRegistry;
     YieldSeekerFeeTracker private vaultFees;
-    YieldSeekerVaultFeeModule private vaultFeeModule;
+    YieldSeekerYieldFeeModule private vaultFeeModule;
     YieldSeekerBorrowFeeModule private borrowFees;
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private vaultWallet;
@@ -76,10 +109,10 @@ contract AgentWalletV3Test is Test {
         vaultRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         borrowRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         vaultFees = new YieldSeekerFeeTracker(admin, admin, feeCollector);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(vaultFees, 10_000);
-        vaultFees.setFeeModule(VAULT_FEE, vaultFeeModule);
-        vaultFees.setPlanRate(0, VAULT_FEE, 1_000);
-        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
+        vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
+        vaultFees.setPlanRate(0, YIELD_FEE, 1_000);
+        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, new MockSwapAdapterPriceOracle(), 1_000);
         vaultFees.setFeeModule(BORROW_FEE, borrowFees);
         vaultFees.setPlanRate(0, BORROW_FEE, 1_000);
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
@@ -149,10 +182,10 @@ contract AgentWalletV3Test is Test {
         assertEq(_validateWithSigner(withdrawCall, operatorKey), 1);
     }
 
-    function test_VaultFeeModuleReservesBaseFeesAndRejectsNonBaseWithdrawal() public {
+    function test_YieldFeeModuleReservesBaseFeesAndRejectsNonBaseWithdrawal() public {
         vm.prank(address(vaultWallet));
-        vaultFeeModule.recordYield(100e6);
-        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 10e6);
+        vaultFeeModule.onClaim(address(usdc), 100e6);
+        assertEq(vaultFeeModule.feesDue(address(vaultWallet)), 10e6);
 
         vm.prank(owner);
         vm.expectRevert(AWKErrors.InsufficientBalance.selector);
@@ -169,16 +202,15 @@ contract AgentWalletV3Test is Test {
         vaultWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
     }
 
-    function test_VaultWithdrawAllLeavesFeesOwedInWallet() public {
+    function test_YieldWithdrawAllLeavesFeesDueInWallet() public {
         vm.prank(address(vaultWallet));
-        vaultFeeModule.recordYield(100e6);
-
+        vaultFeeModule.onClaim(address(usdc), 100e6);
         vm.prank(owner);
         vaultWallet.withdrawAllAssetToUser(recipient, address(usdc));
 
         assertEq(usdc.balanceOf(recipient), 990e6);
         assertEq(usdc.balanceOf(address(vaultWallet)), 10e6);
-        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 10e6);
+        assertEq(vaultFeeModule.feesDue(address(vaultWallet)), 10e6);
     }
 
     function test_BorrowedTokensAreWithdrawableInFullWhileCollateralRemainsWithdrawable() public {
@@ -188,12 +220,12 @@ contract AgentWalletV3Test is Test {
             vm.warp(1);
         }
         vm.prank(address(borrowWallet));
-        borrowFees.recordBorrow(market, address(usdc), 100e6, 0);
+        borrowFees.onDebtChange(market, address(usdc), 0, 100e6, 0);
 
         uint256 reportTime = vm.getBlockTimestamp();
         vm.warp(reportTime + 365 days);
         vm.prank(address(borrowWallet));
-        borrowFees.checkpoint(market, address(usdc), 100e6);
+        borrowFees.onDebtChange(market, address(usdc), 100e6, 0, 0);
         assertEq(borrowFees.feesOwed(address(borrowWallet), address(usdc)), 10e6);
 
         vm.prank(owner);
@@ -222,25 +254,25 @@ contract AgentWalletV3Test is Test {
         }
 
         vm.prank(address(borrowWallet));
-        borrowFees.recordBorrow(market, address(usdc), 100e6, 0);
+        borrowFees.onDebtChange(market, address(usdc), 0, 100e6, 0);
         vm.warp(startTime + 365 days);
         vm.prank(address(borrowWallet));
-        borrowFees.checkpoint(market, address(usdc), 100e6);
+        borrowFees.onDebtChange(market, address(usdc), 100e6, 0, 0);
 
         uint256 rewardAmount = 200e6;
         vm.prank(address(borrowWallet));
-        vaultFeeModule.recordYield(rewardAmount);
+        vaultFeeModule.onClaim(address(weth), rewardAmount);
 
         uint256 borrowFeesOwed = borrowFees.feesOwed(address(borrowWallet), address(usdc));
-        uint256 vaultFeesOwed = vaultFeeModule.feesOwed(address(borrowWallet));
+        uint256 vaultFeesDue = vaultFeeModule.feesDue(address(borrowWallet));
         assertEq(borrowFeesOwed, 10e6);
-        assertEq(vaultFeesOwed, 20e6);
+        assertEq(vaultFeesDue, 20e6);
         (bool borrowedTokenAllowed, uint256 borrowedTokenReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(usdc));
         assertTrue(borrowedTokenAllowed);
         assertEq(borrowedTokenReserved, 0);
         (bool baseAssetAllowed, uint256 baseAssetReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(weth));
         assertTrue(baseAssetAllowed);
-        assertEq(baseAssetReserved, vaultFeesOwed);
+        assertEq(baseAssetReserved, vaultFeesDue);
         uint256 borrowedBalance = usdc.balanceOf(address(borrowWallet));
 
         vm.prank(owner);
@@ -255,8 +287,8 @@ contract AgentWalletV3Test is Test {
         vaultFees.setFeeModule(keccak256("gas-burning-reserve"), new GasBurningWithdrawReserveModule());
 
         vm.prank(address(borrowWallet));
-        vaultFeeModule.recordYield(100e6);
-        uint256 reserve = vaultFeeModule.feesOwed(address(borrowWallet));
+        vaultFeeModule.onClaim(address(weth), 100e6);
+        uint256 reserve = vaultFeeModule.feesDue(address(borrowWallet));
         uint256 baseBalance = weth.balanceOf(address(borrowWallet));
         uint256 withdrawable = baseBalance - reserve;
 

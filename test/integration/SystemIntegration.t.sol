@@ -11,7 +11,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -26,7 +26,7 @@ contract SystemIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
-    YieldSeekerVaultFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter;
 
     // Test utilities
@@ -58,9 +58,9 @@ contract SystemIntegrationTest is Test {
         // Deploy real contracts in correct order
         registry = new AdapterRegistry(admin, admin); // admin as both admin and emergency admin
         feeTracker = new FeeTracker(admin, admin, feeCollector);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
 
         // Deploy factory
         factory = new AgentWalletFactory(admin, operator);
@@ -98,7 +98,7 @@ contract SystemIntegrationTest is Test {
         assertEq(mappedAdapter, address(vaultAdapter));
 
         // Verify fee tracker configuration
-        assertEq(feeTracker.planRateBps(0, VAULT_FEE), FEE_RATE);
+        assertEq(feeTracker.planRateBps(0, YIELD_FEE), FEE_RATE);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 
@@ -421,7 +421,7 @@ contract SystemIntegrationTest is Test {
         assertEq(assetsReceived, 550e6);
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesDue(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 545e6);
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
@@ -437,17 +437,17 @@ contract SystemIntegrationTest is Test {
 
         // Record multiple yield events from the wallet
         vm.startPrank(address(wallet));
-        vaultFeeModule.recordYield(100e6);
-        vaultFeeModule.recordYield(50e6);
-        vaultFeeModule.recordYield(75e6);
+        vaultFeeModule.onClaim(address(usdc), 100e6);
+        vaultFeeModule.onClaim(address(usdc), 50e6);
+        vaultFeeModule.onClaim(address(usdc), 75e6);
         vm.stopPrank();
 
         // Get total fees owed for the wallet
-        uint256 feesOwed = vaultFeeModule.feesOwed(address(wallet));
+        uint256 feesDue = vaultFeeModule.feesDue(address(wallet));
 
         // Should be sum of all yields * feeRate (0.1 = 10%)
         uint256 expectedFees = (100e6 + 50e6 + 75e6) * 1000 / 10000; // 10% of 225e6 = 22.5e6
-        assertEq(feesOwed, expectedFees);
+        assertEq(feesDue, expectedFees);
     }
 
     // ========================================

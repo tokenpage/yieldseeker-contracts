@@ -15,7 +15,7 @@ import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendin
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -58,10 +58,10 @@ contract BorrowForkTest is Test {
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
         feeTracker = new FeeTracker(address(this), address(this), feeCollector);
-        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
-        borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
+        borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);
         borrowRegistry = new AdapterRegistry(address(this), address(this));
@@ -71,8 +71,8 @@ contract BorrowForkTest is Test {
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setFeeTracker(feeTracker);
-        aaveAdapter = new YieldSeekerAaveV3LendingAdapter(oracle);
-        morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter(oracle);
+        aaveAdapter = new YieldSeekerAaveV3LendingAdapter();
+        morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter();
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER, address(rewardSellPolicy), oracle, 100);
         linkRegistry = new YieldSeekerWalletLinkRegistry();

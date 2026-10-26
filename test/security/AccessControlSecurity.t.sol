@@ -6,7 +6,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -39,9 +39,9 @@ contract AccessControlSecurityTest is Test {
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
-        YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -116,7 +116,7 @@ contract AccessControlSecurityTest is Test {
     }
 
     function test_AdminCanUpdateFeeConfig() public {
-        bytes32 vaultFeeType = VAULT_FEE;
+        bytes32 vaultFeeType = YIELD_FEE;
         vm.prank(admin);
         feeTracker.setPlanRate(0, vaultFeeType, 2000);
         assertEq(feeTracker.planRateBps(0, vaultFeeType), 2000);

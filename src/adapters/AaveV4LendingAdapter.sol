@@ -16,7 +16,6 @@
 //
 pragma solidity 0.8.28;
 
-import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKAaveV4LendingAdapter} from "../agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
 import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
@@ -26,8 +25,6 @@ import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
  * @notice Borrow against the wallet's base asset on registered Aave V4 spokes, with the borrow fee
  */
 contract YieldSeekerAaveV4LendingAdapter is AWKAaveV4LendingAdapter, YieldSeekerLendingAdapter {
-    constructor(IYieldSeekerPriceOracle priceOracle) YieldSeekerLendingAdapter(priceOracle) {}
-
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
         return super._supplyCollateralOperation(market, amount);
     }

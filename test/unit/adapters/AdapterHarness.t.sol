@@ -4,19 +4,19 @@ pragma solidity 0.8.28;
 import {IAgentWallet} from "../../../src/IAgentWallet.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 library AdapterFeeSetup {
-    function deploy(address feeCollector, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerFeeTracker feeTracker, YieldSeekerVaultFeeModule vaultFees) {
+    function deploy(address feeCollector, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerFeeTracker feeTracker, YieldSeekerYieldFeeModule yieldFees) {
         feeTracker = new YieldSeekerFeeTracker(address(this), address(this), feeCollector);
-        vaultFees = addVaultModule(feeTracker, maxFeeRateBps, rateBps);
+        yieldFees = addYieldModule(feeTracker, maxFeeRateBps, rateBps);
     }
 
-    function addVaultModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerVaultFeeModule vaultFees) {
-        vaultFees = new YieldSeekerVaultFeeModule(feeTracker, maxFeeRateBps);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
-        feeTracker.setPlanRate(0, VAULT_FEE, rateBps);
+    function addYieldModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerYieldFeeModule yieldFees) {
+        yieldFees = new YieldSeekerYieldFeeModule(feeTracker, maxFeeRateBps);
+        feeTracker.setFeeModule(YIELD_FEE, yieldFees);
+        feeTracker.setPlanRate(0, YIELD_FEE, rateBps);
     }
 }
 
@@ -41,8 +41,8 @@ contract AdapterWalletHarness is IAgentWallet {
         return _FEE_TRACKER;
     }
 
-    function vaultFeeModule() external view returns (YieldSeekerVaultFeeModule) {
-        return YieldSeekerVaultFeeModule(address(_FEE_TRACKER.feeModules(VAULT_FEE)));
+    function yieldFeeModule() external view returns (YieldSeekerYieldFeeModule) {
+        return YieldSeekerYieldFeeModule(address(_FEE_TRACKER.feeModules(YIELD_FEE)));
     }
 
     /// @notice Execute adapter logic via delegatecall

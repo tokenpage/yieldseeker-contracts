@@ -97,25 +97,24 @@ Since adapters execute via `delegatecall` in the wallet's context:
 
 ## Fee Model
 
-The system uses a **cost-basis tracking model** to calculate platform fees on realized gains.
+Adapters never decide fees. After every action they report what the wallet did (a deposit, a withdrawal, a swap, a claim, a debt change) to every fee module, and each module decides what that costs. The adapter then pays each module's fees due from the wallet's base asset to the fee collector, in the same transaction.
 
-### How It Works
+### Yield fee (`YIELD_FEE`, all agent types)
 
-1. **On Deposit**: the vault fee module adds the base asset deposited to the vault position's cost basis
+1. **On Deposit**: the module adds the base asset deposited to the target's cost basis
 2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults); the same share of the cost basis is released, and anything received above it is yield
-   - Fee = `yield * feeRate / 10000`, where `feeRate` is the owner's plan rate for `VAULT_FEE`
+   - Fee = `yield * feeRate / 10000`, where `feeRate` is the owner's plan rate for `YIELD_FEE`
    - If loss: No fee, cost basis reduced for the remaining position
-3. **Rewards**: rewards in the base asset are yield when claimed. Other reward tokens are yield when sold for the base asset (fee on the base asset received). Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
-4. **Payment**: the adapter that charged the fee sends it to the fee collector in the same transaction, from the base asset it just received.
+3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling any other token is yield. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
+
+### Borrow fee (`BORROW_FEE`)
+
+A yearly fee on borrowed principal, counted in the borrowed token per market and reported by the lending adapters on every borrow, repay and collateral withdrawal. It is due in the base asset (the collateral) at the oracle price and paid at the first action that leaves base asset in the wallet; a token without a fresh price waits until it has one. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet, debtToken)` plus `pendingFee(wallet, market)`, converted with the price oracle.
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for the remaining position is reduced, and no fees are accrued.
-- **No pending vault fees**: the wallet's base-asset balance is what the owner can withdraw; `vaultFeeModule.feesOwed(wallet)` is only non-zero when the wallet held too little base asset to pay in full.
+- **No pending fees in the wallet**: fees are paid as soon as the wallet holds base asset, so the wallet's base-asset balance is what the owner can withdraw.
 - **Non-Custodial**: Fees are only paid from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
-
-### Borrow fee
-
-A yearly fee on borrowed principal, counted in the borrowed token per market. It is paid from the collateral, at the oracle price, whenever collateral is withdrawn; collateral can only leave the lending protocol that way. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet, debtToken)` plus `pendingFee(wallet, market)` (converted to collateral with the price oracle).
 
 ---
 
@@ -299,15 +298,15 @@ The central registry that manages authorized adapters and their targets.
 
 #### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-The fee tracker holds the fee plans, the fee collector and one module per fee type. Each module does its own fee type's accounting; wallets and their adapters call the modules directly, and every module records against `msg.sender`, so a caller can only affect its own accounting.
+The fee tracker holds the fee plans, the fee collector and one module per fee type. Every module implements the same facts (`onDeposit`, `onWithdraw`, `onSwap`, `onClaim`, `onDebtChange`) and payment functions (`feesDue`, `recordFeePaid`), all keyed on `msg.sender`, so a caller can only affect its own accounting.
 
 | Contract | Role |
 |----------|------|
 | `YieldSeekerFeeTracker` | Plans (a rate per fee type per plan; every owner starts on plan 0), `feeCollector`, `setFeeModule` (adds or replaces a fee type's module), `feeRateBps(feeType, wallet)`, and `withdrawReserve(wallet, token)`, which combines every module's answer (each called with a gas limit; a failing module counts as allowing nothing, and the base asset can always leave) |
-| `YieldSeekerVaultFeeModule` (`VAULT_FEE`) | Cost basis per vault, `recordDeposit`, `recordWithdraw`, `recordYield`, `feesOwed`, `recordFeePaid`; called by the vault, Merkl and swap adapters, which pay each fee to the fee collector as soon as it is charged |
-| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Yearly fee on borrowed principal per market; called by the lending adapters |
+| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
+| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change; fees due in the base asset at the oracle price |
 
-Adapters find a module with `wallet.feeTracker().feeModules(feeType)`.
+Adding a fee type needs only a new module (`setFeeModule`, then `setPlanRate` for every plan); adapters, the tracker and wallets don't change.
 
 ---
 
@@ -320,7 +319,7 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 **YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
 Abstract base class for all adapters providing:
 - `onlyDelegateCall` modifier to prevent direct calls
-- Helper functions: `_ysAgentWallet()`, `_baseAsset()`, `_feeTracker()`, `_vaultFeeModule()`, `_payVaultFees()`
+- Fee reporting: `_reportDeposit`, `_reportWithdraw`, `_reportSwap`, `_reportClaim`, `_reportDebtChange` (each tells every fee module, then pays the fees due)
 - Base asset validation: `_requireBaseAsset(address)`
 
 #### Concrete Adapters
@@ -336,7 +335,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 **Validation:**
 - Enforces that the vault's underlying asset matches the wallet's `baseAsset`
-- Records deposits and withdrawals (shares redeemed out of shares held) on the vault fee module
+- Reports deposits and withdrawals (shares redeemed out of shares held) to the fee modules
 
 **Known Limitation / Future Work**:
 - Deposits do not accept a `minShares` bound, and withdrawals do not accept a `minAssets` bound.
@@ -381,7 +380,7 @@ For Aave V3 lending pools. Handles deposits/withdrawals to Aave pools where the 
 
 **Validation:**
 - Enforces that the pool's underlying asset matches the wallet's `baseAsset`
-- Records deposits and withdrawals (balance withdrawn out of balance held) on the vault fee module
+- Reports deposits and withdrawals (balance withdrawn out of balance held) to the fee modules
 
 **Technical Notes:**
 - Aave V3 uses rebasing aTokens where balance increases automatically with accrued yield
@@ -401,7 +400,7 @@ For Compound V3 (Comet) markets. Handles deposits/withdrawals to Compound V3 mar
 
 **Validation:**
 - Enforces that the Comet's base token matches the wallet's `baseAsset`
-- Records deposits and withdrawals (balance withdrawn out of balance held) on the vault fee module
+- Reports deposits and withdrawals (balance withdrawn out of balance held) to the fee modules
 
 **Technical Notes:**
 - Compound V3 uses a rebasing balance model where `balanceOf()` returns principal + accrued interest
@@ -421,7 +420,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 
 **Validation:**
 - Enforces that the cToken's underlying matches the wallet's `baseAsset`
-- Records deposits and withdrawals (cTokens redeemed out of cTokens held) on the vault fee module
+- Reports deposits and withdrawals (cTokens redeemed out of cTokens held) to the fee modules
 - Wraps underlying paid out as native ETH back into the base asset
 
 **Technical Notes:**
@@ -686,8 +685,8 @@ sequenceDiagram
     Wallet->>Adapter: DELEGATECALL withdraw(vault, shares)
     Adapter->>Vault: vault.redeem(shares, wallet, wallet)
     Vault-->>Wallet: USDC returned to wallet
-    Adapter->>FeeTracker: recordWithdrawal(wallet, shares, assets)
-    FeeTracker->>FeeTracker: Calculate fees on profit
+    Adapter->>FeeModules: onWithdraw(vault, shares, sharesHeldBefore, assets)
+    FeeModules->>FeeModules: Calculate fees on profit
     Wallet-->>EP: ✓
 
     Note over User: User withdraws USDC
@@ -719,15 +718,16 @@ sequenceDiagram
     participant Server
     participant Wallet
     participant Adapter as ERC4626Adapter (delegatecall)
-    participant VaultFees as VaultFeeModule
+    participant Modules as Fee modules
     participant USDC
 
     Server->>Wallet: executeViaAdapter(adapter, vault, withdraw(shares))
     Wallet->>Adapter: delegatecall execute(vault, withdraw)
-    Adapter->>VaultFees: recordWithdraw(vault, shares, sharesHeldBefore, assets)
-    VaultFees->>VaultFees: charge fee on realised profit
-    Adapter->>USDC: transfer(feeCollector, feesOwed)
-    Adapter->>VaultFees: recordFeePaid(feesOwed)
+    Adapter->>Modules: onWithdraw(vault, shares, sharesHeldBefore, assets)
+    Modules->>Modules: yield module charges on profit
+    Adapter->>Modules: feesDue(wallet)
+    Adapter->>USDC: transfer(feeCollector, due)
+    Adapter->>Modules: recordFeePaid(due)
 ```
 
 **Fee Calculation:**
@@ -958,9 +958,9 @@ We have comprehensive tests in `test/`:
 
 ### Changing fee logic
 
-Fee accounting lives in the fee modules, per wallet (`VaultFeeModule`: cost basis per vault and fees charged/paid; `BorrowFeeModule`: debt positions and fees per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open vault cost bases and borrow positions, and fees owed, stay behind in the old module.
+Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees charged/paid; `BorrowFeeModule`: debt positions and fees per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
 
-- **New fee types:** `setFeeModule(newFeeType, module)` on the existing tracker, then `setPlanRate` for **every** existing plan (a plan without a rate charges 0 for that fee type).
+- **New fee types:** write a module that implements `IYieldSeekerFeeModule` and charges for the facts it cares about (e.g. a rebalance fee on `onWithdraw` + `onDeposit`), then `setFeeModule(newFeeType, module)` and `setPlanRate` for **every** existing plan (a plan without a rate charges 0 for that fee type). No adapter changes.
 - **New plans:** set a rate for every fee type when creating a plan. Unset fee types are 0%, and the plan manager can move owners onto a plan that is cheaper for any fee type it doesn't set.
 - **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
 

@@ -11,7 +11,7 @@ import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/Aave
 import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
@@ -27,7 +27,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
-    YieldSeekerVaultFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     AaveV3Adapter aaveAdapter;
     CompoundV3Adapter compoundV3Adapter;
     CompoundV2Adapter compoundV2Adapter;
@@ -59,9 +59,9 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);

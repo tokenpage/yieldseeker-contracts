@@ -16,7 +16,6 @@
 //
 pragma solidity 0.8.28;
 
-import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {AWKMorphoBlueLendingAdapter} from "../agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
@@ -26,8 +25,6 @@ import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
  * @notice Borrow against the wallet's base asset on registered Morpho Blue markets, with the borrow fee
  */
 contract YieldSeekerMorphoBlueLendingAdapter is AWKMorphoBlueLendingAdapter, YieldSeekerLendingAdapter {
-    constructor(IYieldSeekerPriceOracle priceOracle) YieldSeekerLendingAdapter(priceOracle) {}
-
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
         return super._supplyCollateralOperation(market, amount);
     }

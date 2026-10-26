@@ -10,7 +10,7 @@ import {AWKAgentWalletV3, InvalidState} from "../../src/agentwalletkit/AWKAgentW
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -65,7 +65,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
-    YieldSeekerVaultFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter;
     MockERC20 usdc;
     MockERC4626 vault;
@@ -91,8 +91,8 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, admin);
-        vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -710,14 +710,14 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
+        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordDeposit(address(vault), 1_000e6);
+        vaultFeeModule.onDeposit(address(vault), 1_000e6);
         vm.prank(address(wallet));
-        vaultFeeModule.recordWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
+        vaultFeeModule.onWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
 
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 10e6);
+        assertEq(vaultFeeModule.feesDue(address(wallet)), 10e6);
 
         vm.prank(ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
@@ -731,12 +731,12 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
+        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordDeposit(address(vault), 1_000e6);
+        vaultFeeModule.onDeposit(address(vault), 1_000e6);
         vm.prank(address(wallet));
-        vaultFeeModule.recordWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
+        vaultFeeModule.onWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
 
         vm.prank(ownerAddr);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
@@ -794,9 +794,9 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
+        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
         vm.prank(address(wallet));
-        vaultFeeModule.recordYield(20_000e6);
+        vaultFeeModule.onClaim(address(usdc), 20_000e6);
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
 
@@ -805,7 +805,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         assertEq(usdc.balanceOf(recipient), 0);
         assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 2_000e6);
+        assertEq(vaultFeeModule.feesDue(address(wallet)), 2_000e6);
     }
 
     function test_WithdrawEthToUser_ValidAmount() public {

@@ -94,9 +94,9 @@ contract AerodromeCLSwapAdapterTest is Test {
         assertEq(sellToken.balanceOf(address(wallet)), 900e18);
         assertEq(baseAsset.balanceOf(address(wallet)), buyAmount - 50e6);
         assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 50e6);
-        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 50e6);
-        assertEq(wallet.vaultFeeModule().feesPaid(address(wallet)), 50e6);
-        assertEq(wallet.vaultFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 50e6);
+        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), 50e6);
+        assertEq(wallet.yieldFeeModule().feesDue(address(wallet)), 0);
     }
 
     function test_Execute_Swap_RevertsOnLowOutput() public {

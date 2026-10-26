@@ -23,7 +23,7 @@ import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapS
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule as BorrowFeeModule} from "../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule as VaultFeeModule} from "../src/fees/VaultFeeModule.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule as YieldFeeModule} from "../src/fees/YieldFeeModule.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -52,8 +52,8 @@ contract DeployScript is Script {
 
     bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     bytes32 constant BORROW_AGENT_PROFILE = keccak256("borrow");
-    uint256 constant VAULT_MAX_FEE_BPS = 5000;
-    uint256 constant VAULT_DEFAULT_FEE_BPS = 1000;
+    uint256 constant YIELD_MAX_FEE_BPS = 5000;
+    uint256 constant YIELD_DEFAULT_FEE_BPS = 1000;
     uint256 constant BORROW_MAX_FEE_BPS = 200;
     uint256 constant BORROW_DEFAULT_FEE_BPS = 50;
 
@@ -66,7 +66,7 @@ contract DeployScript is Script {
         address agentWalletFactory;
         address agentWalletImplementation;
         address feeTracker;
-        address vaultFeeModule;
+        address yieldFeeModule;
         address borrowFeeModule;
         address priceOracle;
         address swapSellPolicy;
@@ -165,6 +165,13 @@ contract DeployScript is Script {
         revert(string.concat("Unsupported chain id for Aerodrome CL router: ", vm.toString(chainId)));
     }
 
+    function getWellToken(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0xA88594D404727625A9437C3f886C7643872296AE;
+        }
+        revert(string.concat("Unsupported chain id for WELL token: ", vm.toString(chainId)));
+    }
+
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         address planManagerAddress = vm.envAddress("PLAN_MANAGER_ADDRESS");
@@ -209,7 +216,7 @@ contract DeployScript is Script {
             agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
             agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
             feeTracker: safeReadAddress(deployJson, ".feeTracker"),
-            vaultFeeModule: safeReadAddress(deployJson, ".vaultFeeModule"),
+            yieldFeeModule: safeReadAddress(deployJson, ".yieldFeeModule"),
             borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
             priceOracle: safeReadAddress(deployJson, ".priceOracle"),
             swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
@@ -286,25 +293,25 @@ contract DeployScript is Script {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
         }
 
-        if (deployments.vaultFeeModule == address(0)) {
-            deployments.vaultFeeModule = deployCreate2(abi.encodePacked(type(VaultFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), VAULT_MAX_FEE_BPS)));
-            console2.log("-> VaultFeeModule deployed at:", deployments.vaultFeeModule);
-        } else {
-            console2.log("-> Using existing vaultFeeModule:", deployments.vaultFeeModule);
-        }
-
-        if (deployments.borrowFeeModule == address(0)) {
-            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), BORROW_MAX_FEE_BPS)));
-            console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
-        } else {
-            console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);
-        }
-
         if (deployments.priceOracle == address(0)) {
             deployments.priceOracle = deployCreate2(abi.encodePacked(type(PriceOracle).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, SEQUENCER_UPTIME_FEED)));
             console2.log("-> PriceOracle deployed at:", deployments.priceOracle);
         } else {
             console2.log("-> Using existing priceOracle:", deployments.priceOracle);
+        }
+
+        if (deployments.yieldFeeModule == address(0)) {
+            deployments.yieldFeeModule = deployCreate2(abi.encodePacked(type(YieldFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), YIELD_MAX_FEE_BPS)));
+            console2.log("-> YieldFeeModule deployed at:", deployments.yieldFeeModule);
+        } else {
+            console2.log("-> Using existing yieldFeeModule:", deployments.yieldFeeModule);
+        }
+
+        if (deployments.borrowFeeModule == address(0)) {
+            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), deployments.priceOracle, BORROW_MAX_FEE_BPS)));
+            console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
+        } else {
+            console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);
         }
 
         if (deployments.swapSellPolicy == address(0)) {
@@ -352,7 +359,7 @@ contract DeployScript is Script {
         }
 
         if (deployments.moonwellRewardAdapter == address(0)) {
-            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode));
+            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
             console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
         } else {
             console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
@@ -389,21 +396,21 @@ contract DeployScript is Script {
 
         // Lending adapters
         if (deployments.aaveV3LendingAdapter == address(0)) {
-            deployments.aaveV3LendingAdapter = deployCreate2(abi.encodePacked(type(AaveV3LendingAdapter).creationCode, abi.encode(deployments.priceOracle)));
+            deployments.aaveV3LendingAdapter = deployCreate2(type(AaveV3LendingAdapter).creationCode);
             console2.log("-> AaveV3LendingAdapter deployed at:", deployments.aaveV3LendingAdapter);
         } else {
             console2.log("-> Using existing aaveV3LendingAdapter:", deployments.aaveV3LendingAdapter);
         }
 
         if (deployments.aaveV4LendingAdapter == address(0)) {
-            deployments.aaveV4LendingAdapter = deployCreate2(abi.encodePacked(type(AaveV4LendingAdapter).creationCode, abi.encode(deployments.priceOracle)));
+            deployments.aaveV4LendingAdapter = deployCreate2(type(AaveV4LendingAdapter).creationCode);
             console2.log("-> AaveV4LendingAdapter deployed at:", deployments.aaveV4LendingAdapter);
         } else {
             console2.log("-> Using existing aaveV4LendingAdapter:", deployments.aaveV4LendingAdapter);
         }
 
         if (deployments.morphoBlueLendingAdapter == address(0)) {
-            deployments.morphoBlueLendingAdapter = deployCreate2(abi.encodePacked(type(MorphoBlueLendingAdapter).creationCode, abi.encode(deployments.priceOracle)));
+            deployments.morphoBlueLendingAdapter = deployCreate2(type(MorphoBlueLendingAdapter).creationCode);
             console2.log("-> MorphoBlueLendingAdapter deployed at:", deployments.morphoBlueLendingAdapter);
         } else {
             console2.log("-> Using existing morphoBlueLendingAdapter:", deployments.morphoBlueLendingAdapter);
@@ -426,7 +433,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
         vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
-        vm.serializeAddress(json, "vaultFeeModule", deployments.vaultFeeModule);
+        vm.serializeAddress(json, "yieldFeeModule", deployments.yieldFeeModule);
         vm.serializeAddress(json, "borrowFeeModule", deployments.borrowFeeModule);
         vm.serializeAddress(json, "priceOracle", deployments.priceOracle);
         vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
@@ -475,11 +482,11 @@ contract DeployScript is Script {
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
-        if (address(feeTracker.feeModules(VAULT_FEE)) != deployments.vaultFeeModule) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (VAULT_FEE, VaultFeeModule(deployments.vaultFeeModule))));
+        if (address(feeTracker.feeModules(YIELD_FEE)) != deployments.yieldFeeModule) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (YIELD_FEE, YieldFeeModule(deployments.yieldFeeModule))));
         }
-        if (feeTracker.planRateBps(0, VAULT_FEE) != VAULT_DEFAULT_FEE_BPS) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, VAULT_FEE, VAULT_DEFAULT_FEE_BPS)));
+        if (feeTracker.planRateBps(0, YIELD_FEE) != YIELD_DEFAULT_FEE_BPS) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, YIELD_FEE, YIELD_DEFAULT_FEE_BPS)));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
