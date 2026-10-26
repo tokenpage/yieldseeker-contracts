@@ -3,10 +3,9 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {InvalidAsset} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
+import {InvalidAsset, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
-import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";

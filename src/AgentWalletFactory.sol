@@ -16,8 +16,7 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidFeeTracker} from "./AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
+import {InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {AWKAgentWalletFactory} from "./agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";

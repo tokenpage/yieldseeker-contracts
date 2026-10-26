@@ -10,7 +10,7 @@ import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3Lendi
 import {YieldSeekerAaveV4LendingAdapter} from "../../../src/adapters/AaveV4LendingAdapter.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerMorphoBlueLendingAdapter} from "../../../src/adapters/MorphoBlueLendingAdapter.sol";
-import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";

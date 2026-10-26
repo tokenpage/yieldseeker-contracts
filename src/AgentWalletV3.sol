@@ -16,7 +16,6 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidAsset, InvalidFeeTracker, YieldSeekerStorageV1} from "./AgentWalletV1.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -24,6 +23,31 @@ import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+error InvalidAsset();
+error InvalidFeeTracker();
+
+/**
+ * @title YieldSeekerStorageV1
+ * @notice YieldSeeker-specific storage for base asset and fee tracking (unchanged since V1)
+ * @dev Uses a different namespace than AWK to avoid collisions
+ */
+library YieldSeekerStorageV1 {
+    /// @custom:storage-location erc7201:yieldseeker.agentwallet.extensions.v1
+    bytes32 private constant STORAGE_LOCATION = keccak256("yieldseeker.agentwallet.extensions.v1");
+
+    struct Layout {
+        IERC20 baseAsset;
+        FeeTracker feeTracker;
+    }
+
+    function layout() internal pure returns (Layout storage l) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            l.slot := slot
+        }
+    }
+}
 
 /**
  * @title YieldSeekerAgentWalletV3

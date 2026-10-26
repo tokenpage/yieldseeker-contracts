@@ -16,8 +16,7 @@
 //
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV3} from "../AgentWalletV3.sol";
+import {InvalidAsset, YieldSeekerAgentWalletV3} from "../AgentWalletV3.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {YieldSeekerWalletLinkRegistry} from "../WalletLinkRegistry.sol";
 import {UnknownOperation} from "../agentwalletkit/AWKAdapter.sol";

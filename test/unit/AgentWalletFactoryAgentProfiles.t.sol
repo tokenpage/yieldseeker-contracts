@@ -3,8 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {InvalidFeeTracker} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
+import {InvalidFeeTracker, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";

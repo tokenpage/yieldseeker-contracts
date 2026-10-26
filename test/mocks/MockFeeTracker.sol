@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidAsset} from "../../src/AgentWalletV1.sol";
+import {InvalidAsset} from "../../src/AgentWalletV3.sol";
 import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {InvalidFeeRate} from "../../src/fees/FeePlans.sol";

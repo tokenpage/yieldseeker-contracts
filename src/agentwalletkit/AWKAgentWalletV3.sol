@@ -16,7 +16,6 @@ pragma solidity 0.8.28;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
 import {TooManyOperators} from "./AWKAgentWalletFactory.sol";
-import {AdapterExecutionFailed, AdapterIsBlocked, AgentWalletStorageV1, InvalidRegistry, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "./AWKAgentWalletV1.sol";
 import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
@@ -32,14 +31,39 @@ import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
+error AdapterIsBlocked(address adapter);
+error TargetIsBlocked(address target);
+error AdapterExecutionFailed(bytes reason);
+error TransferFailed();
+error NotApprovedImplementation();
+error InvalidRegistry();
+error InvalidState();
+error NotAllowed();
+
 /**
- * @title AgentWalletStorageV2
- * @notice V2 exposes the unchanged AgentWalletStorageV1 layout.
- * @dev This library forwards to the V1 storage slot and adds no fields.
+ * @title AgentWalletStorageV1
+ * @notice Storage layout for AgentWallet using ERC-7201 namespaced storage pattern (unchanged since V1)
+ * @dev Uses deterministic storage slot to avoid collisions with proxy storage and future versions
  */
-library AgentWalletStorageV2 {
-    function layout() internal pure returns (AgentWalletStorageV1.Layout storage l) {
-        return AgentWalletStorageV1.layout();
+library AgentWalletStorageV1 {
+    /// @custom:storage-location erc7201:AWK.agentwallet.storage.v1
+    bytes32 private constant STORAGE_LOCATION = keccak256("agentwalletkit.agentwallet.storage.v1");
+
+    struct Layout {
+        address owner;
+        uint256 ownerAgentIndex;
+        AdapterRegistry adapterRegistry;
+        address[] agentOperators;
+        mapping(address => bool) isAgentOperator;
+        mapping(address => bool) blockedAdapters;
+        mapping(address => bool) blockedTargets;
+    }
+
+    function layout() internal pure returns (Layout storage l) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            l.slot := slot
+        }
     }
 }
 
@@ -158,7 +182,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     function _initializeV1(address _owner, uint256 _ownerAgentIndex) internal virtual {
         if (_owner == address(0)) revert AWKErrors.ZeroAddress();
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         $.owner = _owner;
         $.ownerAgentIndex = _ownerAgentIndex;
         _syncFromFactory();
@@ -172,7 +196,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return Owner address
      */
     function owner() public view virtual returns (address) {
-        return AgentWalletStorageV2.layout().owner;
+        return AgentWalletStorageV1.layout().owner;
     }
 
     /**
@@ -180,7 +204,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return Owner agent index
      */
     function ownerAgentIndex() public view virtual returns (uint256) {
-        return AgentWalletStorageV2.layout().ownerAgentIndex;
+        return AgentWalletStorageV1.layout().ownerAgentIndex;
     }
 
     /**
@@ -195,14 +219,14 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return AdapterRegistry instance
      */
     function adapterRegistry() public view virtual returns (AdapterRegistry) {
-        return AgentWalletStorageV2.layout().adapterRegistry;
+        return AgentWalletStorageV1.layout().adapterRegistry;
     }
 
     /**
      * @notice Get the list of agent operators (cached)
      */
     function listAgentOperators() public view virtual returns (address[] memory) {
-        return AgentWalletStorageV2.layout().agentOperators;
+        return AgentWalletStorageV1.layout().agentOperators;
     }
 
     /**
@@ -211,7 +235,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return True if the address is a cached operator
      */
     function isAgentOperator(address operator) public view virtual returns (bool) {
-        return AgentWalletStorageV2.layout().isAgentOperator[operator];
+        return AgentWalletStorageV1.layout().isAgentOperator[operator];
     }
 
     // ============ User Blocklist Management ============
@@ -223,7 +247,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      *      This provides user sovereignty over their agent's operations.
      */
     function blockAdapter(address adapter) external virtual onlyOwner {
-        AgentWalletStorageV2.layout().blockedAdapters[adapter] = true;
+        AgentWalletStorageV1.layout().blockedAdapters[adapter] = true;
         emit AdapterBlocked(adapter);
     }
 
@@ -232,7 +256,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param adapter The adapter address to unblock
      */
     function unblockAdapter(address adapter) external virtual onlyOwner {
-        AgentWalletStorageV2.layout().blockedAdapters[adapter] = false;
+        AgentWalletStorageV1.layout().blockedAdapters[adapter] = false;
         emit AdapterUnblocked(adapter);
     }
 
@@ -243,7 +267,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      *      Example: Block a risky vault while keeping other vaults accessible.
      */
     function blockTarget(address target) external virtual onlyOwner {
-        AgentWalletStorageV2.layout().blockedTargets[target] = true;
+        AgentWalletStorageV1.layout().blockedTargets[target] = true;
         emit TargetBlocked(target);
     }
 
@@ -252,7 +276,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param target The target address to unblock
      */
     function unblockTarget(address target) external virtual onlyOwner {
-        AgentWalletStorageV2.layout().blockedTargets[target] = false;
+        AgentWalletStorageV1.layout().blockedTargets[target] = false;
         emit TargetUnblocked(target);
     }
 
@@ -262,7 +286,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return True if the adapter is blocked
      */
     function isAdapterBlocked(address adapter) public view virtual returns (bool) {
-        return AgentWalletStorageV2.layout().blockedAdapters[adapter];
+        return AgentWalletStorageV1.layout().blockedAdapters[adapter];
     }
 
     /**
@@ -271,7 +295,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @return True if the target is blocked
      */
     function isTargetBlocked(address target) public view virtual returns (bool) {
-        return AgentWalletStorageV2.layout().blockedTargets[target];
+        return AgentWalletStorageV1.layout().blockedTargets[target];
     }
 
     /**
@@ -288,7 +312,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      */
     function _syncFromFactory() internal virtual {
         if (!_hasFactory()) return;
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
 
         // Operators
         for (uint256 i = 0; i < $.agentOperators.length; i++) {
@@ -310,13 +334,13 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external virtual onlyOwner onlySelfManaged {
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AgentWalletStorageV2.layout().adapterRegistry = newAdapterRegistry;
+        AgentWalletStorageV1.layout().adapterRegistry = newAdapterRegistry;
         emit AdapterRegistrySet(address(newAdapterRegistry));
     }
 
     function setAgentOperators(address[] calldata operators) external virtual onlyOwner onlySelfManaged {
         if (operators.length > MAX_OPERATORS) revert TooManyOperators();
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
         for (uint256 i = 0; i < $.agentOperators.length; i++) {
             $.isAgentOperator[$.agentOperators[i]] = false;
         }
@@ -373,7 +397,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      *      Checks user blocklists first, then global registry validation.
      */
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
-        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV2.layout();
+        AgentWalletStorageV1.Layout storage $ = AgentWalletStorageV1.layout();
 
         // Check user-level blocklists first (owner sovereignty)
         if ($.blockedAdapters[adapter]) {

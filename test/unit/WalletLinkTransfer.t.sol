@@ -3,13 +3,12 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {InvalidAsset} from "../../src/AgentWalletV1.sol";
-import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
+import {InvalidAsset, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerFeeTracker} from "../../src/FeeTracker.sol";
 import {SameWallet, YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {InvalidTransferTarget, NotLinkedWallet} from "../../src/adapters/AgentTransferAdapter.sol";
-import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";

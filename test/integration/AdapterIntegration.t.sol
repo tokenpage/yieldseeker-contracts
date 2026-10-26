@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AdapterIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
