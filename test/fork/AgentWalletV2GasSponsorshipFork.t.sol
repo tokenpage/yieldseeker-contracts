@@ -65,7 +65,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
     using MessageHashUtils for bytes32;
 
     IEntryPoint internal constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
 
     AgentWalletFactory factory;
     AdapterRegistry registry;
@@ -104,7 +104,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
         feeTracker = new FeeTracker(admin, admin, admin, 5000, 0);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(implementation);
         vaultAdapter = new ERC4626Adapter();
@@ -113,7 +113,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE))));
 
         usdc.mint(address(wallet), 1_000e6);
 

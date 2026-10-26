@@ -30,8 +30,8 @@ contract BorrowForkTest is Test {
     address internal constant USDC_USD_FEED = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
     address internal constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
     bytes32 internal constant MORPHO_WETH_USDC_MARKET_ID = 0x8793cf302b8ffd655ab97bd1c695dbd967807e8367a65cb2f4edaf1380ba1bda;
-    bytes32 internal constant BORROW_PROFILE = keccak256("borrow");
-    bytes32 internal constant VAULT_PROFILE = keccak256("vault");
+    bytes32 internal constant BORROW_AGENT_PROFILE = keccak256("borrow");
+    bytes32 internal constant VAULT_AGENT_PROFILE = keccak256("vault");
 
     address internal operator = makeAddr("operator");
     address internal owner = makeAddr("owner");
@@ -64,8 +64,8 @@ contract BorrowForkTest is Test {
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
         factory = new AgentWalletFactory(address(this), operator);
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
-        factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
-        factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
+        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setFeeTracker(feeTracker);
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter(oracle);
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter(oracle);
@@ -79,7 +79,7 @@ contract BorrowForkTest is Test {
         _register(borrowRegistry, address(transferAdapter), address(linkRegistry));
         _register(vaultRegistry, address(transferAdapter), address(linkRegistry));
         vm.prank(operator);
-        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_PROFILE);
+        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE);
         deal(WETH, address(wallet), 1 ether);
     }
 
@@ -162,7 +162,7 @@ contract BorrowForkTest is Test {
 
     function test_Transfer_MovesBorrowedCashToLinkedVaultAgent() public {
         vm.prank(operator);
-        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_PROFILE);
+        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE);
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));

@@ -34,7 +34,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
     FeeTracker public feeTracker;
 
-    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 profile);
+    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
@@ -59,14 +59,14 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner (enables multiple agents per owner)
      * @param baseAsset Base asset token address for this agent (e.g., USDC, or a borrow agent's collateral)
-     * @param profile The agent type profile, which selects the adapter registry
+     * @param agentProfile The agent profile (agent type), which selects the adapter registry
      * @return ret The deployed AgentWallet
      */
-    function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset, bytes32 profile) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
+    function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset, bytes32 agentProfile) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (baseAsset.code.length == 0) revert AWKErrors.NotAContract(baseAsset);
-        ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex, profile))));
-        ret.initialize(owner, ownerAgentIndex, baseAsset, profile);
-        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset, profile);
+        ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex, agentProfile))));
+        ret.initialize(owner, ownerAgentIndex, baseAsset, agentProfile);
+        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset, agentProfile);
     }
 }

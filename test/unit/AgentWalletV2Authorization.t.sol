@@ -56,7 +56,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     uint256 internal constant SIG_VALIDATION_FAILED = 1;
     uint256 internal constant SIG_VALIDATION_SUCCESS = 0;
     bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
-    bytes32 internal constant VAULT_PROFILE = keccak256("vault");
+    bytes32 internal constant VAULT_AGENT_PROFILE = keccak256("vault");
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
     event AdapterBlocked(address indexed adapter);
@@ -94,7 +94,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         feeTracker = new FeeTracker(admin, admin, admin, 5000, 0);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(implementation))));
         vaultAdapter = new ERC4626Adapter();
@@ -103,7 +103,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE))));
 
         usdc.mint(address(wallet), 1_000e6);
     }
@@ -111,22 +111,22 @@ contract AgentWalletV3AuthorizationTest is Test {
     function test_FactoryCreate_RejectsInvalidOwnerAndBaseAsset() public {
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        factory.createAgentWallet(address(0), 2, address(usdc), VAULT_PROFILE);
+        factory.createAgentWallet(address(0), 2, address(usdc), VAULT_AGENT_PROFILE);
 
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        factory.createAgentWallet(ownerAddr, 2, address(0), VAULT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, address(0), VAULT_AGENT_PROFILE);
 
         address eoaAsset = address(0xBEEF);
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, eoaAsset));
-        factory.createAgentWallet(ownerAddr, 2, eoaAsset, VAULT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, eoaAsset, VAULT_AGENT_PROFILE);
     }
 
     function test_FactoryCreate_NonOperatorReverts() public {
         vm.prank(strangerAddr);
         vm.expectRevert();
-        factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_AGENT_PROFILE);
     }
 
     function test_FactoryRejectsImplementationFromDifferentFactory() public {
@@ -304,7 +304,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         FeeTracker nextTracker = new FeeTracker(admin, admin, admin, 5000, 0);
 
         vm.prank(admin);
-        factory.setAdapterRegistry(VAULT_PROFILE, nextRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
         vm.prank(admin);
         factory.setFeeTracker(nextTracker);
 
@@ -884,7 +884,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_InitializeCannotBeCalledTwice() public {
         vm.expectRevert();
-        wallet.initialize(ownerAddr, 2, address(usdc), VAULT_PROFILE);
+        wallet.initialize(ownerAddr, 2, address(usdc), VAULT_AGENT_PROFILE);
 
         assertEq(wallet.owner(), ownerAddr);
         assertEq(address(wallet.baseAsset()), address(usdc));

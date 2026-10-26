@@ -17,8 +17,8 @@ import {MockV3BorrowReporter, MockV3FakeWallet, MockV3YieldSeekerWalletV1} from 
 import {Test} from "forge-std/Test.sol";
 
 contract WalletLinkTransferTest is Test {
-    bytes32 private constant VAULT_PROFILE = keccak256("vault-profile");
-    bytes32 private constant BORROW_PROFILE = keccak256("borrow-profile");
+    bytes32 private constant VAULT_AGENT_PROFILE = keccak256("vault-profile");
+    bytes32 private constant BORROW_AGENT_PROFILE = keccak256("borrow-profile");
 
     address private constant OPERATOR = address(0xA11CE);
     address private owner = makeAddr("owner");
@@ -58,8 +58,8 @@ contract WalletLinkTransferTest is Test {
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
-        factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
-        factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
+        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setFeeTracker(vaultFees);
 
         vaultRegistry.registerAdapter(address(transferAdapter));
@@ -72,9 +72,9 @@ contract WalletLinkTransferTest is Test {
         borrowRegistry.setTargetAdapter(address(borrowFees), address(borrowReporter));
 
         vm.startPrank(OPERATOR);
-        vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_PROFILE);
-        borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_PROFILE);
-        otherOwnerWallet = factory.createAgentWallet(otherOwner, 1, address(usdc), VAULT_PROFILE);
+        vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_AGENT_PROFILE);
+        borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_AGENT_PROFILE);
+        otherOwnerWallet = factory.createAgentWallet(otherOwner, 1, address(usdc), VAULT_AGENT_PROFILE);
         vm.stopPrank();
 
         usdc.mint(address(vaultWallet), 300e6);

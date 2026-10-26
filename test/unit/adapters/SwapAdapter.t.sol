@@ -23,7 +23,7 @@ import {MockLendingSwapRouter} from "../../mocks/MockLendingSwapRouter.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract SwapAdapterTest is Test {
-    bytes32 private constant PROFILE = keccak256("borrow");
+    bytes32 private constant AGENT_PROFILE = keccak256("borrow");
     address private constant OWNER = address(0xA11CE);
     address private constant OPERATOR = address(0xB0B);
     address private constant FEE_COLLECTOR = address(0xFEE);
@@ -73,7 +73,7 @@ contract SwapAdapterTest is Test {
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
-        factory.setAdapterRegistry(PROFILE, registry);
+        factory.setAdapterRegistry(AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
 
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
@@ -94,7 +94,7 @@ contract SwapAdapterTest is Test {
         registry.setTargetAdapter(lendingAdapter.marketTarget(market), address(lendingAdapter));
 
         vm.prank(OPERATOR);
-        wallet = factory.createAgentWallet(OWNER, 1, address(weth), PROFILE);
+        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE);
     }
 
     function test_BaseToUsdcIsRejectedUntilTheWalletHasBorrowedUsdc() public {
@@ -193,7 +193,7 @@ contract SwapAdapterTest is Test {
         YieldSeekerFeeTracker legacyTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR, 10_000, 1_000);
         factory.setFeeTracker(legacyTracker);
         vm.prank(OPERATOR);
-        YieldSeekerAgentWalletV3 legacyWallet = factory.createAgentWallet(OWNER, 2, address(weth), PROFILE);
+        YieldSeekerAgentWalletV3 legacyWallet = factory.createAgentWallet(OWNER, 2, address(weth), AGENT_PROFILE);
         uint256 rewardAmount = 1e18;
         uint256 wethOutput = 1e18;
         reward.mint(address(legacyWallet), rewardAmount);

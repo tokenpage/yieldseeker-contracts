@@ -21,7 +21,7 @@ import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract LendingAdaptersTest is Test {
-    bytes32 private constant PROFILE = keccak256("borrow");
+    bytes32 private constant AGENT_PROFILE = keccak256("borrow");
     address private constant OWNER = address(0xA11CE);
     address private constant OPERATOR = address(0xB0B);
     address private constant FEE_COLLECTOR = address(0xFEE);
@@ -72,7 +72,7 @@ contract LendingAdaptersTest is Test {
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
-        factory.setAdapterRegistry(PROFILE, registry);
+        factory.setAdapterRegistry(AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
 
         aavePool = new MockLendingAaveV3Pool();
@@ -94,7 +94,7 @@ contract LendingAdaptersTest is Test {
         registry.registerAdapter(address(aaveV4Adapter));
 
         vm.prank(OPERATOR);
-        wallet = factory.createAgentWallet(OWNER, 1, address(weth), PROFILE);
+        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE);
     }
 
     function test_UnregisteredMarketCannotReachTheAdapter() public {

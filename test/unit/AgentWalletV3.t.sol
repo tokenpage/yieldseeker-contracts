@@ -39,8 +39,8 @@ contract GasBurningWithdrawReserveModule is IYieldSeekerFeeModule {
 contract AgentWalletV3Test is Test {
     using MessageHashUtils for bytes32;
 
-    bytes32 private constant VAULT_PROFILE = keccak256("vault-profile");
-    bytes32 private constant BORROW_PROFILE = keccak256("borrow-profile");
+    bytes32 private constant VAULT_AGENT_PROFILE = keccak256("vault-profile");
+    bytes32 private constant BORROW_AGENT_PROFILE = keccak256("borrow-profile");
     address private constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
@@ -82,13 +82,13 @@ contract AgentWalletV3Test is Test {
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
-        factory.setAdapterRegistry(VAULT_PROFILE, vaultRegistry);
-        factory.setAdapterRegistry(BORROW_PROFILE, borrowRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
+        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setFeeTracker(vaultFees);
 
         vm.startPrank(operator);
-        vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_PROFILE);
-        borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_PROFILE);
+        vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_AGENT_PROFILE);
+        borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_AGENT_PROFILE);
         vm.stopPrank();
 
         usdc.mint(address(vaultWallet), 1_000e6);
@@ -96,13 +96,13 @@ contract AgentWalletV3Test is Test {
         weth.mint(address(borrowWallet), 400e6);
     }
 
-    function test_ProfileFeeTrackerIsPinnedWhileRegistryAndOperatorsResync() public {
+    function test_AgentProfileFeeTrackerIsPinnedWhileRegistryAndOperatorsResync() public {
         YieldSeekerAdapterRegistry nextRegistry = new YieldSeekerAdapterRegistry(admin, admin);
         YieldSeekerFeeTracker nextFees = new YieldSeekerFeeTracker(admin, admin, feeCollector, 10_000, 250);
         address nextOperator = makeAddr("next-operator");
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
 
-        factory.setAdapterRegistry(VAULT_PROFILE, nextRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
         factory.setFeeTracker(nextFees);
         factory.grantRole(operatorRole, nextOperator);
         factory.revokeRole(operatorRole, operator);

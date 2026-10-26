@@ -21,7 +21,7 @@ import {MockERC4626} from "../mocks/MockERC4626.sol";
 /// @title System Integration Tests
 /// @notice Simplified integration tests using real contracts working together
 contract SystemIntegrationTest is Test {
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     // Real contract instances
     AgentWalletFactory factory;
     AdapterRegistry registry;
@@ -44,7 +44,7 @@ contract SystemIntegrationTest is Test {
     uint256 constant AGENT_INDEX = 1;
 
     // Events from real contracts
-    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 profile);
+    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
     event AdapterRegistered(address indexed adapter);
 
     function setUp() public {
@@ -62,7 +62,7 @@ contract SystemIntegrationTest is Test {
         factory = new AgentWalletFactory(admin, operator);
 
         // Configure factory components
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
 
         // Create wallet implementation with correct factory reference
@@ -101,7 +101,7 @@ contract SystemIntegrationTest is Test {
     function test_CreateWallet_BasicFlow() public {
         // Create wallet through factory using real contracts
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Verify wallet was created successfully
         assertEq(wallet.owner(), user);
@@ -111,7 +111,7 @@ contract SystemIntegrationTest is Test {
     function test_WalletAdapterExecution_BasicFlow() public {
         // Create wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Fund wallet
         usdc.mint(address(wallet), 1000e6);
@@ -141,7 +141,7 @@ contract SystemIntegrationTest is Test {
     function test_RegistryPause_BlocksExecution() public {
         // Create and fund wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         // Pause registry
@@ -170,7 +170,7 @@ contract SystemIntegrationTest is Test {
     function test_BatchExecution_RealAdapters() public {
         // Create and fund wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         // Prepare batch operations
@@ -208,10 +208,10 @@ contract SystemIntegrationTest is Test {
     function test_MultipleWallets_SharedInfrastructure() public {
         // Create multiple wallets
         vm.prank(operator);
-        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         vm.prank(operator);
-        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Both should use same registry infrastructure
         assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
@@ -241,7 +241,7 @@ contract SystemIntegrationTest is Test {
     function test_UserBlocklist_IndependentFromRegistry() public {
         // Create and fund wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         // Block adapter at wallet level
@@ -274,7 +274,7 @@ contract SystemIntegrationTest is Test {
     function test_EmergencyUnregistration_ImmediateEffect() public {
         // Create and fund wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         // First execution should work
@@ -300,7 +300,7 @@ contract SystemIntegrationTest is Test {
 
     function test_WalletUpgrade_PreservesState() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         usdc.mint(address(wallet), 1000e6);
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
@@ -338,8 +338,8 @@ contract SystemIntegrationTest is Test {
     function test_MultipleWalletsPerUser_IndependentState() public {
         // Create multiple wallets for same user
         vm.startPrank(operator);
-        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, 0, address(usdc), VAULT_PROFILE))));
-        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(usdc), VAULT_AGENT_PROFILE))));
         vm.stopPrank();
 
         // Fund both wallets
@@ -371,7 +371,7 @@ contract SystemIntegrationTest is Test {
 
     function test_YieldGeneration_WithFeeTracking() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Deposit 1000 USDC
         usdc.mint(address(wallet), 1000e6);
@@ -403,7 +403,7 @@ contract SystemIntegrationTest is Test {
 
     function test_FeeCollection_PreservesNetValue() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(user);
@@ -438,7 +438,7 @@ contract SystemIntegrationTest is Test {
     function test_FeeCalculation_MultipleYieldEvents() public {
         // Create wallet first
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Record multiple yield events from the wallet
         vm.startPrank(address(wallet));
@@ -471,7 +471,7 @@ contract SystemIntegrationTest is Test {
 
         // Create wallet and deposit to vault1
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
 
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
@@ -503,7 +503,7 @@ contract SystemIntegrationTest is Test {
 
     function test_AtomicBatchExecution_PartialFailure() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Fund with only 1000 USDC
         usdc.mint(address(wallet), 1000e6);
@@ -538,7 +538,7 @@ contract SystemIntegrationTest is Test {
     function test_RegistryUpdate_AffectsActiveWallets() public {
         // Create wallet
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Execute operation successfully
         usdc.mint(address(wallet), 1000e6);
@@ -549,11 +549,11 @@ contract SystemIntegrationTest is Test {
         // Update factory's registry reference
         AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
         vm.prank(admin);
-        factory.setAdapterRegistry(VAULT_PROFILE, newRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
 
         // Create new wallet - should use new registry (old wallet still uses old registry)
         vm.prank(operator);
-        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // New wallet uses new registry (empty - no adapters)
         usdc.mint(address(wallet2), 1000e6);
@@ -564,7 +564,7 @@ contract SystemIntegrationTest is Test {
 
     function test_WalletSync_UpdatesConfiguration() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Create new registry and fee tracker
         AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
@@ -572,7 +572,7 @@ contract SystemIntegrationTest is Test {
 
         // Update factory configuration
         vm.startPrank(admin);
-        factory.setAdapterRegistry(VAULT_PROFILE, newRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
         factory.setFeeTracker(newFeeTracker);
         vm.stopPrank();
 
@@ -581,7 +581,7 @@ contract SystemIntegrationTest is Test {
 
         assertEq(address(wallet.adapterRegistry()), address(newRegistry));
         assertEq(address(wallet.feeTracker()), address(feeTracker));
-        assertTrue(address(factory.profileAdapterRegistryMap(VAULT_PROFILE)) == address(newRegistry));
+        assertTrue(address(factory.agentProfileAdapterRegistryMap(VAULT_AGENT_PROFILE)) == address(newRegistry));
         assertEq(address(factory.feeTracker()), address(newFeeTracker));
     }
 }

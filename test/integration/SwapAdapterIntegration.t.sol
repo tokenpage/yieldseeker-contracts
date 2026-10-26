@@ -88,7 +88,7 @@ contract MockAerodromeCLRouterIntegration {
 }
 
 contract SwapAdapterIntegrationTest is Test {
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     uint256 constant MAX_SLIPPAGE_BPS = 500;
     AgentWalletFactory factory;
     AdapterRegistry registry;
@@ -116,7 +116,7 @@ contract SwapAdapterIntegrationTest is Test {
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -159,7 +159,7 @@ contract SwapAdapterIntegrationTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, 1000);
         factory = new AgentWalletFactory(admin, operator);
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));

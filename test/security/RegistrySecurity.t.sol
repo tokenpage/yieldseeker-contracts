@@ -28,7 +28,7 @@ contract RegistrySecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -42,7 +42,7 @@ contract RegistrySecurityTest is Test {
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(impl);
 
@@ -54,7 +54,7 @@ contract RegistrySecurityTest is Test {
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
     }
 
     function test_UnregisteredAdapterBlocksExecution() public {

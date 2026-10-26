@@ -23,7 +23,7 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
 error NoAgentWalletImplementationSet();
-error UnknownProfile(bytes32 profile);
+error UnknownAgentProfile(bytes32 agentProfile);
 error InvalidImplementationFactory();
 error TooManyOperators();
 
@@ -39,9 +39,9 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
 /**
  * @title AWKAgentWalletFactory
  * @notice Abstract factory for deploying AgentWallet proxies using CREATE2
- * @dev Each agent wallet is tied to a specific base asset (e.g., USDC) and a profile (e.g. an agent type).
- *      Each profile has its own adapter registry. A wallet stores its profile at initialization and reads its
- *      registry from profileAdapterRegistryMap when it syncs.
+ * @dev Each agent wallet is tied to a specific base asset (e.g., USDC) and an agent profile (its agent type).
+ *      Each agent profile has its own adapter registry. A wallet stores its agent profile at initialization and reads
+ *      its registry from agentProfileAdapterRegistryMap when it syncs.
  *      Users can create multiple agents with different ownerAgentIndex values
  *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
  *
@@ -55,13 +55,13 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     uint256 public constant MAX_OPERATORS = 10;
 
     AgentWallet internal _agentWalletImplementation;
-    mapping(bytes32 profile => AdapterRegistry) public profileAdapterRegistryMap;
+    mapping(bytes32 agentProfile => AdapterRegistry) public agentProfileAdapterRegistryMap;
 
     /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
     mapping(address => mapping(uint256 => address)) public userWallets;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex);
-    event RegistryUpdated(bytes32 indexed profile, address indexed oldRegistry, address indexed newAdapterRegistry);
+    event RegistryUpdated(bytes32 indexed agentProfile, address indexed oldRegistry, address indexed newAdapterRegistry);
     event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
@@ -119,30 +119,30 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
-     * @notice Update the AdapterRegistry of a profile (existing wallets of the profile pick it up on their next sync)
-     * @param profile The profile, e.g. keccak256("vault")
+     * @notice Update the AdapterRegistry of an agent profile (its existing wallets pick it up on their next sync)
+     * @param agentProfile The agent profile, e.g. keccak256("vault")
      * @param newAdapterRegistry The new registry contract
      */
-    function setAdapterRegistry(bytes32 profile, AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (profile == bytes32(0)) revert UnknownProfile(profile);
+    function setAdapterRegistry(bytes32 agentProfile, AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (agentProfile == bytes32(0)) revert UnknownAgentProfile(agentProfile);
         if (address(newAdapterRegistry) == address(0)) revert AWKErrors.ZeroAddress();
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AdapterRegistry oldAdapterRegistry = profileAdapterRegistryMap[profile];
-        profileAdapterRegistryMap[profile] = newAdapterRegistry;
-        emit RegistryUpdated(profile, address(oldAdapterRegistry), address(newAdapterRegistry));
+        AdapterRegistry oldAdapterRegistry = agentProfileAdapterRegistryMap[agentProfile];
+        agentProfileAdapterRegistryMap[agentProfile] = newAdapterRegistry;
+        emit RegistryUpdated(agentProfile, address(oldAdapterRegistry), address(newAdapterRegistry));
     }
 
     /**
      * @notice Deploy a new wallet proxy, validate preconditions, and register it
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner
-     * @param profile The wallet's profile, which must have an adapter registry; the caller passes it to initialize()
+     * @param agentProfile The wallet's agent profile, which must have an adapter registry; the caller passes it to initialize()
      * @return ret The deployed wallet proxy
      */
-    function _deployWallet(address owner, uint256 ownerAgentIndex, bytes32 profile) internal returns (AgentWallet ret) {
+    function _deployWallet(address owner, uint256 ownerAgentIndex, bytes32 agentProfile) internal returns (AgentWallet ret) {
         if (owner == address(0)) revert AWKErrors.ZeroAddress();
         if (address(_agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
-        if (address(profileAdapterRegistryMap[profile]) == address(0)) revert UnknownProfile(profile);
+        if (address(agentProfileAdapterRegistryMap[agentProfile]) == address(0)) revert UnknownAgentProfile(agentProfile);
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new AWKAgentWalletProxy{salt: salt}()));

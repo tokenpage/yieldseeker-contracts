@@ -45,8 +45,8 @@ contract DeployScript is Script {
     // Set to false for production (uses 4-day delay)
     bool constant TESTING_MODE = false;
 
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
-    bytes32 constant BORROW_PROFILE = keccak256("borrow");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
+    bytes32 constant BORROW_AGENT_PROFILE = keccak256("borrow");
     uint256 constant VAULT_MAX_FEE_BPS = 5000;
     uint256 constant VAULT_DEFAULT_FEE_BPS = 1000;
     uint256 constant BORROW_MAX_FEE_BPS = 200;
@@ -488,11 +488,11 @@ contract DeployScript is Script {
         if (address(agentWalletFactory.feeTracker()) != deployments.feeTracker) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (feeTracker)));
         }
-        if (agentWalletFactory.profileAdapterRegistryMap(VAULT_PROFILE) != adapterRegistry) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_PROFILE, adapterRegistry)));
+        if (agentWalletFactory.agentProfileAdapterRegistryMap(VAULT_AGENT_PROFILE) != adapterRegistry) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, adapterRegistry)));
         }
-        if (agentWalletFactory.profileAdapterRegistryMap(BORROW_PROFILE) != borrowAdapterRegistry) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_PROFILE, borrowAdapterRegistry)));
+        if (agentWalletFactory.agentProfileAdapterRegistryMap(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) == address(0)) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.addFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));

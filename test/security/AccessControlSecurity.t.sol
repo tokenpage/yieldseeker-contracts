@@ -29,7 +29,7 @@ contract AccessControlSecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
-    bytes32 constant VAULT_PROFILE = keccak256("vault");
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -41,7 +41,7 @@ contract AccessControlSecurityTest is Test {
         feeTracker = new FeeTracker(admin, admin, feeCollector, 5000, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
-        factory.setAdapterRegistry(VAULT_PROFILE, registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         factory.setAgentWalletImplementation(impl);
         vaultAdapter = new ERC4626Adapter();
@@ -52,13 +52,13 @@ contract AccessControlSecurityTest is Test {
 
     function _createWallet() internal returns (address wallet) {
         vm.prank(operator);
-        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE));
+        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE));
     }
 
     function test_NonOperatorCannotCreateWallet() public {
         vm.prank(attacker);
         vm.expectRevert();
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_PROFILE);
+        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE);
     }
 
     function test_OperatorCreatesWalletSetsOwner() public {
@@ -124,6 +124,6 @@ contract AccessControlSecurityTest is Test {
         AdapterRegistry newRegistry = new AdapterRegistry(admin, emergencyAdmin);
         vm.prank(attacker);
         vm.expectRevert();
-        factory.setAdapterRegistry(VAULT_PROFILE, newRegistry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
     }
 }
