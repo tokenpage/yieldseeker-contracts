@@ -15,7 +15,6 @@
 pragma solidity 0.8.28;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
-import {TooManyOperators} from "./AWKAgentWalletFactory.sol";
 import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
@@ -94,7 +93,6 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     // ERC-4337 v0.6 canonical EntryPoint address
     IEntryPoint private constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
     IAWKAgentWalletFactory public immutable FACTORY;
-    uint256 public constant MAX_OPERATORS = 10;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
@@ -297,13 +295,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.layout();
 
         // Operators
-        for (uint256 i = 0; i < $.agentOperators.length; i++) {
-            $.isAgentOperator[$.agentOperators[i]] = false;
-        }
-        $.agentOperators = FACTORY.listAgentOperators();
-        for (uint256 i = 0; i < $.agentOperators.length; i++) {
-            $.isAgentOperator[$.agentOperators[i]] = true;
-        }
+        _setAgentOperators(FACTORY.listAgentOperators());
 
         // AdapterRegistry
         address registryAddr = FACTORY.adapterRegistry(agentProfile());
@@ -321,17 +313,19 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     function setAgentOperators(address[] calldata operators) external virtual onlyOwner onlySelfManaged {
-        if (operators.length > MAX_OPERATORS) revert TooManyOperators();
+        _setAgentOperators(operators);
+        emit AgentOperatorsSet(operators);
+    }
+
+    function _setAgentOperators(address[] memory operators) internal {
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.layout();
         for (uint256 i = 0; i < $.agentOperators.length; i++) {
             $.isAgentOperator[$.agentOperators[i]] = false;
         }
+        $.agentOperators = operators;
         for (uint256 i = 0; i < operators.length; i++) {
-            if (operators[i] == address(0)) revert AWKErrors.ZeroAddress();
             $.isAgentOperator[operators[i]] = true;
         }
-        $.agentOperators = operators;
-        emit AgentOperatorsSet(operators);
     }
 
     // ============ ERC-4337 / BaseAccount Overrides ============

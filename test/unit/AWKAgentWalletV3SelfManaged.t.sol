@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {TooManyOperators} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {NotAllowed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MockV3EchoAdapter, MockV3SelfManagedWallet, MockV3SelfManagedWalletV2, MockV3WalletFactory} from "../mocks/MockV3TestHelpers.sol";
@@ -92,23 +91,24 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         assertTrue(wallet.isAgentOperator(operator));
     }
 
-    function test_SetAgentOperatorsAllowsTenAndRejectsEleven() public {
-        address[] memory tenOperators = new address[](10);
-        for (uint256 i; i < tenOperators.length; ++i) {
-            tenOperators[i] = address(uint160(i + 1));
-        }
-        vm.prank(owner);
-        wallet.setAgentOperators(tenOperators);
-        assertTrue(wallet.isAgentOperator(tenOperators[0]));
-        assertTrue(wallet.isAgentOperator(tenOperators[9]));
+    function test_SetAgentOperatorsReplacesThePreviousSet() public {
+        address replacement = makeAddr("replacement");
+        address[] memory first = new address[](1);
+        first[0] = operator;
+        address[] memory second = new address[](1);
+        second[0] = replacement;
+        vm.startPrank(owner);
+        wallet.setAgentOperators(first);
+        wallet.setAgentOperators(second);
+        vm.stopPrank();
 
-        address[] memory elevenOperators = new address[](11);
-        for (uint256 i; i < elevenOperators.length; ++i) {
-            elevenOperators[i] = address(uint160(i + 1));
-        }
-        vm.prank(owner);
-        vm.expectRevert(TooManyOperators.selector);
-        wallet.setAgentOperators(elevenOperators);
+        assertFalse(wallet.isAgentOperator(operator));
+        assertTrue(wallet.isAgentOperator(replacement));
+        assertEq(wallet.listAgentOperators().length, 1);
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, operator));
+        wallet.executeViaAdapter(address(adapter), address(0xBEEF), hex"12345678");
     }
 
     function test_FactoryManagedWalletCannotSetSelfManagedConfiguration() public {
