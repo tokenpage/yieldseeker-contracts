@@ -1048,17 +1048,21 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         console.log("VAULT B cost basis:", vaultBCost);
         console.log("VAULT B shares tracked:", vaultBSharesTracked);
         uint256 vaultBFeesOwed = vaultFeeModule.agentYieldTokenFeesOwed(walletAddr, address(vaultB));
+        assertEq(vaultBFeesOwed, 100_000, "Should owe 10% of the VAULT B share reward");
         console.log("VAULT B token fees owed:", vaultBFeesOwed);
 
-        // Step 4: Executor withdraws from VAULT B and deposits converted USDC into VAULT A
+        uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
+        // Step 4: Redeem VAULT B shares and deposit the net USDC into VAULT A
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (rewardShareAmount));
 
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vaultB), withdrawData);
 
-        // Should now have ~1 USDC from the withdrawal
+        // The wallet receives ~0.9 USDC after the 0.1 USDC fee is paid.
         uint256 usdcFromReward = usdc.balanceOf(walletAddr);
-        assertApproxEqAbs(usdcFromReward, 1e6, 100, "Should have ~1 USDC from VAULT B withdrawal");
+        assertApproxEqAbs(usdcFromReward, 0.9e6, 100, "Wallet should keep the withdrawal net of its 0.1 USDC fee");
+        assertEq(usdc.balanceOf(feeCollector) - feeCollectorBalanceBefore, 100_000, "Fee collector should receive the base-asset fee");
+        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(walletAddr, address(vaultB)), 0, "Redeemed share fees should be cleared");
 
         console.log("\n=== After Step 4a: Withdrew from VAULT B ===");
         console.log("USDC balance:", usdcFromReward);
@@ -1086,7 +1090,9 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         console.log("Fees paid:", feesPaid);
         console.log("Fees owed:", feesOwed);
 
-        assertEq(feesOwed, 100000, "Should owe 10% fee on vault share reward value");
+        assertEq(feesCharged, 100_000, "Should charge the 0.1 USDC share-reward fee");
+        assertEq(feesPaid, 100_000, "Should pay the share-reward fee immediately");
+        assertEq(feesOwed, 0, "Should have no base-asset fees left owed");
     }
 
     // ============ Position Tracking Edge Cases ============
@@ -1151,8 +1157,8 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         console.log("Withdrawal succeeded - user can access all their shares");
     }
 
-    function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
-        // Test that withdrawing baseAsset via withdrawAssetToUser respects fees
+    function test_WithdrawAssetToUser_BaseAsset_CanWithdrawFullBalanceAfterFeePaid() public {
+        // Verify the owner can withdraw the remaining base asset after fees are paid.
         address walletAddr = factory.getAddress(user, AGENT_INDEX);
         vm.prank(operator);
         AgentWalletV3 wallet = AgentWalletV3(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE)));
@@ -1171,34 +1177,29 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
 
         // Withdraw all shares (should have 1100 USDC worth)
         uint256 shares = vault.balanceOf(walletAddr);
+        uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
 
-        // Should have 10 USDC fees (10% of 100 profit)
-        uint256 feesOwed = vaultFeeModule.getFeesOwed(walletAddr);
-        assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
+        // The 10 USDC fee (10% of 100 USDC profit) is paid at charge time.
+        assertEq(vaultFeeModule.getFeesOwed(walletAddr), 0, "Base-asset fees should be paid immediately");
+        assertEq(usdc.balanceOf(feeCollector) - feeCollectorBalanceBefore, 10e6, "Fee collector should receive 10 USDC");
 
         uint256 usdcBalance = usdc.balanceOf(walletAddr);
-        assertApproxEqAbs(usdcBalance, 1100e6, 100, "Should have ~1100 USDC");
+        assertEq(usdcBalance, 1_090e6, "Wallet should retain 1090 USDC after fee payment");
 
-        // Try to withdraw all USDC via withdrawAssetToUser - should respect fees
+        // The owner can withdraw the full remaining base-asset balance.
         address recipient = makeAddr("recipient");
         vm.prank(user);
-        vm.expectRevert(AWKErrors.InsufficientBalance.selector);
-        wallet.withdrawAssetToUser(recipient, address(usdc), usdcBalance); // Should fail
+        wallet.withdrawAssetToUser(recipient, address(usdc), usdcBalance);
 
-        // Should be able to withdraw withdrawable amount (balance - fees)
-        uint256 withdrawable = usdcBalance - feesOwed;
-        vm.prank(user);
-        wallet.withdrawAssetToUser(recipient, address(usdc), withdrawable);
-
-        assertEq(usdc.balanceOf(recipient), withdrawable, "Recipient should receive withdrawable amount");
-        assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
+        assertEq(usdc.balanceOf(recipient), usdcBalance, "Recipient should receive the full balance");
+        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no base asset left");
     }
 
-    function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
-        // Test that withdrawAllAssetToUser with baseAsset respects fees
+    function test_WithdrawAllAssetToUser_BaseAsset_CanWithdrawFullBalanceAfterFeePaid() public {
+        // Verify withdrawAllAssetToUser transfers the full balance after fees are paid.
         address walletAddr = factory.getAddress(user, AGENT_INDEX);
         vm.prank(operator);
         AgentWalletV3 wallet = AgentWalletV3(payable(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE)));
@@ -1218,24 +1219,24 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         // Withdraw all shares
         uint256 shares = vault.balanceOf(walletAddr);
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
+        uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
 
-        // Should have 10 USDC fees (10% of 100 profit)
-        uint256 feesOwed = vaultFeeModule.getFeesOwed(walletAddr);
-        assertEq(feesOwed, 10e6, "Should owe 10 USDC in fees");
+        // The 10 USDC fee (10% of 100 USDC profit) is paid at charge time.
+        assertEq(vaultFeeModule.getFeesOwed(walletAddr), 0, "Base-asset fees should be paid immediately");
+        assertEq(usdc.balanceOf(feeCollector) - feeCollectorBalanceBefore, 10e6, "Fee collector should receive 10 USDC");
 
         uint256 usdcBalance = usdc.balanceOf(walletAddr);
-        assertApproxEqAbs(usdcBalance, 1100e6, 100, "Should have ~1100 USDC");
+        assertEq(usdcBalance, 1_090e6, "Wallet should retain 1090 USDC after fee payment");
 
-        // Withdraw all using withdrawAllAssetToUser - should automatically deduct fees
+        // The owner can withdraw the full remaining base-asset balance.
         address recipient = makeAddr("recipient2");
         vm.prank(user);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
 
-        uint256 withdrawable = usdcBalance - feesOwed;
-        assertApproxEqAbs(usdc.balanceOf(recipient), withdrawable, 100, "Recipient should receive withdrawable amount");
-        assertApproxEqAbs(usdc.balanceOf(walletAddr), feesOwed, 100, "Wallet should have fees left");
+        assertEq(usdc.balanceOf(recipient), usdcBalance, "Recipient should receive the full balance");
+        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no base asset left");
     }
 
     function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
@@ -1350,15 +1351,20 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         assertEq(newMessage, "Configured message");
         assertEq(newCustomAddress, customAddr);
 
+        uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
         vm.prank(user);
         upgradedWallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (sharesBeforeUpgrade)));
 
-        assertEq(vaultFeeModule.getFeesOwed(walletAddr), 10e6);
-        assertApproxEqAbs(usdc.balanceOf(walletAddr), 1_100e6, 100);
+        assertEq(vaultFeeModule.getFeesOwed(walletAddr), 0, "Base-asset fees should be paid immediately");
+        assertEq(usdc.balanceOf(feeCollector) - feeCollectorBalanceBefore, 10e6, "Fee collector should receive 10 USDC");
+        uint256 remainingBalance = usdc.balanceOf(walletAddr);
+        assertEq(remainingBalance, 1_090e6, "Wallet should retain 1090 USDC after fee payment");
 
+        address recipient = makeAddr("upgradeFeeRecipient");
         vm.prank(user);
-        upgradedWallet.withdrawAssetToUser(user, address(usdc), 1_090e6);
-        assertApproxEqAbs(usdc.balanceOf(walletAddr), 10e6, 100);
+        upgradedWallet.withdrawAssetToUser(recipient, address(usdc), remainingBalance);
+        assertEq(usdc.balanceOf(recipient), remainingBalance, "Owner should be able to withdraw the full remaining balance");
+        assertEq(usdc.balanceOf(walletAddr), 0, "Wallet should have no base asset left");
     }
 
     function test_CreateFreshV2Wallet_InitializesCorrectly() public {

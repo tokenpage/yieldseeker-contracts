@@ -21,6 +21,7 @@ import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../fees/FeeTracker.sol";
 import {VAULT_FEE, YieldSeekerVaultFeeModule} from "../fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error AssetNotAllowed();
 error BaseAssetNotAllowed();
@@ -31,6 +32,8 @@ error BaseAssetNotAllowed();
  * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset, the fee tracker and the vault fee module
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
+    using SafeERC20 for IERC20;
+
     // Helper to get the wallet as IAgentWallet instead of IAWKAgentWallet
     function _ysAgentWallet() internal view returns (IAgentWallet) {
         return IAgentWallet(address(this));
@@ -58,5 +61,18 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
 
     function _vaultFeeModule() internal view returns (YieldSeekerVaultFeeModule) {
         return YieldSeekerVaultFeeModule(address(_feeTracker().feeModules(VAULT_FEE)));
+    }
+
+    /// @dev Pays vault fees owed to the fee collector right after they are charged, from the base asset just received
+    function _payVaultFees() internal {
+        YieldSeekerVaultFeeModule vaultFees = _vaultFeeModule();
+        uint256 owed = vaultFees.getFeesOwed(address(this));
+        if (owed == 0) return;
+        IERC20 baseAsset = _baseAsset();
+        uint256 balance = baseAsset.balanceOf(address(this));
+        uint256 payment = owed > balance ? balance : owed;
+        if (payment == 0) return;
+        baseAsset.safeTransfer(_feeTracker().feeCollector(), payment);
+        vaultFees.recordFeePaid(payment);
     }
 }

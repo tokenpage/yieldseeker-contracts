@@ -47,5 +47,6 @@ contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapte
         uint256 totalVaultBalanceBefore = ICompoundV3Comet(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
         _vaultFeeModule().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore});
+        _payVaultFees();
     }
 }

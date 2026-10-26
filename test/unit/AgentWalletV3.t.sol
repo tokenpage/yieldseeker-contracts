@@ -181,21 +181,6 @@ contract AgentWalletV3Test is Test {
         assertEq(vaultFeeModule.getFeesOwed(address(vaultWallet)), 10e6);
     }
 
-    function test_CollectFeesPaysVaultModuleCollectorAndClearsOwedAmount() public {
-        vm.prank(address(vaultWallet));
-        vaultFeeModule.recordAgentYieldEarned(100e6);
-
-        vm.expectEmit(true, false, false, true, address(vaultFeeModule));
-        emit FeePaid(address(vaultWallet), 10e6);
-
-        vm.prank(operator);
-        vaultWallet.collectFees();
-
-        assertEq(usdc.balanceOf(feeCollector), 10e6);
-        assertEq(usdc.balanceOf(address(vaultWallet)), 990e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(vaultWallet)), 0);
-    }
-
     function test_BorrowFeeModuleReservesBorrowedTokenFeesButAllowsCollateral() public {
         bytes32 market = keccak256("test-market");
         uint256 startTime = vm.getBlockTimestamp();

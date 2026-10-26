@@ -47,5 +47,6 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         _requireBaseAsset(asset);
         assets = super._withdrawInternal(vault, shares);
         _vaultFeeModule().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
+        _payVaultFees();
     }
 }

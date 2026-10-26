@@ -60,6 +60,7 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
     function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal virtual override {
         if (sellToken != _baseAssetAddress()) {
             _vaultFeeModule().recordAgentTokenSwap(sellToken, soldAmount, buyAmount);
+            _payVaultFees();
         }
     }
 

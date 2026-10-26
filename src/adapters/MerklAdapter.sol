@@ -75,5 +75,6 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
                 }
             }
         }
+        _payVaultFees();
     }
 }

@@ -405,7 +405,7 @@ contract SystemIntegrationTest is Test {
         assertEq(assetsReceived, 550e6);
     }
 
-    function test_FeeCollection_PreservesNetValue() public {
+    function test_VaultWithdrawPaysProfitFeeImmediately() public {
         vm.prank(operator);
         AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
         usdc.mint(address(wallet), 1000e6);
@@ -413,30 +413,21 @@ contract SystemIntegrationTest is Test {
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.deposit, (1000e6)));
         usdc.mint(address(vault), 100e6);
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
 
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(vaultAdapter), address(vault), abi.encodeCall(vaultAdapter.withdraw, (500e6)));
         uint256 assetsReceived = abi.decode(abi.decode(result, (bytes)), (uint256));
         assertEq(assetsReceived, 550e6);
 
-        uint256 feesOwed = vaultFeeModule.getFeesOwed(address(wallet));
-        assertEq(feesOwed, 5e6);
-        uint256 netValueBeforeCollection = usdc.balanceOf(address(wallet)) - feesOwed;
-        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
-        uint256 tooMuch = usdc.balanceOf(address(wallet)) - feesOwed + 1;
-        vm.prank(user);
-        vm.expectRevert();
-        wallet.withdrawAssetToUser(user, address(usdc), tooMuch);
-        vm.prank(operator);
-        wallet.collectFees();
-
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
         assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
-        assertEq(usdc.balanceOf(address(wallet)), netValueBeforeCollection);
+        assertEq(usdc.balanceOf(address(wallet)), 545e6);
 
-        vm.prank(operator);
-        wallet.collectFees();
-        assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+        vm.prank(user);
+        wallet.withdrawAllAssetToUser(user, address(usdc));
+        assertEq(usdc.balanceOf(user) - userBalanceBefore, 545e6);
     }
 
     function test_FeeCalculation_MultipleYieldEvents() public {

@@ -105,12 +105,12 @@ The system uses a **cost-basis tracking model** to calculate platform fees on re
 2. **On Withdrawal**: the vault fee module compares withdrawal value to cost basis
    - If profit: Fee = `profitAmount * feeRate / 10000`, where `feeRate` is the owner's plan rate for `VAULT_FEE`
    - If loss: No fee, cost basis adjusted for remaining position
-3. **Fee Collection**: the operator calls `wallet.collectFees()` to transfer owed vault fees to the fee collector
+3. **Payment**: the adapter that charged the fee (vault withdraw, base-asset reward claim, reward swap) sends it to the fee collector in the same transaction, from the base asset it just received. Reward fees owed in another token are held back in that token until it is swapped.
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for remaining shares is adjusted, and no fees are accrued.
-- **Transparency**: Users can query `vaultFeeModule.getFeesOwed(wallet)` at any time to see their outstanding vault fee balance.
-- **Non-Custodial**: Fees are only collected from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
+- **No pending base-asset fees**: the wallet's base-asset balance is what the owner can withdraw; `vaultFeeModule.getFeesOwed(wallet)` is only non-zero when the wallet held too little base asset to pay in full.
+- **Non-Custodial**: Fees are only paid from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---
 
@@ -299,7 +299,7 @@ The fee tracker holds the fee plans, the fee collector and one module per fee ty
 | Contract | Role |
 |----------|------|
 | `YieldSeekerFeeTracker` | Plans (a rate per fee type per plan; every owner starts on plan 0), `feeCollector`, `addFeeModule` (add-only), `feeRateBps(feeType, wallet)`, and `withdrawReserve(wallet, token)`, which combines every module's answer (each called with a gas limit; a failing module counts as allowing nothing, and the base asset can always leave) |
-| `YieldSeekerVaultFeeModule` (`VAULT_FEE`) | Vault cost basis and realised profit, reward fees, `getFeesOwed`, `recordFeePaid`; called by the vault, reward and swap adapters and by `wallet.collectFees()` |
+| `YieldSeekerVaultFeeModule` (`VAULT_FEE`) | Vault cost basis and realised profit, reward fees, `getFeesOwed`, `recordFeePaid`; called by the vault, reward and swap adapters, which pay each fee to the fee collector as soon as it is charged |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Yearly fee on borrowed principal per market; called by the lending adapters |
 
 Adapters find a module with `wallet.feeTracker().feeModules(feeType)`.
@@ -315,7 +315,7 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 **YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
 Abstract base class for all adapters providing:
 - `onlyDelegateCall` modifier to prevent direct calls
-- Helper functions: `_agentWallet()`, `_baseAsset()`, `_feeTracker()`
+- Helper functions: `_ysAgentWallet()`, `_baseAsset()`, `_feeTracker()`, `_vaultFeeModule()`, `_payVaultFees()`
 - Base asset validation: `_requireBaseAsset(address)`
 
 #### Concrete Adapters
@@ -700,42 +700,31 @@ sequenceDiagram
 
 ---
 
-### Flow 4: Fee Collection
+### Flow 4: Fee Payment
 
 **Actors:**
-- Platform Fee Collector
+- Server (agent operator)
 - User's Wallet
 
 **Pre-requisites:**
-- User has realized profits from vault withdrawals
-- FeeTracker has recorded fees owed
+- The wallet has a vault position in profit
 
 **Sequence:**
 
 ```mermaid
 sequenceDiagram
-    participant Collector as Fee Collector
-    participant FeeTracker
+    participant Server
     participant Wallet
+    participant Adapter as ERC4626Adapter (delegatecall)
+    participant VaultFees as VaultFeeModule
     participant USDC
 
-    Collector->>FeeTracker: collectFees(walletAddress)
-    FeeTracker->>FeeTracker: Calculate feesOwed for wallet
-    FeeTracker->>Wallet: Transfer feesOwed to feeCollector
-    Wallet->>USDC: transfer(feeCollector, feesOwed)
-    USDC-->>Collector: USDC received
-    FeeTracker->>FeeTracker: Reset feesOwed to 0
-```
-
-**Code Example:**
-```solidity
-// Check fees owed
-uint256 feesOwed = feeTracker.getFeesOwed(walletAddress);
-
-// Collect fees (only fee collector can call)
-if (feesOwed > 0) {
-    feeTracker.collectFees(walletAddress);
-}
+    Server->>Wallet: executeViaAdapter(adapter, vault, withdraw(shares))
+    Wallet->>Adapter: delegatecall execute(vault, withdraw)
+    Adapter->>VaultFees: recordAgentVaultShareWithdraw(vault, shares, assets)
+    VaultFees->>VaultFees: charge fee on realised profit
+    Adapter->>USDC: transfer(feeCollector, feesOwed)
+    Adapter->>VaultFees: recordFeePaid(feesOwed)
 ```
 
 **Fee Calculation:**

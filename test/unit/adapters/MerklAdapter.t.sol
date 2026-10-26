@@ -51,10 +51,14 @@ contract MerklAdapterTest is Test {
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
 
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeTracker.feeCollector());
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
-        assertEq(baseAsset.balanceOf(address(wallet)), 1_000e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 900e6);
+        assertEq(wallet.vaultFeeModule().getFeesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 100e6);
         assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 100e6);
+        assertEq(wallet.vaultFeeModule().agentFeesPaid(address(wallet)), 100e6);
     }
 
     function test_Claim_DuplicateTokens_DeduplicatesFeeTracking() public {
@@ -94,10 +98,14 @@ contract MerklAdapterTest is Test {
         proofs[0] = new bytes32[](0);
         proofs[1] = new bytes32[](0);
 
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeTracker.feeCollector());
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
-        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
+        assertEq(wallet.vaultFeeModule().getFeesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 50e6);
         assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 50e6);
+        assertEq(wallet.vaultFeeModule().agentFeesPaid(address(wallet)), 50e6);
         uint256 owed = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
         assertEq(owed, (amounts[1] * 1000) / 10_000);
     }

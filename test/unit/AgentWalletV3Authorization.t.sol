@@ -223,14 +223,8 @@ contract AgentWalletV3AuthorizationTest is Test {
         assertEq(result, SIG_VALIDATION_FAILED);
     }
 
-    function test_ValidateUserOp_CollectFees_OperatorSignature_Fails() public {
-        uint256 result = _validateWithSigner(abi.encodeWithSelector(wallet.collectFees.selector), operatorKey);
-        assertEq(result, SIG_VALIDATION_FAILED);
-    }
-
     function test_ValidateUserOp_OwnerSignature_SucceedsForExecutorSelectors() public {
         assertEq(_validateWithSigner(abi.encodeWithSelector(wallet.syncFromFactory.selector), ownerKey), SIG_VALIDATION_SUCCESS);
-        assertEq(_validateWithSigner(abi.encodeWithSelector(wallet.collectFees.selector), ownerKey), SIG_VALIDATION_SUCCESS);
     }
 
     function test_ValidateUserOp_ShortCallData_OperatorSignature_Fails() public {
@@ -751,34 +745,6 @@ contract AgentWalletV3AuthorizationTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 10e6);
     }
 
-    function test_CollectFees_OwnerCanCollectOwedFees() public {
-        vm.prank(admin);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(100e6);
-
-        vm.prank(ownerAddr);
-        wallet.collectFees();
-
-        assertEq(usdc.balanceOf(admin), 10e6);
-        assertEq(usdc.balanceOf(address(wallet)), 990e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
-    }
-
-    function test_CollectFees_CapsAtWalletBalanceAndUpdatesTracker() public {
-        vm.prank(admin);
-        feeTracker.setPlanRate(0, VAULT_FEE, 1000);
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(20_000e6);
-
-        vm.prank(operatorAddr);
-        wallet.collectFees();
-
-        assertEq(usdc.balanceOf(admin), 1_000e6);
-        assertEq(usdc.balanceOf(address(wallet)), 0);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 1_000e6);
-    }
-
     function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
         MockERC20 otherToken = new MockERC20("Other Token", "OTHER");
         otherToken.mint(address(wallet), 500e6);
@@ -949,7 +915,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     // ============ Helpers ============
 
     function _ownerActionCallData() internal view returns (bytes[] memory calls) {
-        calls = new bytes[](12);
+        calls = new bytes[](11);
         calls[0] = abi.encodeWithSelector(wallet.blockAdapter.selector, address(vaultAdapter));
         calls[1] = abi.encodeWithSelector(wallet.unblockAdapter.selector, address(vaultAdapter));
         calls[2] = abi.encodeWithSelector(wallet.blockTarget.selector, address(vault));
@@ -961,7 +927,6 @@ contract AgentWalletV3AuthorizationTest is Test {
         calls[8] = abi.encodeWithSelector(wallet.upgradeToLatest.selector);
         calls[9] = abi.encodeWithSelector(wallet.upgradeToAndCall.selector, address(1), bytes(""));
         calls[10] = abi.encodeWithSelector(wallet.syncFromFactory.selector);
-        calls[11] = abi.encodeWithSelector(wallet.collectFees.selector);
     }
 
     function _implementation() internal view returns (address) {

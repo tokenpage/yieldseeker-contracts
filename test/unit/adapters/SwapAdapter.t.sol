@@ -163,6 +163,8 @@ contract SwapAdapterTest is Test {
         uint256 rewardAmount = 7e18;
         uint256 wethOutput = 11e17;
         uint256 rewardFee = (rewardAmount * feeTracker.feeRateBps(VAULT_FEE, address(wallet))) / 10_000;
+        uint256 expectedWethFee = (wethOutput * rewardFee) / rewardAmount;
+        uint256 feeCollectorBalanceBefore = weth.balanceOf(feeTracker.feeCollector());
         reward.mint(address(wallet), rewardAmount);
         vm.prank(address(wallet));
         vaultFees.recordAgentYieldTokenEarned(address(reward), rewardAmount);
@@ -172,9 +174,12 @@ contract SwapAdapterTest is Test {
         _executeSwap(address(reward), address(weth), rewardAmount, 1);
 
         assertEq(reward.balanceOf(address(wallet)), 0);
-        assertEq(weth.balanceOf(address(wallet)), wethOutput);
+        assertEq(weth.balanceOf(address(wallet)), wethOutput - expectedWethFee);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, expectedWethFee);
         assertEq(vaultFees.agentYieldTokenFeesOwed(address(wallet), address(reward)), 0);
-        assertEq(vaultFees.agentFeesCharged(address(wallet)), (wethOutput * rewardFee) / rewardAmount);
+        assertEq(vaultFees.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedWethFee);
+        assertEq(vaultFees.agentFeesPaid(address(wallet)), expectedWethFee);
     }
 
     function test_SellableRewardCannotBeSwappedToDebtToken() public {

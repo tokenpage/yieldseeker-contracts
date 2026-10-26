@@ -54,5 +54,6 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
             IWETH(asset).deposit{value: nativeAssetsReceived}();
         }
         _vaultFeeModule().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
+        _payVaultFees();
     }
 }

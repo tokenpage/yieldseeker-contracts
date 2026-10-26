@@ -21,9 +21,7 @@ import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
-import {VAULT_FEE, YieldSeekerVaultFeeModule} from "./fees/VaultFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error InvalidAsset();
 error InvalidFeeTracker();
@@ -57,8 +55,6 @@ library YieldSeekerStorageV1 {
  *      may withdraw (e.g. borrowed tokens minus borrow fees owed).
  */
 contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
-    using SafeERC20 for IERC20;
-
     event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
 
     constructor(address factory) AWKAgentWalletV3(factory) {}
@@ -111,27 +107,6 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         ys.feeTracker = newTracker;
 
         emit SyncedFromFactory(address(adapterRegistry()), address(newTracker));
-    }
-
-    // ============ Fee Collection ============
-
-    /**
-     * @notice Collect vault fees owed by the wallet
-     * @dev Can be called by executors during normal operations
-     */
-    function collectFees() external virtual onlyExecutors {
-        FeeTracker tracker = feeTracker();
-        YieldSeekerVaultFeeModule vaultFees = YieldSeekerVaultFeeModule(address(tracker.feeModules(VAULT_FEE)));
-        uint256 owed = vaultFees.getFeesOwed(address(this));
-        if (owed == 0) return;
-        IERC20 asset = baseAsset();
-        uint256 available = asset.balanceOf(address(this));
-        uint256 toCollect = owed > available ? available : owed;
-        if (toCollect > 0) {
-            address collector = tracker.feeCollector();
-            asset.safeTransfer(collector, toCollect);
-            vaultFees.recordFeePaid(toCollect);
-        }
     }
 
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
