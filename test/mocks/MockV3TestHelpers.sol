@@ -74,7 +74,7 @@ contract MockV3WalletFactory is IAWKAgentWalletFactory {
         return _registry;
     }
 
-    function agentProfileAdapterRegistryMap(bytes32) external view override returns (address) {
+    function adapterRegistry(bytes32) external view override returns (address) {
         return _registry;
     }
 

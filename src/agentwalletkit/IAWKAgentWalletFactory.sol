@@ -27,7 +27,7 @@ interface IAWKAgentWalletFactory {
     function adapterRegistry() external view returns (address);
 
     /// @notice Get the adapter registry of an agent profile (used by V3 wallets)
-    function agentProfileAdapterRegistryMap(bytes32 agentProfile) external view returns (address);
+    function adapterRegistry(bytes32 agentProfile) external view returns (address);
 
     /// @notice Get all registered agent operators
     function listAgentOperators() external view returns (address[] memory);

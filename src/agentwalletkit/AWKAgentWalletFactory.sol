@@ -41,7 +41,7 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
  * @notice Abstract factory for deploying AgentWallet proxies using CREATE2
  * @dev Each agent wallet is tied to a specific base asset (e.g., USDC) and an agent profile (its agent type).
  *      Each agent profile has its own adapter registry. A wallet stores its agent profile at initialization and reads
- *      its registry from agentProfileAdapterRegistryMap when it syncs.
+ *      its registry from adapterRegistry(agentProfile) when it syncs.
  *      Users can create multiple agents with different ownerAgentIndex values
  *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
  *
@@ -55,7 +55,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     uint256 public constant MAX_OPERATORS = 10;
 
     AgentWallet internal _agentWalletImplementation;
-    mapping(bytes32 agentProfile => AdapterRegistry) public agentProfileAdapterRegistryMap;
+    mapping(bytes32 agentProfile => AdapterRegistry) internal _agentProfileAdapterRegistryMap;
 
     /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
     mapping(address => mapping(uint256 => address)) public userWallets;
@@ -119,6 +119,15 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
+     * @notice Get the AdapterRegistry of an agent profile
+     * @param agentProfile The agent profile, e.g. keccak256("vault")
+     * @return The registry contract, or address(0) if the agent profile has none
+     */
+    function adapterRegistry(bytes32 agentProfile) public view virtual returns (AdapterRegistry) {
+        return _agentProfileAdapterRegistryMap[agentProfile];
+    }
+
+    /**
      * @notice Update the AdapterRegistry of an agent profile (its existing wallets pick it up on their next sync)
      * @param agentProfile The agent profile, e.g. keccak256("vault")
      * @param newAdapterRegistry The new registry contract
@@ -127,8 +136,8 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
         if (agentProfile == bytes32(0)) revert UnknownAgentProfile(agentProfile);
         if (address(newAdapterRegistry) == address(0)) revert AWKErrors.ZeroAddress();
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AdapterRegistry oldAdapterRegistry = agentProfileAdapterRegistryMap[agentProfile];
-        agentProfileAdapterRegistryMap[agentProfile] = newAdapterRegistry;
+        AdapterRegistry oldAdapterRegistry = _agentProfileAdapterRegistryMap[agentProfile];
+        _agentProfileAdapterRegistryMap[agentProfile] = newAdapterRegistry;
         emit RegistryUpdated(agentProfile, address(oldAdapterRegistry), address(newAdapterRegistry));
     }
 
@@ -142,7 +151,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     function _deployWallet(address owner, uint256 ownerAgentIndex, bytes32 agentProfile) internal returns (AgentWallet ret) {
         if (owner == address(0)) revert AWKErrors.ZeroAddress();
         if (address(_agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
-        if (address(agentProfileAdapterRegistryMap[agentProfile]) == address(0)) revert UnknownAgentProfile(agentProfile);
+        if (address(_agentProfileAdapterRegistryMap[agentProfile]) == address(0)) revert UnknownAgentProfile(agentProfile);
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new AWKAgentWalletProxy{salt: salt}()));

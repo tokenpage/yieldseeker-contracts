@@ -581,7 +581,7 @@ contract SystemIntegrationTest is Test {
 
         assertEq(address(wallet.adapterRegistry()), address(newRegistry));
         assertEq(address(wallet.feeTracker()), address(feeTracker));
-        assertTrue(address(factory.agentProfileAdapterRegistryMap(VAULT_AGENT_PROFILE)) == address(newRegistry));
+        assertTrue(address(factory.adapterRegistry(VAULT_AGENT_PROFILE)) == address(newRegistry));
         assertEq(address(factory.feeTracker()), address(newFeeTracker));
     }
 }

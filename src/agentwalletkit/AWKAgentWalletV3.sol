@@ -300,7 +300,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         }
 
         // AdapterRegistry
-        address registryAddr = FACTORY.agentProfileAdapterRegistryMap(agentProfile());
+        address registryAddr = FACTORY.adapterRegistry(agentProfile());
         if (registryAddr == address(0)) revert InvalidRegistry();
         if (registryAddr.code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = AdapterRegistry(registryAddr);
