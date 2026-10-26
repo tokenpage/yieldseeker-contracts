@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
@@ -96,7 +97,7 @@ contract ERC4626AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         baseAsset.mint(address(vault), 500e6);
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 50e6);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 50e6);
     }
 
     function test_Deposit_PrecisionWithExistingShares() public {
@@ -153,11 +154,13 @@ contract ERC4626AdapterTest is Test {
         uint256 g6 = gasleft();
         baseAsset.approve(address(vault), depositAmount);
         uint256 approveGas = g6 - gasleft();
-        // 8) YieldFeeModule.onDeposit (1 SSTORE)
+        // 8) YieldFeeModule.onAction (1 SSTORE)
         YieldSeekerYieldFeeModule yieldFeeModule = wallet.yieldFeeModule();
+        bytes memory actionData = abi.encode(address(vault), depositAmount);
+        address baseAssetAddress = address(baseAsset);
         uint256 g7 = gasleft();
         vm.prank(address(wallet));
-        yieldFeeModule.onDeposit(address(vault), depositAmount);
+        yieldFeeModule.onAction(FeeActions.DEPOSIT, actionData, baseAssetAddress, 0);
         uint256 feeTrackerGas = g7 - gasleft();
         // Summary
         console.log("=== ERC4626 Deposit Gas Breakdown ===");
@@ -196,7 +199,7 @@ contract ERC4626AdapterTest is Test {
         bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantVault), abi.encodeWithSelector(adapter.withdraw.selector, amount));
 
         assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
-        assertEq(variantWallet.yieldFeeModule().feesCharged(address(variantWallet)), yieldAmount / 10);
+        assertEq(asset.balanceOf(feeTracker.feeCollector()), yieldAmount / 10);
         uint256 costBasis = variantWallet.yieldFeeModule().costBasis(address(variantWallet), address(variantVault));
         assertEq(costBasis, 0);
     }

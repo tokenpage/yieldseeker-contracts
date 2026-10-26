@@ -7,6 +7,7 @@ import {InvalidAsset, YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.so
 import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -22,21 +23,9 @@ contract RevertingWithdrawReserveModule is IYieldSeekerFeeModule {
         return 10_000;
     }
 
-    function feesDue(address) external pure override returns (uint256) {
+    function onAction(bytes32, bytes calldata, address, uint256) external pure override returns (uint256) {
         return 0;
     }
-
-    function recordFeePaid(uint256) external pure override {}
-
-    function onDeposit(address, uint256) external pure override {}
-
-    function onWithdraw(address, uint256, uint256, uint256) external pure override {}
-
-    function onSwap(address, uint256, address, uint256) external pure override {}
-
-    function onClaim(address, uint256) external pure override {}
-
-    function onDebtChange(bytes32, address, uint256, uint256, uint256) external pure override {}
 
     function withdrawReserve(address, address) external pure override returns (bool allowed, uint256 reserved) {
         revert();
@@ -48,21 +37,9 @@ contract GasBurningWithdrawReserveModule is IYieldSeekerFeeModule {
         return 10_000;
     }
 
-    function feesDue(address) external pure override returns (uint256) {
+    function onAction(bytes32, bytes calldata, address, uint256) external pure override returns (uint256) {
         return 0;
     }
-
-    function recordFeePaid(uint256) external pure override {}
-
-    function onDeposit(address, uint256) external pure override {}
-
-    function onWithdraw(address, uint256, uint256, uint256) external pure override {}
-
-    function onSwap(address, uint256, address, uint256) external pure override {}
-
-    function onClaim(address, uint256) external pure override {}
-
-    function onDebtChange(bytes32, address, uint256, uint256, uint256) external pure override {}
 
     function withdrawReserve(address, address) external pure override returns (bool allowed, uint256 reserved) {
         while (true) {}
@@ -183,9 +160,8 @@ contract AgentWalletV3Test is Test {
     }
 
     function test_YieldFeeModuleReservesBaseFeesAndRejectsNonBaseWithdrawal() public {
-        vm.prank(address(vaultWallet));
-        vaultFeeModule.onClaim(address(usdc), 100e6);
-        assertEq(vaultFeeModule.feesDue(address(vaultWallet)), 10e6);
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(address(usdc), 100e6), address(usdc));
+        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 10e6);
 
         vm.prank(owner);
         vm.expectRevert(AWKErrors.InsufficientBalance.selector);
@@ -202,15 +178,14 @@ contract AgentWalletV3Test is Test {
         vaultWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
     }
 
-    function test_YieldWithdrawAllLeavesFeesDueInWallet() public {
-        vm.prank(address(vaultWallet));
-        vaultFeeModule.onClaim(address(usdc), 100e6);
+    function test_YieldWithdrawAllLeavesFeesOwedInWallet() public {
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(address(usdc), 100e6), address(usdc));
         vm.prank(owner);
         vaultWallet.withdrawAllAssetToUser(recipient, address(usdc));
 
         assertEq(usdc.balanceOf(recipient), 990e6);
         assertEq(usdc.balanceOf(address(vaultWallet)), 10e6);
-        assertEq(vaultFeeModule.feesDue(address(vaultWallet)), 10e6);
+        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 10e6);
     }
 
     function test_BorrowedTokensAreWithdrawableInFullWhileCollateralRemainsWithdrawable() public {
@@ -219,13 +194,11 @@ contract AgentWalletV3Test is Test {
         if (startTime == 0) {
             vm.warp(1);
         }
-        vm.prank(address(borrowWallet));
-        borrowFees.onDebtChange(market, address(usdc), 0, 100e6, 0);
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(market, address(usdc), 0, 100e6, 0), address(weth));
 
         uint256 reportTime = vm.getBlockTimestamp();
         vm.warp(reportTime + 365 days);
-        vm.prank(address(borrowWallet));
-        borrowFees.onDebtChange(market, address(usdc), 100e6, 0, 0);
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(market, address(usdc), 100e6, 0, 0), address(weth));
         assertEq(borrowFees.feesOwed(address(borrowWallet), address(usdc)), 10e6);
 
         vm.prank(owner);
@@ -253,26 +226,23 @@ contract AgentWalletV3Test is Test {
             startTime = vm.getBlockTimestamp();
         }
 
-        vm.prank(address(borrowWallet));
-        borrowFees.onDebtChange(market, address(usdc), 0, 100e6, 0);
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(market, address(usdc), 0, 100e6, 0), address(weth));
         vm.warp(startTime + 365 days);
-        vm.prank(address(borrowWallet));
-        borrowFees.onDebtChange(market, address(usdc), 100e6, 0, 0);
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(market, address(usdc), 100e6, 0, 0), address(weth));
 
         uint256 rewardAmount = 200e6;
-        vm.prank(address(borrowWallet));
-        vaultFeeModule.onClaim(address(weth), rewardAmount);
+        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(address(weth), rewardAmount), address(weth));
 
         uint256 borrowFeesOwed = borrowFees.feesOwed(address(borrowWallet), address(usdc));
-        uint256 vaultFeesDue = vaultFeeModule.feesDue(address(borrowWallet));
+        uint256 vaultFeesOwed = vaultFeeModule.feesOwed(address(borrowWallet));
         assertEq(borrowFeesOwed, 10e6);
-        assertEq(vaultFeesDue, 20e6);
+        assertEq(vaultFeesOwed, 20e6);
         (bool borrowedTokenAllowed, uint256 borrowedTokenReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(usdc));
         assertTrue(borrowedTokenAllowed);
         assertEq(borrowedTokenReserved, 0);
         (bool baseAssetAllowed, uint256 baseAssetReserved) = vaultFees.withdrawReserve(address(borrowWallet), address(weth));
         assertTrue(baseAssetAllowed);
-        assertEq(baseAssetReserved, vaultFeesDue);
+        assertEq(baseAssetReserved, vaultFeesOwed);
         uint256 borrowedBalance = usdc.balanceOf(address(borrowWallet));
 
         vm.prank(owner);
@@ -286,9 +256,8 @@ contract AgentWalletV3Test is Test {
         vaultFees.setFeeModule(keccak256("reverting-reserve"), new RevertingWithdrawReserveModule());
         vaultFees.setFeeModule(keccak256("gas-burning-reserve"), new GasBurningWithdrawReserveModule());
 
-        vm.prank(address(borrowWallet));
-        vaultFeeModule.onClaim(address(weth), 100e6);
-        uint256 reserve = vaultFeeModule.feesDue(address(borrowWallet));
+        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(address(weth), 100e6), address(weth));
+        uint256 reserve = vaultFeeModule.feesOwed(address(borrowWallet));
         uint256 baseBalance = weth.balanceOf(address(borrowWallet));
         uint256 withdrawable = baseBalance - reserve;
 
@@ -309,6 +278,11 @@ contract AgentWalletV3Test is Test {
         vm.prank(owner);
         borrowWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
         assertEq(unrelated.balanceOf(address(borrowWallet)), 3e6);
+    }
+
+    function _recordFeeAction(IYieldSeekerFeeModule module, address wallet, bytes32 action, bytes memory data, address baseAsset) private {
+        vm.prank(wallet);
+        module.onAction(action, data, baseAsset, 0);
     }
 
     function _validateWithSigner(bytes memory callData, uint256 signerKey) private returns (uint256) {

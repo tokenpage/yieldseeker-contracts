@@ -71,14 +71,14 @@ contract MoonwellCompoundV2ForkTest is Test {
         totalVaultBalanceBefore = (heldShares * exchangeRate) / 1e18;
         assertEq(liveBalanceBefore, totalVaultBalanceBefore, "Live Compound V2 conversion mismatch");
 
+        uint256 feeCollectorBalanceBefore = asset.balanceOf(address(this));
         bytes memory withdrawResult = wallet.executeAdapter(address(adapter), marketAddress, abi.encodeWithSelector(adapter.withdraw.selector, heldShares));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertApproxEqAbs(assetsReceived, liveBalanceBefore, 1, "Full redemption must return the live underlying balance");
         assertEq(market.balanceOf(address(wallet)), 0, "All redeemed reward shares should leave the wallet");
         uint256 expectedFee = assetsReceived > depositAmount ? ((assetsReceived - depositAmount) * FEE_RATE_BPS) / 10_000 : 0;
         assertEq(vaultFees.costBasis(address(wallet), marketAddress), 0, "Cost basis should clear after withdrawal");
-        assertEq(vaultFees.feesCharged(address(wallet)), expectedFee, "Redeemed reward shares are charged as yield");
-        assertEq(vaultFees.feesPaid(address(wallet)), expectedFee, "Withdrawal fee should be paid immediately");
+        assertEq(asset.balanceOf(address(this)) - feeCollectorBalanceBefore, expectedFee, "Withdrawal fee should be paid immediately");
     }
 
     function test_MoonwellWETH_PartialWithdrawalUnwrapsNativeETHToWETH() public {

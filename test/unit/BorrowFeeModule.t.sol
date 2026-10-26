@@ -2,7 +2,8 @@
 pragma solidity 0.8.28;
 
 import {IYieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
-import {BORROW_FEE, FeePaidExceedsDue, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
@@ -149,13 +150,9 @@ contract BorrowFeeModuleTest is Test {
     function testFeePaymentIsCappedAndWithdrawableBalancesRespectAssetRules() public {
         _accrueOneYearFee();
 
-        uint256 due = module.feesDue(address(wallet));
-        uint256 overpayment = due + 1;
-        vm.expectRevert(abi.encodeWithSelector(FeePaidExceedsDue.selector, due, overpayment));
-        wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (overpayment)));
-
-        wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (40)));
+        assertEq(_settle(40), 40);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 60);
+
         (bool baseAllowed, uint256 baseReserved) = tracker.withdrawReserve(address(wallet), address(baseAsset));
         (bool debtAllowed, uint256 debtReserved) = tracker.withdrawReserve(address(wallet), address(debtToken));
         (bool unrelatedAllowed,) = tracker.withdrawReserve(address(wallet), address(unrelatedToken));
@@ -164,9 +161,12 @@ contract BorrowFeeModuleTest is Test {
         assertTrue(debtAllowed);
         assertEq(debtReserved, 0);
         assertFalse(unrelatedAllowed);
+
+        assertEq(_settle(100), 60);
+        assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
     }
 
-    function testFeesDueQuotesTokensInOrderAndSkipsRevertingQuotes() public {
+    function testFeePaymentQuotesTokensInOrderAndSkipsRevertingQuotes() public {
         MockERC20WithDecimals secondDebtToken = new MockERC20WithDecimals("Second", "SECOND", 6);
         MockERC20WithDecimals staleDebtToken = new MockERC20WithDecimals("Stale", "STALE", 6);
         oracle.setQuoteMultiplier(address(debtToken), 2);
@@ -187,28 +187,19 @@ contract BorrowFeeModuleTest is Test {
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 100);
         assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 100);
         assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
-        uint256 due = module.feesDue(address(wallet));
-        assertEq(due, 600);
-
-        wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (300)));
-
-        assertEq(module.feesPaid(address(wallet), address(debtToken)), 100);
-        assertEq(module.feesPaid(address(wallet), address(secondDebtToken)), 25);
-        assertEq(module.feesPaid(address(wallet), address(staleDebtToken)), 0);
+        assertEq(_settle(300), 300);
+        assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
         assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 75);
         assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
-        due = module.feesDue(address(wallet));
-        assertEq(due, 300);
-        uint256 overpayment = due + 1;
-        vm.expectRevert(abi.encodeWithSelector(FeePaidExceedsDue.selector, due, overpayment));
-        wallet.execute(address(module), abi.encodeCall(module.recordFeePaid, (overpayment)));
-        assertEq(module.feesDue(address(wallet)), due);
+        assertEq(_settle(1_000), 300);
+        assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 0);
+        assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 100)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), 100), address(baseAsset), 0)));
 
-        assertEq(vaultModule.feesDue(address(wallet)), 10);
+        assertEq(vaultModule.feesOwed(address(wallet)), 10);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
     }
 
@@ -225,7 +216,12 @@ contract BorrowFeeModuleTest is Test {
     }
 
     function _recordDebtChange(bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        wallet.execute(address(module), abi.encodeCall(module.onDebtChange, (market, token, debtBefore, borrowed, repaid)));
+        wallet.execute(address(module), abi.encodeCall(module.onAction, (FeeActions.DEBT_CHANGE, abi.encode(market, token, debtBefore, borrowed, repaid), address(baseAsset), 0)));
+    }
+
+    function _settle(uint256 available) internal returns (uint256 payment) {
+        bytes memory returnData = wallet.execute(address(module), abi.encodeCall(module.onAction, (bytes32(0), bytes(""), address(baseAsset), available)));
+        payment = abi.decode(returnData, (uint256));
     }
 
     function _accrueOneYearFee() internal {

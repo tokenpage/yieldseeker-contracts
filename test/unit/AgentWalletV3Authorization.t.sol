@@ -9,6 +9,7 @@ import {InvalidImplementationFactory} from "../../src/agentwalletkit/AWKAgentWal
 import {AWKAgentWalletV3, InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -712,12 +713,10 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         feeTracker.setPlanRate(0, YIELD_FEE, 1000);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(address(vault), 1_000e6);
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
+        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(address(vault), 1_000e6));
+        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(address(vault), 1_000e6, 1_000e6, 1_100e6));
 
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 10e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 10e6);
 
         vm.prank(ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
@@ -733,10 +732,8 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         feeTracker.setPlanRate(0, YIELD_FEE, 1000);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(address(vault), 1_000e6);
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
+        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(address(vault), 1_000e6));
+        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(address(vault), 1_000e6, 1_000e6, 1_100e6));
 
         vm.prank(ownerAddr);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
@@ -795,8 +792,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
         vm.prank(admin);
         feeTracker.setPlanRate(0, YIELD_FEE, 1000);
-        vm.prank(address(wallet));
-        vaultFeeModule.onClaim(address(usdc), 20_000e6);
+        _recordFeeAction(FeeActions.CLAIM, abi.encode(address(usdc), 20_000e6));
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
 
@@ -805,7 +801,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         assertEq(usdc.balanceOf(recipient), 0);
         assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 2_000e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 2_000e6);
     }
 
     function test_WithdrawEthToUser_ValidAmount() public {
@@ -913,6 +909,10 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     // ============ Helpers ============
+    function _recordFeeAction(bytes32 action, bytes memory data) private {
+        vm.prank(address(wallet));
+        vaultFeeModule.onAction(action, data, address(usdc), 0);
+    }
 
     function _ownerActionCallData() internal view returns (bytes[] memory calls) {
         calls = new bytes[](11);

@@ -316,9 +316,7 @@ contract SwapAdapterIntegrationTest is Test {
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(50e6), uint256(100e6)));
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
-        assertEq(vaultFeeModule.feesCharged(address(wallet)), 20e6);
-        assertEq(vaultFeeModule.feesPaid(address(wallet)), 20e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
         assertEq(baseAsset.balanceOf(feeCollector) - feeCollectorBalanceBefore, 20e6);
         assertEq(baseAsset.balanceOf(address(wallet)), 180e6);
     }

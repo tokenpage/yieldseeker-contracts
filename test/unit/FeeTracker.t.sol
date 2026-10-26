@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {InvalidFeeRate, PlanRateIncrease, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -54,8 +55,8 @@ contract FeeTrackerTest is Test {
 
         vm.prank(admin);
         tracker.assignPlan(ownerA, 1);
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10_000)));
-        assertEq(vaultModule.feesCharged(address(wallet)), 2_000);
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), 10_000), address(baseAsset), 0)));
+        assertEq(vaultModule.feesOwed(address(wallet)), 2_000);
     }
 
     function testPlanManagerMayAssignEqualOrCheaperRateButNotMoreExpensive() public {
@@ -86,8 +87,8 @@ contract FeeTrackerTest is Test {
 
         vm.prank(admin);
         tracker.assignPlan(ownerA, 1);
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10_000)));
-        assertEq(vaultModule.feesCharged(address(wallet)), 1_500);
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), 10_000), address(baseAsset), 0)));
+        assertEq(vaultModule.feesOwed(address(wallet)), 1_500);
 
         vm.expectRevert(abi.encodeWithSelector(UnknownPlan.selector, 99));
         vm.prank(planManager);
@@ -108,10 +109,9 @@ contract FeeTrackerTest is Test {
         vm.prank(planManager);
         tracker.assignPlan(ownerA, 1);
 
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 10e6)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), 10e6), address(baseAsset), 0)));
 
-        assertEq(vaultModule.feesCharged(address(wallet)), 500_000);
-        assertEq(vaultModule.feesDue(address(wallet)), 500_000);
+        assertEq(vaultModule.feesOwed(address(wallet)), 500_000);
     }
 
     function testFeeModulesCanBeReplacedAndRatesUseEachTypeMaximum() public {
@@ -126,7 +126,7 @@ contract FeeTrackerTest is Test {
         vm.stopPrank();
 
         bytes32 market = keccak256("market");
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (market, address(debtToken), 0, 1_000, 0)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onAction, (FeeActions.DEBT_CHANGE, abi.encode(market, address(debtToken), 0, 1_000, 0), address(baseAsset), 0)));
         (bool borrowedBeforeReplacement, uint256 reserveBeforeReplacement) = tracker.withdrawReserve(address(wallet), address(debtToken));
         assertTrue(borrowedBeforeReplacement);
         assertEq(reserveBeforeReplacement, 0);
@@ -149,12 +149,12 @@ contract FeeTrackerTest is Test {
     }
 
     function testWithdrawReserveAggregatesRegisteredFeeModules() public {
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onClaim, (address(baseAsset), 100e6)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), 100e6), address(baseAsset), 0)));
 
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (keccak256("market"), address(debtToken), 0, 1_000, 0)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onAction, (FeeActions.DEBT_CHANGE, abi.encode(keccak256("market"), address(debtToken), 0, 1_000, 0), address(baseAsset), 0)));
         uint256 start = vm.getBlockTimestamp();
         vm.warp(start + YEAR);
-        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onDebtChange, (keccak256("market"), address(debtToken), 1_000, 0, 0)));
+        wallet.execute(address(borrowModule), abi.encodeCall(borrowModule.onAction, (FeeActions.DEBT_CHANGE, abi.encode(keccak256("market"), address(debtToken), 1_000, 0, 0), address(baseAsset), 0)));
 
         (bool baseAllowed, uint256 baseReserved) = tracker.withdrawReserve(address(wallet), address(baseAsset));
         (bool debtAllowed, uint256 debtReserved) = tracker.withdrawReserve(address(wallet), address(debtToken));

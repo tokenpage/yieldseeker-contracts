@@ -10,6 +10,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
@@ -421,7 +422,7 @@ contract SystemIntegrationTest is Test {
         assertEq(assetsReceived, 550e6);
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 545e6);
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
@@ -436,18 +437,21 @@ contract SystemIntegrationTest is Test {
         AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
 
         // Record multiple yield events from the wallet
+        bytes memory claimDataOne = abi.encode(address(usdc), 100e6);
+        bytes memory claimDataTwo = abi.encode(address(usdc), 50e6);
+        bytes memory claimDataThree = abi.encode(address(usdc), 75e6);
         vm.startPrank(address(wallet));
-        vaultFeeModule.onClaim(address(usdc), 100e6);
-        vaultFeeModule.onClaim(address(usdc), 50e6);
-        vaultFeeModule.onClaim(address(usdc), 75e6);
+        vaultFeeModule.onAction(FeeActions.CLAIM, claimDataOne, address(usdc), 0);
+        vaultFeeModule.onAction(FeeActions.CLAIM, claimDataTwo, address(usdc), 0);
+        vaultFeeModule.onAction(FeeActions.CLAIM, claimDataThree, address(usdc), 0);
         vm.stopPrank();
 
         // Get total fees owed for the wallet
-        uint256 feesDue = vaultFeeModule.feesDue(address(wallet));
+        uint256 feesOwed = vaultFeeModule.feesOwed(address(wallet));
 
         // Should be sum of all yields * feeRate (0.1 = 10%)
         uint256 expectedFees = (100e6 + 50e6 + 75e6) * 1000 / 10000; // 10% of 225e6 = 22.5e6
-        assertEq(feesDue, expectedFees);
+        assertEq(feesOwed, expectedFees);
     }
 
     // ========================================

@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKMoonwellRewardAdapter} from "../agentwalletkit/adapters/AWKMoonwellRewardAdapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -37,6 +38,6 @@ contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeek
         uint256 wellBalanceBefore = WELL_TOKEN.balanceOf(address(this));
         super._claimInternal(comptroller, holder, mTokens);
         uint256 claimed = WELL_TOKEN.balanceOf(address(this)) - wellBalanceBefore;
-        if (claimed > 0) _reportClaim(address(WELL_TOKEN), claimed);
+        if (claimed > 0) _report(FeeActions.CLAIM, abi.encode(address(WELL_TOKEN), claimed));
     }
 }

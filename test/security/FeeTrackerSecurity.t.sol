@@ -5,6 +5,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -64,38 +65,33 @@ contract FeeTrackerSecurityTest is Test {
 
     function test_RecordYieldAccruesFees() public {
         AgentWalletV3 wallet = _createWallet();
-        vm.prank(address(wallet));
-        vaultFeeModule.onClaim(address(usdc), 1_000e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 100e6);
+        _report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 1_000e6), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(vaultAddr, 1_000e6);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(vaultAddr, 1_000e6, 1_000e6, 1_200e6);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 1_000e6, 1_000e6, 1_200e6), 0);
 
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
 
     function test_PartialWithdrawChargesYieldAcrossRewardShares() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(vaultAddr, 1_000e6);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
 
-        uint256 initialFees = vaultFeeModule.feesDue(address(wallet));
+        uint256 initialFees = vaultFeeModule.feesOwed(address(wallet));
         assertEq(initialFees, 0);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(vaultAddr, 100e6, 2_000e6, 120e6);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 100e6, 2_000e6, 120e6), 0);
 
-        assertEq(vaultFeeModule.feesDue(address(wallet)) - initialFees, 7e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)) - initialFees, 7e6);
         assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 950e6);
     }
 
@@ -103,54 +99,52 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(vaultAddr, 100e6);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 100e6), 0);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(vaultAddr, 120e6, 150e6, 150e6);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 120e6, 150e6, 150e6), 0);
 
         assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 20e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 7e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 7e6);
     }
 
     function test_LossWithdrawalDoesNotChargeFees() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onDeposit(vaultAddr, 1_000e6);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onWithdraw(vaultAddr, 1_000e6, 1_000e6, 800e6);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 1_000e6, 1_000e6, 800e6), 0);
 
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
 
     function test_YieldTokenSaleChargesFeeOnBaseAssetReceived() public {
         AgentWalletV3 wallet = _createWallet();
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onSwap(address(vault), 50e6, address(usdc), 50e6);
+        _report(wallet, FeeActions.SWAP, abi.encode(address(vault), 50e6, address(usdc), 50e6), 0);
 
-        assertEq(vaultFeeModule.feesCharged(address(wallet)), 5e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 5e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 5e6);
     }
 
     function test_FeePaymentReducesFeesOwed() public {
         AgentWalletV3 wallet = _createWallet();
 
-        vm.prank(address(wallet));
-        vaultFeeModule.onClaim(address(usdc), 500e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 50e6);
+        _report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 500e6), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 50e6);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.recordFeePaid(30e6);
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 20e6);
+        assertEq(_report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 0), 30e6), 30e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
 
     function test_MaxFeeRateEnforced() public {
         vm.expectRevert(InvalidFeeRate.selector);
         vm.prank(admin);
         feeTracker.setPlanRate(0, YIELD_FEE, 5_001);
+    }
+
+    function _report(AgentWalletV3 wallet, bytes32 action, bytes memory data, uint256 available) internal returns (uint256 payment) {
+        address baseAsset = address(usdc);
+        vm.prank(address(wallet));
+        payment = vaultFeeModule.onAction(action, data, baseAsset, available);
     }
 }

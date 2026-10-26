@@ -17,6 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 interface IWETH {
@@ -38,7 +39,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _reportDeposit(vault, assetsDeposited);
+        _report(FeeActions.DEPOSIT, abi.encode(vault, assetsDeposited));
     }
 
     /**
@@ -54,6 +55,6 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         if (nativeAssetsReceived > 0) {
             IWETH(asset).deposit{value: nativeAssetsReceived}();
         }
-        _reportWithdraw(vault, shares, heldBefore, assets);
+        _report(FeeActions.WITHDRAW, abi.encode(vault, shares, heldBefore, assets));
     }
 }

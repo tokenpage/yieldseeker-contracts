@@ -62,6 +62,7 @@ contract MorphoERC4626ForkTest is Test {
         uint256 previewedAssets = vault.previewRedeem(shares);
         assertGt(previewedAssets, DEPOSIT_AMOUNT, "Vault share value should have accrued yield");
 
+        uint256 feeCollectorBalanceBefore = asset.balanceOf(address(this));
         bytes memory withdrawResult = wallet.executeAdapter(address(adapter), vaultAddress, abi.encodeWithSelector(adapter.withdraw.selector, shares));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertEq(assetsReceived, previewedAssets, "Redeemed assets must match previewed value");
@@ -71,6 +72,6 @@ contract MorphoERC4626ForkTest is Test {
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
         costBasis = vaultFees.costBasis(address(wallet), vaultAddress);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
-        assertEq(vaultFees.feesCharged(address(wallet)), expectedFee, "Live Morpho vault yield fee mismatch");
+        assertEq(asset.balanceOf(address(this)) - feeCollectorBalanceBefore, expectedFee, "Live Morpho vault yield fee mismatch");
     }
 }

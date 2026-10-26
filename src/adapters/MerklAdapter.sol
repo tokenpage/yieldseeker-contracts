@@ -17,6 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKMerklAdapter} from "../agentwalletkit/adapters/AWKMerklAdapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -35,7 +36,7 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
         for (uint256 i = 0; i < tokens.length; i++) {
             if (_listedEarlier(tokens, i)) continue;
             uint256 claimed = IERC20(tokens[i]).balanceOf(address(this)) - balancesBefore[i];
-            if (claimed > 0) _reportClaim(tokens[i], claimed);
+            if (claimed > 0) _report(FeeActions.CLAIM, abi.encode(tokens[i], claimed));
         }
     }
 

@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {FeeActions} from "./FeeActions.sol";
 import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -32,7 +33,7 @@ bytes32 constant YIELD_FEE = keccak256("yield");
  *      of the cost basis, and anything received above it is yield. Rewards paid as vault shares or rebasing tokens
  *      have no cost basis, so they are charged when withdrawn. Rewards claimed in the base asset, and the base asset
  *      received for selling any other token, are yield when they arrive.
- *      All functions use msg.sender, so callers can only affect their own accounting.
+ *      Fees are paid from the base asset as soon as the wallet holds it; what can't be paid stays owed.
  *      The rate comes from the owner's plan in the fee tracker (YIELD_FEE).
  */
 contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
@@ -40,8 +41,7 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
     uint256 public immutable MAX_FEE_RATE_BPS;
 
     mapping(address wallet => mapping(address target => uint256)) public costBasis;
-    mapping(address wallet => uint256) public feesCharged;
-    mapping(address wallet => uint256) public feesPaid;
+    mapping(address wallet => uint256) public feesOwed;
 
     event YieldRecorded(address indexed wallet, uint256 yield, uint256 fee);
     event FeePaid(address indexed wallet, uint256 amount);
@@ -53,53 +53,44 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
-    // ============ Facts ============
-
-    function onDeposit(address target, uint256 assetsIn) external {
-        costBasis[msg.sender][target] += assetsIn;
+    function onAction(bytes32 action, bytes calldata data, address baseAsset, uint256 available) external returns (uint256 payment) {
+        uint256 yield;
+        if (action == FeeActions.DEPOSIT) {
+            (address target, uint256 assetsIn) = abi.decode(data, (address, uint256));
+            costBasis[msg.sender][target] += assetsIn;
+        } else if (action == FeeActions.WITHDRAW) {
+            (address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) = abi.decode(data, (address, uint256, uint256, uint256));
+            yield = _releaseCostBasis(target, spent, heldBefore, assetsOut);
+        } else if (action == FeeActions.SWAP) {
+            (address sold,, address bought, uint256 boughtAmount) = abi.decode(data, (address, uint256, address, uint256));
+            if (bought == baseAsset && sold != baseAsset) yield = boughtAmount;
+        } else if (action == FeeActions.CLAIM) {
+            (address token, uint256 amount) = abi.decode(data, (address, uint256));
+            if (token == baseAsset) yield = amount;
+        }
+        uint256 owed = feesOwed[msg.sender];
+        if (yield > 0) {
+            uint256 fee = (yield * FEE_TRACKER.feeRateBps(YIELD_FEE, msg.sender)) / 1e4;
+            owed += fee;
+            emit YieldRecorded(msg.sender, yield, fee);
+        }
+        if (owed == 0) return 0;
+        payment = Math.min(owed, available);
+        feesOwed[msg.sender] = owed - payment;
+        if (payment > 0) emit FeePaid(msg.sender, payment);
     }
 
-    function onWithdraw(address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) external {
-        if (spent == 0 || heldBefore == 0) return;
+    /// @notice The base asset may leave minus fees owed; other tokens are not this module's concern
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
+        allowed = token == address(IAgentWallet(wallet).baseAsset());
+        if (allowed) reserved = feesOwed[wallet];
+    }
+
+    function _releaseCostBasis(address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) internal returns (uint256 yield) {
+        if (spent == 0 || heldBefore == 0) return 0;
         uint256 basis = costBasis[msg.sender][target];
         uint256 releasedBasis = spent >= heldBefore ? basis : Math.mulDiv(basis, spent, heldBefore);
         costBasis[msg.sender][target] = basis - releasedBasis;
-        if (assetsOut > releasedBasis) _chargeFee(msg.sender, assetsOut - releasedBasis);
-    }
-
-    function onSwap(address sold, uint256, address bought, uint256 boughtAmount) external {
-        address baseAsset = address(IAgentWallet(msg.sender).baseAsset());
-        if (bought == baseAsset && sold != baseAsset) _chargeFee(msg.sender, boughtAmount);
-    }
-
-    function onClaim(address token, uint256 amount) external {
-        if (token == address(IAgentWallet(msg.sender).baseAsset())) _chargeFee(msg.sender, amount);
-    }
-
-    function onDebtChange(bytes32, address, uint256, uint256, uint256) external {}
-
-    // ============ Payments ============
-
-    function feesDue(address wallet) public view returns (uint256) {
-        uint256 charged = feesCharged[wallet];
-        uint256 paid = feesPaid[wallet];
-        return charged > paid ? charged - paid : 0;
-    }
-
-    function recordFeePaid(uint256 amount) external {
-        feesPaid[msg.sender] += amount;
-        emit FeePaid(msg.sender, amount);
-    }
-
-    /// @notice The base asset may leave minus fees not yet paid; other tokens are not this module's concern
-    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
-        allowed = token == address(IAgentWallet(wallet).baseAsset());
-        if (allowed) reserved = feesDue(wallet);
-    }
-
-    function _chargeFee(address wallet, uint256 yield) internal {
-        uint256 fee = (yield * FEE_TRACKER.feeRateBps(YIELD_FEE, wallet)) / 1e4;
-        feesCharged[wallet] += fee;
-        emit YieldRecorded(wallet, yield, fee);
+        if (assetsOut > releasedBasis) yield = assetsOut - releasedBasis;
     }
 }

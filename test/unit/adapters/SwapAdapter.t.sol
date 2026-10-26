@@ -14,6 +14,7 @@ import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWallet
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
@@ -112,8 +113,8 @@ contract SwapAdapterTest is Test {
         _executeSwap(address(weth), address(usdc), 1e18, 1);
         assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 2_001e6);
-        assertEq(yieldFees.feesCharged(address(wallet)), 0);
-        assertEq(yieldFees.feesPaid(address(wallet)), 0);
+        assertEq(yieldFees.feesOwed(address(wallet)), 0);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), 0);
     }
 
     function test_BaseToBorrowedUsdcRejectsBelowOracleBoundAndAcceptsTheBoundary() public {
@@ -136,8 +137,10 @@ contract SwapAdapterTest is Test {
         _prepareBorrowedWallet();
         uint256 yieldAmount = 1e18;
         uint256 expectedFee = (yieldAmount * feeTracker.feeRateBps(YIELD_FEE, address(wallet))) / 10_000;
+        bytes memory claimData = abi.encode(address(weth), yieldAmount);
+        address baseAssetAddress = address(weth);
         vm.prank(address(wallet));
-        yieldFees.onClaim(address(weth), yieldAmount);
+        yieldFees.onAction(FeeActions.CLAIM, claimData, baseAssetAddress, 0);
         uint256 baseBalance = weth.balanceOf(address(wallet));
         (bool allowed, uint256 reserved) = yieldFees.withdrawReserve(address(wallet), address(weth));
         assertTrue(allowed);
@@ -155,9 +158,7 @@ contract SwapAdapterTest is Test {
         (allowed, reserved) = yieldFees.withdrawReserve(address(wallet), address(weth));
         assertTrue(allowed);
         assertEq(reserved, 0);
-        assertEq(yieldFees.feesCharged(address(wallet)), expectedFee);
-        assertEq(yieldFees.feesPaid(address(wallet)), expectedFee);
-        assertEq(yieldFees.feesDue(address(wallet)), 0);
+        assertEq(yieldFees.feesOwed(address(wallet)), 0);
         assertEq(weth.balanceOf(feeTracker.feeCollector()), expectedFee);
         assertEq(weth.balanceOf(address(wallet)), 0);
     }
@@ -183,9 +184,6 @@ contract SwapAdapterTest is Test {
         assertEq(reward.balanceOf(address(wallet)), 0);
         assertEq(weth.balanceOf(address(wallet)), wethOutput - expectedWethFee);
         assertEq(weth.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, expectedWethFee);
-        assertEq(yieldFees.feesDue(address(wallet)), 0);
-        assertEq(yieldFees.feesCharged(address(wallet)), expectedWethFee);
-        assertEq(yieldFees.feesPaid(address(wallet)), expectedWethFee);
     }
 
     function test_PartialRewardSaleChargesFeeOnBaseProceeds() public {
@@ -203,8 +201,6 @@ contract SwapAdapterTest is Test {
         assertEq(reward.balanceOf(address(wallet)), rewardAmount - sellAmount);
         assertEq(weth.balanceOf(address(wallet)), wethOutput - expectedWethFee);
         assertEq(weth.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, expectedWethFee);
-        assertEq(yieldFees.feesCharged(address(wallet)), expectedWethFee);
-        assertEq(yieldFees.feesPaid(address(wallet)), expectedWethFee);
     }
 
     function test_SellableRewardCannotBeSwappedToDebtToken() public {

@@ -19,6 +19,7 @@ pragma solidity 0.8.28;
 import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IYieldSeekerSwapSellPolicy} from "./SwapSellPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -72,6 +73,6 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
             (, uint256 feesReserved) = _feeTracker().withdrawReserve(address(this), sellToken);
             if (IERC20(sellToken).balanceOf(address(this)) < feesReserved) revert AWKErrors.InsufficientBalance();
         }
-        _reportSwap(sellToken, soldAmount, buyToken, buyAmount);
+        _report(FeeActions.SWAP, abi.encode(sellToken, soldAmount, buyToken, buyAmount));
     }
 }

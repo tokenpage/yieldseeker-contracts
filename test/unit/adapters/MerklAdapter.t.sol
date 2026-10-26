@@ -55,10 +55,8 @@ contract MerklAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 900e6);
-        assertEq(wallet.yieldFeeModule().feesDue(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
         assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 100e6);
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 100e6);
-        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), 100e6);
     }
 
     function test_Claim_DuplicateNonBaseTokensRecordsNoFee() public {
@@ -80,8 +78,8 @@ contract MerklAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(rewardToken.balanceOf(address(wallet)), amounts[0] + amounts[1] + amounts[2]);
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 0);
-        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 0);
     }
 
     function test_Claim_MixedTokens_TracksOnlyBaseAssetFee() public {
@@ -101,10 +99,8 @@ contract MerklAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
         assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
-        assertEq(wallet.yieldFeeModule().feesDue(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
         assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 50e6);
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 50e6);
-        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), 50e6);
         assertEq(rewardToken.balanceOf(address(wallet)), amounts[1]);
     }
 

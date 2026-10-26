@@ -298,7 +298,7 @@ The central registry that manages authorized adapters and their targets.
 
 #### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-The fee tracker holds the fee plans, the fee collector and one module per fee type. Every module implements the same facts (`onDeposit`, `onWithdraw`, `onSwap`, `onClaim`, `onDebtChange`) and payment functions (`feesDue`, `recordFeePaid`), all keyed on `msg.sender`, so a caller can only affect its own accounting.
+The fee tracker holds the fee plans, the fee collector and one module per fee type. After every action, the adapter reports it to every module with one call, `onAction(action, data, baseAsset, available)`. Actions and their data layouts are listed in `FeeActions` (`DEPOSIT`, `WITHDRAW`, `SWAP`, `CLAIM`, `DEBT_CHANGE`). Each module records what the action costs, then returns what the wallet pays now (at most `available`, recorded as paid); the adapter sends the total to the fee collector in one transfer. Modules are keyed on `msg.sender`, so a caller can only affect its own accounting.
 
 | Contract | Role |
 |----------|------|
@@ -306,7 +306,7 @@ The fee tracker holds the fee plans, the fee collector and one module per fee ty
 | `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change; fees due in the base asset at the oracle price |
 
-Adding a fee type needs only a new module (`setFeeModule`, then `setPlanRate` for every plan); adapters, the tracker and wallets don't change.
+Adding a fee type needs only a new module (`setFeeModule`, then `setPlanRate` for every plan); adapters, the tracker and wallets don't change. Adding an action (for a new agent type's adapters) needs a new `FeeActions` constant; deployed modules ignore actions they don't know, so only modules that should charge for it change.
 
 ---
 
@@ -319,7 +319,7 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 **YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
 Abstract base class for all adapters providing:
 - `onlyDelegateCall` modifier to prevent direct calls
-- Fee reporting: `_reportDeposit`, `_reportWithdraw`, `_reportSwap`, `_reportClaim`, `_reportDebtChange` (each tells every fee module, then pays the fees due)
+- Fee reporting: `_report(action, data)` (tells every fee module, then pays the fees they settle in one transfer)
 - Base asset validation: `_requireBaseAsset(address)`
 
 #### Concrete Adapters
@@ -685,8 +685,8 @@ sequenceDiagram
     Wallet->>Adapter: DELEGATECALL withdraw(vault, shares)
     Adapter->>Vault: vault.redeem(shares, wallet, wallet)
     Vault-->>Wallet: USDC returned to wallet
-    Adapter->>FeeModules: onWithdraw(vault, shares, sharesHeldBefore, assets)
-    FeeModules->>FeeModules: Calculate fees on profit
+    Adapter->>FeeModules: onAction(WITHDRAW, (vault, shares, sharesHeldBefore, assets), USDC, balance)
+    FeeModules->>FeeModules: Charge on profit, settle fees owed
     Wallet-->>EP: ✓
 
     Note over User: User withdraws USDC
@@ -723,11 +723,10 @@ sequenceDiagram
 
     Server->>Wallet: executeViaAdapter(adapter, vault, withdraw(shares))
     Wallet->>Adapter: delegatecall execute(vault, withdraw)
-    Adapter->>Modules: onWithdraw(vault, shares, sharesHeldBefore, assets)
-    Modules->>Modules: yield module charges on profit
-    Adapter->>Modules: feesDue(wallet)
-    Adapter->>USDC: transfer(feeCollector, due)
-    Adapter->>Modules: recordFeePaid(due)
+    Adapter->>Modules: onAction(WITHDRAW, (vault, shares, sharesHeldBefore, assets), USDC, balance)
+    Modules->>Modules: yield module charges on profit, records the payment
+    Modules-->>Adapter: payment
+    Adapter->>USDC: transfer(feeCollector, total payment)
 ```
 
 **Fee Calculation:**
@@ -958,9 +957,10 @@ We have comprehensive tests in `test/`:
 
 ### Changing fee logic
 
-Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees charged/paid; `BorrowFeeModule`: debt positions and fees per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
+Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
 
-- **New fee types:** write a module that implements `IYieldSeekerFeeModule` and charges for the facts it cares about (e.g. a rebalance fee on `onWithdraw` + `onDeposit`), then `setFeeModule(newFeeType, module)` and `setPlanRate` for **every** existing plan (a plan without a rate charges 0 for that fee type). No adapter changes.
+- **New fee types:** write a module that implements `IYieldSeekerFeeModule` and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `setPlanRate` for **every** existing plan (a plan without a rate charges 0 for that fee type). No adapter changes.
+- **New actions:** add a constant and its data layout to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled.
 - **New plans:** set a rate for every fee type when creating a plan. Unset fee types are 0%, and the plan manager can move owners onto a plan that is cheaper for any fee type it doesn't set.
 - **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
 

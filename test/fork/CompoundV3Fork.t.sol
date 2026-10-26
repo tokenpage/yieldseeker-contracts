@@ -54,6 +54,7 @@ contract CompoundV3ForkTest is Test {
         uint256 totalVaultBalanceBefore = comet.balanceOf(address(wallet));
         assertGt(totalVaultBalanceBefore, DEPOSIT_AMOUNT, "Comet balance should have accrued interest");
 
+        uint256 feeCollectorBalanceBefore = asset.balanceOf(address(this));
         bytes memory withdrawResult = wallet.executeAdapter(address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.withdraw.selector, totalVaultBalanceBefore));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertEq(assetsReceived, totalVaultBalanceBefore, "Full redemption must return the live Comet balance");
@@ -63,6 +64,6 @@ contract CompoundV3ForkTest is Test {
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
         costBasis = vaultFees.costBasis(address(wallet), COMET_USDC);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
-        assertEq(vaultFees.feesCharged(address(wallet)), expectedFee, "Live Compound V3 interest fee mismatch");
+        assertEq(asset.balanceOf(address(this)) - feeCollectorBalanceBefore, expectedFee, "Live Compound V3 interest fee mismatch");
     }
 }

@@ -346,8 +346,6 @@ contract AdapterIntegrationTest is Test {
         usdc.mint(address(vault1), 1e6);
 
         // Withdraw all shares; assets should be 11 USDC after growth
-        uint256 feesChargedBefore = vaultFeeModule.feesCharged(address(wallet));
-        uint256 feesPaidBefore = vaultFeeModule.feesPaid(address(wallet));
         uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
 
         vm.prank(user);
@@ -356,15 +354,11 @@ contract AdapterIntegrationTest is Test {
         uint256 assetsReceived = abi.decode(withdrawInner, (uint256));
         assertEq(assetsReceived, 11e6, "Should withdraw 11 USDC after appreciation");
 
-        uint256 feesCharged = vaultFeeModule.feesCharged(address(wallet)) - feesChargedBefore;
-        uint256 feesPaid = vaultFeeModule.feesPaid(address(wallet)) - feesPaidBefore;
         uint256 feeCollectorBalanceAfter = usdc.balanceOf(feeCollector);
 
         // Profit = 1 USDC, fee at 10% should be 0.1 USDC and paid immediately.
-        assertEq(feesCharged, 0.1e6, "Should charge 0.1 USDC fee on 1 USDC profit");
-        assertEq(feesPaid, 0.1e6, "Should pay the 0.1 USDC fee immediately");
         assertEq(feeCollectorBalanceAfter - feeCollectorBalanceBefore, 0.1e6, "Fee collector should receive the fee");
-        assertEq(vaultFeeModule.feesDue(address(wallet)), 0, "No base-asset fees should remain owed");
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0, "No base-asset fees should remain owed");
         assertEq(usdc.balanceOf(address(wallet)), 10.9e6, "Wallet should retain 10.9 USDC after fees");
 
         // Position should be cleared

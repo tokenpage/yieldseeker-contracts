@@ -98,7 +98,8 @@ contract CompoundV2AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
         uint256 withdrawShares = _sharesForAssets(500e6);
         wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.withdraw.selector, withdrawShares));
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 0, "Should not charge fee when no profit");
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0, "Should not charge fee when no profit");
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 0);
         uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(cToken));
         assertEq(costBasis, 500e6, "Cost basis should be halved after 50% withdrawal");
     }
@@ -151,7 +152,7 @@ contract CompoundV2AdapterTest is Test {
         assertEq(assetsReceived, fullBalance, "Should return the underlying received for all redeemed cTokens");
         uint256 profit = assetsReceived - depositAmount;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge 10% fee on yield");
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), expectedFee, "Should charge 10% fee on yield");
         uint256 costBasisAfter = wallet.yieldFeeModule().costBasis(address(wallet), address(cToken));
         assertEq(costBasisAfter, 0, "Cost basis should be zero after full withdrawal");
     }
@@ -172,7 +173,7 @@ contract CompoundV2AdapterTest is Test {
         uint256 proportionalCost = (depositAmount * withdrawShares) / initialShares;
         uint256 profit = assetsReceived - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge correct fee");
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), expectedFee, "Should charge correct fee");
         uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(cToken));
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
     }
@@ -190,7 +191,7 @@ contract CompoundV2AdapterTest is Test {
         assertEq(_decodeUint(result), fullBalance, "Should return underlying received for all redeemed cTokens");
         uint256 profit = fullBalance - depositAmount;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee, "Should charge correct fee with current exchange rate");
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), expectedFee, "Should charge correct fee with current exchange rate");
     }
 
     function test_RewardSharesWithoutCostBasisAreChargedAtCurrentExchangeRate() public {
@@ -212,8 +213,8 @@ contract CompoundV2AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.withdraw.selector, sharesToWithdraw));
 
         assertEq(baseAsset.balanceOf(address(wallet)) - walletBalanceBefore, assetsReceived - expectedFee);
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), expectedFee);
-        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), expectedFee);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), expectedFee);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
     }
 
     function test_DecimalVariant_CbBTC() public {
@@ -242,7 +243,7 @@ contract CompoundV2AdapterTest is Test {
         bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantCToken), abi.encodeWithSelector(adapter.withdraw.selector, expectedShares));
 
         assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
-        assertEq(variantWallet.yieldFeeModule().feesCharged(address(variantWallet)), yieldAmount / 10);
+        assertEq(asset.balanceOf(feeTracker.feeCollector()), yieldAmount / 10);
         uint256 costBasis = variantWallet.yieldFeeModule().costBasis(address(variantWallet), address(variantCToken));
         assertEq(costBasis, 0);
     }

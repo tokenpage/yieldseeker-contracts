@@ -30,7 +30,7 @@ error UnknownFeeType(bytes32 feeType);
 /**
  * @title YieldSeekerFeeTracker
  * @notice Fee plans per user (wallet owner), the fee collector and the fee modules that do each fee type's accounting
- * @dev Every fee type is a module (e.g. the vault fee, the borrow fee) that wallets and their adapters call directly.
+ * @dev Every fee type is a module (e.g. the yield fee, the borrow fee) that adapters report every wallet action to.
  *      Every owner starts on plan 0. A plan has a rate per fee type. The admin (timelock) sets plan rates and the fee
  *      collector, sets modules and can assign any plan. The plan manager can only move an owner to a plan that is not
  *      more expensive for any fee type.
@@ -43,6 +43,7 @@ contract YieldSeekerFeeTracker is AccessControl {
 
     address public feeCollector;
     bytes32[] internal _moduleFeeTypes;
+    IYieldSeekerFeeModule[] internal _modules;
     mapping(bytes32 feeType => IYieldSeekerFeeModule) public feeModules;
     mapping(uint256 planId => mapping(bytes32 feeType => uint256 rateBps)) public planRateBps;
     mapping(uint256 planId => bool exists) public planExists;
@@ -70,13 +71,25 @@ contract YieldSeekerFeeTracker is AccessControl {
     /// @notice Plug in or replace a fee type's module; set a new fee type's plan rates with setPlanRate (unset rates are 0)
     function setFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
-        if (address(feeModules[feeType]) == address(0)) _moduleFeeTypes.push(feeType);
+        if (address(feeModules[feeType]) == address(0)) {
+            _moduleFeeTypes.push(feeType);
+            _modules.push(module);
+        } else {
+            for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
+                if (_moduleFeeTypes[i] == feeType) _modules[i] = module;
+            }
+        }
         feeModules[feeType] = module;
         emit FeeModuleSet(feeType, address(module));
     }
 
     function moduleFeeTypes() external view returns (bytes32[] memory) {
         return _moduleFeeTypes;
+    }
+
+    /// @notice Everything an adapter needs to settle fees after an action, in one call
+    function feeModulesAndCollector() external view returns (IYieldSeekerFeeModule[] memory modules, address collector) {
+        return (_modules, feeCollector);
     }
 
     function setPlanRate(uint256 planId, bytes32 feeType, uint256 rateBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -123,8 +136,8 @@ contract YieldSeekerFeeTracker is AccessControl {
      */
     function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
         allowed = token == address(IAgentWallet(wallet).baseAsset());
-        for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
-            try feeModules[_moduleFeeTypes[i]].withdrawReserve{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool moduleAllows, uint256 moduleReserved) {
+        for (uint256 i = 0; i < _modules.length; i++) {
+            try _modules[i].withdrawReserve{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool moduleAllows, uint256 moduleReserved) {
                 allowed = allowed || moduleAllows;
                 reserved += moduleReserved;
             } catch {}

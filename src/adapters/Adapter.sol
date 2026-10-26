@@ -30,7 +30,8 @@ error BaseAssetNotAllowed();
  * @title YieldSeekerAdapter
  * @notice Base class for all adapters in the YieldSeeker system.
  * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset and fees. Adapters only report what the
- *      wallet did (_report*); every fee module decides what it charges for, and each report pays the fees due.
+ *      wallet did (_report with a FeeActions action); every fee module decides what it charges for, and each report
+ *      pays the fees due.
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
     using SafeERC20 for IERC20;
@@ -60,71 +61,15 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
         return _ysAgentWallet().feeTracker();
     }
 
-    function _reportDeposit(address target, uint256 assetsIn) internal {
-        IYieldSeekerFeeModule[] memory modules = _feeModules();
-        for (uint256 i = 0; i < modules.length; i++) {
-            modules[i].onDeposit(target, assetsIn);
-        }
-        _payFees(modules);
-    }
-
-    function _reportWithdraw(address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) internal {
-        IYieldSeekerFeeModule[] memory modules = _feeModules();
-        for (uint256 i = 0; i < modules.length; i++) {
-            modules[i].onWithdraw(target, spent, heldBefore, assetsOut);
-        }
-        _payFees(modules);
-    }
-
-    function _reportSwap(address sold, uint256 soldAmount, address bought, uint256 boughtAmount) internal {
-        IYieldSeekerFeeModule[] memory modules = _feeModules();
-        for (uint256 i = 0; i < modules.length; i++) {
-            modules[i].onSwap(sold, soldAmount, bought, boughtAmount);
-        }
-        _payFees(modules);
-    }
-
-    function _reportClaim(address token, uint256 amount) internal {
-        IYieldSeekerFeeModule[] memory modules = _feeModules();
-        for (uint256 i = 0; i < modules.length; i++) {
-            modules[i].onClaim(token, amount);
-        }
-        _payFees(modules);
-    }
-
-    function _reportDebtChange(bytes32 market, address debtToken, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        IYieldSeekerFeeModule[] memory modules = _feeModules();
-        for (uint256 i = 0; i < modules.length; i++) {
-            modules[i].onDebtChange(market, debtToken, debtBefore, borrowed, repaid);
-        }
-        _payFees(modules);
-    }
-
-    function _payFees() internal {
-        _payFees(_feeModules());
-    }
-
-    /// @dev Pays each module's fees due to the fee collector from the base asset in the wallet
-    function _payFees(IYieldSeekerFeeModule[] memory modules) internal {
+    /// @dev Reports an action (FeeActions) to every fee module and sends the fees they settle to the fee collector
+    function _report(bytes32 action, bytes memory data) internal {
+        (IYieldSeekerFeeModule[] memory modules, address feeCollector) = _feeTracker().feeModulesAndCollector();
         IERC20 baseAsset = _baseAsset();
-        address feeCollector = _feeTracker().feeCollector();
+        uint256 available = baseAsset.balanceOf(address(this));
+        uint256 payment;
         for (uint256 i = 0; i < modules.length; i++) {
-            uint256 due = modules[i].feesDue(address(this));
-            if (due == 0) continue;
-            uint256 balance = baseAsset.balanceOf(address(this));
-            uint256 payment = due > balance ? balance : due;
-            if (payment == 0) return;
-            baseAsset.safeTransfer(feeCollector, payment);
-            modules[i].recordFeePaid(payment);
+            payment += modules[i].onAction(action, data, address(baseAsset), available - payment);
         }
-    }
-
-    function _feeModules() internal view returns (IYieldSeekerFeeModule[] memory modules) {
-        FeeTracker tracker = _feeTracker();
-        bytes32[] memory feeTypes = tracker.moduleFeeTypes();
-        modules = new IYieldSeekerFeeModule[](feeTypes.length);
-        for (uint256 i = 0; i < feeTypes.length; i++) {
-            modules[i] = tracker.feeModules(feeTypes[i]);
-        }
+        if (payment > 0) baseAsset.safeTransfer(feeCollector, payment);
     }
 }

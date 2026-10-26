@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -26,8 +27,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice YieldSeeker rules on top of an AWK lending adapter
  * @dev Collateral must be the wallet's base asset and the debt asset must differ from it; which markets can be
  *      used at all is decided by the registry. Every borrow, repay and collateral withdrawal reports the market's
- *      real debt to the fee modules (onDebtChange), and fees due are paid from the base asset, including collateral
- *      just withdrawn.
+ *      real debt to the fee modules (FeeActions.DEBT_CHANGE), and fees due are paid from the base asset, including
+ *      collateral just withdrawn.
  */
 abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAdapter {
     function _checkedMarketAssets(bytes memory market) internal view returns (address collateralAsset, address debtAsset) {
@@ -45,7 +46,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debtBefore = _debtOf(market);
         borrowed = super._borrowOperation(market, amount);
-        _reportDebtChange(keccak256(market), debtAsset, debtBefore, borrowed, 0);
+        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debtBefore, borrowed, 0));
     }
 
     function _repayOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
@@ -55,13 +56,13 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         uint256 repayAmount = amount == type(uint256).max ? (debtBefore < balance ? debtBefore : balance) : amount;
         if (repayAmount == 0) revert AWKErrors.InsufficientBalance();
         repaid = super._repayOperation(market, repayAmount);
-        _reportDebtChange(keccak256(market), debtAsset, debtBefore, 0, repaid);
+        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debtBefore, 0, repaid));
     }
 
     function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debt = _debtOf(market);
         withdrawn = super._withdrawCollateralOperation(market, amount);
-        _reportDebtChange(keccak256(market), debtAsset, debt, 0, 0);
+        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debt, 0, 0));
     }
 }

@@ -10,6 +10,7 @@ import {InvalidTransferTarget, NotLinkedWallet} from "../../src/adapters/AgentTr
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -150,8 +151,7 @@ contract WalletLinkTransferTest is Test {
     function test_TransferCannotExceedFeeModuleWithdrawableBalance() public {
         _linkWallets();
         _recordBorrowedUsdc();
-        vm.prank(address(vaultWallet));
-        vaultFeeModule.onClaim(address(usdc), 100e6);
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(address(usdc), 100e6), address(usdc));
 
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 290e6 + 1, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
     }
@@ -177,5 +177,10 @@ contract WalletLinkTransferTest is Test {
     function _expectTransferFailure(YieldSeekerAgentWalletV3 from, address target, address token, address to, uint256 amount, bytes memory innerReason) private {
         vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, innerReason));
         _transfer(from, token, to, amount, target);
+    }
+
+    function _recordFeeAction(YieldSeekerYieldFeeModule module, address wallet, bytes32 action, bytes memory data, address baseAsset) private {
+        vm.prank(wallet);
+        module.onAction(action, data, baseAsset, 0);
     }
 }

@@ -178,8 +178,6 @@ contract LendingAdaptersTest is Test {
         aavePool.growDebt(address(usdc), address(wallet), 20e6);
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.repay.selector, market, type(uint256).max));
 
-        assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         (bool allowed, uint256 reserved) = feeModule.withdrawReserve(address(wallet), address(usdc));
@@ -204,8 +202,6 @@ contract LendingAdaptersTest is Test {
         usdc.mint(address(wallet), 20e6);
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.repay.selector, market, type(uint256).max));
 
-        assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT + 20e6);
@@ -216,7 +212,6 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
 
         assertEq(weth.balanceOf(feeTracker.feeCollector()), collateralFee);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
         assertEq(weth.balanceOf(address(wallet)), COLLATERAL - collateralFee);
     }
@@ -254,8 +249,6 @@ contract LendingAdaptersTest is Test {
         }
 
         assertTrue(foundFeePaid);
-        assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
         assertEq(weth.balanceOf(feeTracker.feeCollector()), baseFeePaid);
         assertEq(weth.balanceOf(address(wallet)), heldBaseAsset - baseFeePaid);
@@ -271,7 +264,6 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, 1e18));
 
         assertEq(weth.balanceOf(feeTracker.feeCollector()), 1e18);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 10_000);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 490_000);
         assertEq(weth.balanceOf(address(wallet)), 0);
     }
@@ -286,8 +278,7 @@ contract LendingAdaptersTest is Test {
         aavePool.reduceDebt(address(usdc), address(wallet), 60e6);
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, 1e18));
 
-        assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 40e6);
         (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
@@ -304,7 +295,6 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
 
         assertEq(weth.balanceOf(feeTracker.feeCollector()), collateralFee);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
         assertEq(weth.balanceOf(address(wallet)), COLLATERAL - collateralFee);
     }

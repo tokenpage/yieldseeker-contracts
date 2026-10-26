@@ -17,6 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKERC4626Adapter} from "../agentwalletkit/adapters/AWKERC4626Adapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
@@ -35,7 +36,7 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         address asset = IERC4626(vault).asset();
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _reportDeposit(vault, assetsDeposited);
+        _report(FeeActions.DEPOSIT, abi.encode(vault, assetsDeposited));
     }
 
     /**
@@ -47,6 +48,6 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
         _requireBaseAsset(asset);
         uint256 heldBefore = IERC4626(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _reportWithdraw(vault, shares, heldBefore, assets);
+        _report(FeeActions.WITHDRAW, abi.encode(vault, shares, heldBefore, assets));
     }
 }

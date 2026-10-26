@@ -17,6 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKCompoundV3Adapter, ICompoundV3Comet} from "../agentwalletkit/adapters/AWKCompoundV3Adapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 /**
@@ -34,7 +35,7 @@ contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _reportDeposit(vault, assetsDeposited);
+        _report(FeeActions.DEPOSIT, abi.encode(vault, assetsDeposited));
     }
 
     /**
@@ -46,6 +47,6 @@ contract YieldSeekerCompoundV3Adapter is AWKCompoundV3Adapter, YieldSeekerAdapte
         // Compound V3 rebases 1:1 with underlying, so balanceOf is already in base asset terms
         uint256 heldBefore = ICompoundV3Comet(vault).balanceOf(address(this));
         assets = super._withdrawInternal(vault, shares);
-        _reportWithdraw(vault, assets, heldBefore, assets);
+        _report(FeeActions.WITHDRAW, abi.encode(vault, assets, heldBefore, assets));
     }
 }

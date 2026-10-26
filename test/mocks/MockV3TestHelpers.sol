@@ -2,9 +2,11 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
+import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKAdapter} from "../../src/agentwalletkit/AWKAdapter.sol";
 import {AWKSelfManagedAgentWalletV3} from "../../src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol";
 import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 
 contract MockV3SelfManagedWallet is AWKSelfManagedAgentWalletV3 {}
 
@@ -44,8 +46,9 @@ contract MockV3BorrowReporter is AWKAdapter {
     }
 
     function execute(address, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
-        (bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) = abi.decode(data, (bytes32, address, uint256, uint256, uint256));
-        _feeModule.onDebtChange(market, token, debtBefore, borrowed, repaid);
+        address baseAsset = address(IAgentWallet(address(this)).baseAsset());
+        (,,, uint256 borrowed,) = abi.decode(data, (bytes32, address, uint256, uint256, uint256));
+        _feeModule.onAction(FeeActions.DEBT_CHANGE, data, baseAsset, 0);
         return abi.encode(borrowed);
     }
 }

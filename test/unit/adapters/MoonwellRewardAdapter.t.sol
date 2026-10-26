@@ -63,8 +63,8 @@ contract MoonwellRewardAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comptroller), abi.encodeWithSelector(adapter.claimReward.selector, address(wallet), mTokens));
 
         assertEq(wellToken.balanceOf(address(wallet)), 200e18);
-        assertEq(wallet.yieldFeeModule().feesCharged(address(wallet)), 0);
-        assertEq(wallet.yieldFeeModule().feesPaid(address(wallet)), 0);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 0);
     }
 
     function test_ClaimReward_RejectsDifferentHolder() public {
