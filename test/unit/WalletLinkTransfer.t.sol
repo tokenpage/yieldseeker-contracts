@@ -50,10 +50,10 @@ contract WalletLinkTransferTest is Test {
         borrowRegistry = new YieldSeekerAdapterRegistry(address(this), address(this));
         vaultFees = new YieldSeekerFeeTracker(address(this), address(this), feeCollector);
         vaultFeeModule = new YieldSeekerVaultFeeModule(vaultFees, 10_000);
-        vaultFees.addFeeModule(VAULT_FEE, vaultFeeModule);
+        vaultFees.setFeeModule(VAULT_FEE, vaultFeeModule);
         vaultFees.setPlanRate(0, VAULT_FEE, 1_000);
         borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
-        vaultFees.addFeeModule(BORROW_FEE, borrowFees);
+        vaultFees.setFeeModule(BORROW_FEE, borrowFees);
         vaultFees.setPlanRate(0, BORROW_FEE, 1_000);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
@@ -150,7 +150,7 @@ contract WalletLinkTransferTest is Test {
         _linkWallets();
         _recordBorrowedUsdc();
         vm.prank(address(vaultWallet));
-        vaultFeeModule.recordAgentYieldEarned(100e6);
+        vaultFeeModule.recordYield(100e6);
 
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 290e6 + 1, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
     }

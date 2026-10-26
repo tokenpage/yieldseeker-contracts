@@ -70,7 +70,7 @@ contract SwapAdapterTest is Test {
         feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR);
         vaultFees = AdapterFeeSetup.addVaultModule(feeTracker, 10_000, 1_000);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
-        feeTracker.addFeeModule(BORROW_FEE, feeModule);
+        feeTracker.setFeeModule(BORROW_FEE, feeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
@@ -134,10 +134,11 @@ contract SwapAdapterTest is Test {
         _prepareBorrowedWallet();
         uint256 yieldAmount = 1e18;
         vm.prank(address(wallet));
-        vaultFees.recordAgentYieldEarned(yieldAmount);
+        vaultFees.recordYield(yieldAmount);
 
         uint256 baseBalance = weth.balanceOf(address(wallet));
-        uint256 reserved = vaultFees.getFeesOwed(address(wallet));
+        (bool allowed, uint256 reserved) = vaultFees.withdrawReserve(address(wallet), address(weth));
+        assertTrue(allowed);
         assertEq(reserved, 0.1e18);
         uint256 unreservedAmount = baseBalance - reserved;
         uint256 routerOutput = oracle.quote(address(weth), address(usdc), baseBalance);
@@ -149,7 +150,9 @@ contract SwapAdapterTest is Test {
         assertEq(weth.balanceOf(address(wallet)), baseBalance);
 
         _executeSwap(address(weth), address(usdc), unreservedAmount, 1);
-        assertEq(vaultFees.getFeesOwed(address(wallet)), reserved);
+        (allowed, reserved) = vaultFees.withdrawReserve(address(wallet), address(weth));
+        assertTrue(allowed);
+        assertEq(reserved, 0.1e18);
     }
 
     function test_BorrowedUsdcCannotBeSwappedBackToWeth() public {
@@ -162,12 +165,9 @@ contract SwapAdapterTest is Test {
     function test_SellableRewardCanSwapToWethWithoutAnOraclePrice() public {
         uint256 rewardAmount = 7e18;
         uint256 wethOutput = 11e17;
-        uint256 rewardFee = (rewardAmount * feeTracker.feeRateBps(VAULT_FEE, address(wallet))) / 10_000;
-        uint256 expectedWethFee = (wethOutput * rewardFee) / rewardAmount;
+        uint256 expectedWethFee = (wethOutput * feeTracker.feeRateBps(VAULT_FEE, address(wallet))) / 10_000;
         uint256 feeCollectorBalanceBefore = weth.balanceOf(feeTracker.feeCollector());
         reward.mint(address(wallet), rewardAmount);
-        vm.prank(address(wallet));
-        vaultFees.recordAgentYieldTokenEarned(address(reward), rewardAmount);
         weth.mint(address(router), wethOutput);
         router.setOutputAmount(wethOutput);
 
@@ -176,10 +176,28 @@ contract SwapAdapterTest is Test {
         assertEq(reward.balanceOf(address(wallet)), 0);
         assertEq(weth.balanceOf(address(wallet)), wethOutput - expectedWethFee);
         assertEq(weth.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, expectedWethFee);
-        assertEq(vaultFees.agentYieldTokenFeesOwed(address(wallet), address(reward)), 0);
-        assertEq(vaultFees.getFeesOwed(address(wallet)), 0);
-        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedWethFee);
-        assertEq(vaultFees.agentFeesPaid(address(wallet)), expectedWethFee);
+        assertEq(vaultFees.feesOwed(address(wallet)), 0);
+        assertEq(vaultFees.feesCharged(address(wallet)), expectedWethFee);
+        assertEq(vaultFees.feesPaid(address(wallet)), expectedWethFee);
+    }
+
+    function test_PartialRewardSaleChargesFeeOnBaseProceeds() public {
+        uint256 rewardAmount = 7e18;
+        uint256 sellAmount = 3e18;
+        uint256 wethOutput = 11e17;
+        uint256 expectedWethFee = (wethOutput * feeTracker.feeRateBps(VAULT_FEE, address(wallet))) / 10_000;
+        uint256 feeCollectorBalanceBefore = weth.balanceOf(feeTracker.feeCollector());
+        reward.mint(address(wallet), rewardAmount);
+        weth.mint(address(router), wethOutput);
+        router.setOutputAmount(wethOutput);
+
+        _executeSwap(address(reward), address(weth), sellAmount, 1);
+
+        assertEq(reward.balanceOf(address(wallet)), rewardAmount - sellAmount);
+        assertEq(weth.balanceOf(address(wallet)), wethOutput - expectedWethFee);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, expectedWethFee);
+        assertEq(vaultFees.feesCharged(address(wallet)), expectedWethFee);
+        assertEq(vaultFees.feesPaid(address(wallet)), expectedWethFee);
     }
 
     function test_SellableRewardCannotBeSwappedToDebtToken() public {

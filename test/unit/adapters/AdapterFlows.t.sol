@@ -65,9 +65,9 @@ contract AdapterFlowsTest is Test {
         uint256 proportionalCost = (100e6 * 100e6) / totalBalanceBefore;
         uint256 profit = 100e6 - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Fee on proportional profit");
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Fee on proportional profit");
         // Remaining position: 5 USDC in vault, cost basis = 100e6 - 95238095 = 4761905
-        (uint256 costBasis,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(costBasis, 100e6 - proportionalCost, "Remaining cost basis");
         assertEq(aToken.balanceOf(address(wallet)), 5e6, "5 aTokens remain");
     }
@@ -79,17 +79,16 @@ contract AdapterFlowsTest is Test {
         _deposit(100e6);
         _addYield(5e6);
         _withdraw(100e6);
-        uint256 feeAfterFirst = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
+        uint256 feeAfterFirst = wallet.vaultFeeModule().feesCharged(address(wallet));
         _withdraw(5e6);
-        uint256 totalFees = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
+        uint256 totalFees = wallet.vaultFeeModule().feesCharged(address(wallet));
         // Total yield = 5 USDC, total fee should be 10% = 0.5 USDC = 500000
         // Due to integer rounding it may be off by 1
         uint256 expectedTotalFee = (5e6 * 1000) / 10_000;
         assertApproxEqAbs(totalFees, expectedTotalFee, 1, "Total fees match 10% of total yield");
         assertGt(totalFees, feeAfterFirst, "Second withdrawal also charged some fee");
-        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(costBasis, 0, "Position fully cleared");
-        assertEq(shares, 0, "Shares fully cleared");
     }
 
     /// @notice Deposit 100, balance grows to 105, withdraw 104.
@@ -102,8 +101,8 @@ contract AdapterFlowsTest is Test {
         uint256 proportionalCost = (100e6 * 104e6) / totalBalanceBefore;
         uint256 profit = 104e6 - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Fee on proportional profit");
-        (uint256 costBasis,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Fee on proportional profit");
+        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(costBasis, 100e6 - proportionalCost, "Remaining cost basis for 1 USDC");
         assertEq(aToken.balanceOf(address(wallet)), 1e6, "1 aToken remains");
     }
@@ -115,68 +114,38 @@ contract AdapterFlowsTest is Test {
         _addYield(5e6);
         _withdraw(105e6);
         uint256 expectedFee = (5e6 * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "10% of 5 USDC yield");
-        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "10% of 5 USDC yield");
+        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(costBasis, 0, "Position cleared");
-        assertEq(shares, 0, "Shares cleared");
     }
 
-    // ============ Flow 2: Reward tokens received ============
-    //
-    // When aTokens arrive as Merkl rewards, recordAgentYieldTokenEarned tracks the fee
-    // in agentYieldTokenFeesOwed. On withdrawal, the fee is settled proportionally.
+    // ============ Flow 2: Rewards received as vault shares ============
 
-    /// @notice 10 aTokens received as reward (no deposit). Withdraw 7.
-    ///         vaultTokenFeesOwed settles proportionally: 7/10 of the 1-aToken fee owed = 0.7 USDC.
-    ///         The reward's full value (not just its fee) is excluded from the profit
-    ///         comparison below since costBasis=0 -- otherwise the reward gets taxed twice.
     function test_Flow2_RewardTokensWithdraw() public {
-        // Simulate reward: 10 aTokens appear + feeTracker records yield token earned
         _addYield(10e6);
-        wallet.recordAgentYieldTokenEarned(address(aToken), 10e6);
-        uint256 vaultTokenFeeBefore = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(aToken));
-        // 10% of 10 aTokens = 1 aToken of fees owed
-        assertEq(vaultTokenFeeBefore, 1e6, "1 aToken fee owed on 10 aToken reward");
-        // Withdraw 7 USDC
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0, "No fee until reward shares are withdrawn");
+
         _withdraw(7e6);
-        // Fee settlement: 7/10 of the 1e6 fee = 700000 settled as base asset fee
-        uint256 feeSettled = (1e6 * 7e6) / 10e6;
-        // The reward's full value already assessed above (700000 fee / 10% rate = 7000000)
-        // is excluded from the profit comparison, so no additional profit fee is charged.
-        uint256 rewardValueInBaseAsset = (feeSettled * 10_000) / 1000;
-        uint256 netAssets = 7e6 - rewardValueInBaseAsset;
-        uint256 profitFee = netAssets > 0 ? (netAssets * 1000) / 10_000 : 0;
-        uint256 totalExpectedFees = feeSettled + profitFee;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), totalExpectedFees, "Fees from reward settlement + profit");
-        // Remaining vault token fee: 1e6 - 700000 = 300000
-        uint256 remainingVaultTokenFee = wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(aToken));
-        assertEq(remainingVaultTokenFee, 1e6 - feeSettled, "Remaining vault token fee");
+
+        uint256 expectedFee = (7e6 * 1000) / 10_000;
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee);
+        assertEq(wallet.vaultFeeModule().costBasis(address(wallet), address(aToken)), 0);
+        assertEq(aToken.balanceOf(address(wallet)), 3e6);
     }
 
-    /// @notice Deposit 100, then receive 10 aTokens as reward, then withdraw 7.
-    ///         The 7 withdrawn comes proportionally from the 110 total balance.
     function test_Flow2b_DepositThenRewardThenWithdraw() public {
         _deposit(100e6);
         _addYield(10e6);
-        wallet.recordAgentYieldTokenEarned(address(aToken), 10e6);
         uint256 totalBalance = aToken.balanceOf(address(wallet));
         assertEq(totalBalance, 110e6);
-        _withdraw(7e6);
-        // vaultTokenFee settlement: 7/110 of 1e6 fee owed (in vault token units)
-        uint256 totalBalanceBefore = 110e6;
-        uint256 feeTokenSettled = (1e6 * 7e6) / totalBalanceBefore;
-        // For rebasing tokens (Aave), 1 vault token = 1 underlying, so rate = 1e18
-        uint256 feeInBaseAsset = feeTokenSettled;
-        // proportionalCost = (100e6 * 7e6) / 110e6
-        uint256 proportionalCost = (100e6 * 7e6) / totalBalanceBefore;
-        // The reward's full base-asset value is excluded from the profit comparison,
-        // not just its fee slice (audit finding: double-charged reward profit).
-        uint256 rewardValueInBaseAsset = (feeInBaseAsset * 10_000) / 1000;
-        uint256 netAssets = 7e6 - rewardValueInBaseAsset;
-        uint256 profit = netAssets > proportionalCost ? netAssets - proportionalCost : 0;
-        uint256 profitFee = (profit * 1000) / 10_000;
-        uint256 totalExpectedFees = feeInBaseAsset + profitFee;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), totalExpectedFees, "Correct fees with deposit + reward");
+        uint256 withdrawAmount = 7e6;
+        uint256 proportionalCost = (100e6 * withdrawAmount) / totalBalance;
+        uint256 expectedFee = ((withdrawAmount - proportionalCost) * 1000) / 10_000;
+
+        _withdraw(withdrawAmount);
+
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee);
+        assertEq(wallet.vaultFeeModule().costBasis(address(wallet), address(aToken)), 100e6 - proportionalCost);
     }
 
     // ============ Flow 3: Multi-step deposit/withdraw/deposit/withdraw ============
@@ -186,16 +155,16 @@ contract AdapterFlowsTest is Test {
     function test_Flow3_MultiStepDepositWithdrawCycle() public {
         // Step 1: Deposit 1000
         _deposit(1_000e6);
-        (uint256 cb1,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cb1 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb1, 1_000e6);
         // Step 2: Withdraw 400 (no yield yet, no fee)
         _withdraw(400e6);
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 0, "No fee without yield");
-        (uint256 cb2,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0, "No fee without yield");
+        uint256 cb2 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb2, 600e6, "Cost basis reduced proportionally: 1000 * 600/1000");
         // Step 3: Deposit 500 more (balance = 600 + 500 = 1100, cost = 600 + 500 = 1100)
         _deposit(500e6);
-        (uint256 cb3,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cb3 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb3, 1_100e6, "Cost basis accumulated");
         assertEq(aToken.balanceOf(address(wallet)), 1_100e6);
         // Step 4: Yield accrues — balance grows to 1210 (10% yield)
@@ -206,18 +175,17 @@ contract AdapterFlowsTest is Test {
         uint256 proportionalCost = (1_100e6 * 605e6) / 1_210e6;
         uint256 profit = 605e6 - proportionalCost;
         uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Fee on first half");
-        (uint256 cb4,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Fee on first half");
+        uint256 cb4 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb4, 1_100e6 - proportionalCost, "Remaining cost basis");
         // Step 6: Withdraw remaining 605
         _withdraw(605e6);
-        uint256 totalFees = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
+        uint256 totalFees = wallet.vaultFeeModule().feesCharged(address(wallet));
         // Total yield = 110, total fee should be ~11 (10%)
         uint256 expectedTotalFee = (110e6 * 1000) / 10_000;
         assertApproxEqAbs(totalFees, expectedTotalFee, 1, "Total fees = 10% of total yield");
-        (uint256 cbFinal, uint256 sharesFinal) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cbFinal = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cbFinal, 0, "Position fully cleared");
-        assertEq(sharesFinal, 0, "Shares fully cleared");
     }
 
     /// @notice Multiple yield events between deposits/withdrawals.
@@ -230,10 +198,10 @@ contract AdapterFlowsTest is Test {
         uint256 proportionalCost1 = (500e6 * 275e6) / 550e6;
         uint256 profit1 = 275e6 - proportionalCost1;
         uint256 fee1 = (profit1 * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), fee1);
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), fee1);
         // Deposit 1000 more (balance = 275 + 1000 = 1275)
         _deposit(1_000e6);
-        (uint256 cb2,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cb2 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         uint256 remainingCostBasis = 500e6 - proportionalCost1;
         assertEq(cb2, remainingCostBasis + 1_000e6, "Cost basis = remaining + new deposit");
         // More yield: 127.5 (balance → 1402.5... use 127e6 for clean math → 1402)
@@ -242,14 +210,14 @@ contract AdapterFlowsTest is Test {
         assertEq(finalBalance, 1_402e6);
         // Withdraw everything
         _withdraw(finalBalance);
-        uint256 totalFees = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
+        uint256 totalFees = wallet.vaultFeeModule().feesCharged(address(wallet));
         // Total deposited = 500 + 1000 = 1500
         // Total withdrawn = 275 + 1402 = 1677
         // Total yield = 1677 - 1500 = 177
         uint256 totalYield = (275e6 + finalBalance) - (500e6 + 1_000e6);
         uint256 expectedTotalFee = (totalYield * 1000) / 10_000;
         assertApproxEqAbs(totalFees, expectedTotalFee, 1, "Total fees = 10% of total yield");
-        (uint256 cbFinal,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cbFinal = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cbFinal, 0, "Position fully cleared");
     }
 
@@ -261,12 +229,12 @@ contract AdapterFlowsTest is Test {
         // We can't easily remove aTokens, so we test by withdrawing more than balance
         // Instead: withdraw 800 of the 1000 (no yield = no fee)
         _withdraw(800e6);
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 0, "No fee on principal return");
-        (uint256 cb1,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0, "No fee on principal return");
+        uint256 cb1 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb1, 200e6, "Remaining cost basis");
         // Deposit 500 more
         _deposit(500e6);
-        (uint256 cb2,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cb2 = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertEq(cb2, 700e6, "Cost basis = 200 + 500");
         assertEq(aToken.balanceOf(address(wallet)), 700e6);
         // Yield accrues: 70 (10%)
@@ -274,7 +242,7 @@ contract AdapterFlowsTest is Test {
         // Withdraw everything
         _withdraw(770e6);
         uint256 expectedFee = (70e6 * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), expectedFee, "Fee only on actual yield");
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Fee only on actual yield");
     }
 
     /// @notice Tiny withdrawals to verify rounding doesn't accumulate errors.
@@ -285,13 +253,12 @@ contract AdapterFlowsTest is Test {
         for (uint256 i = 0; i < 10; i++) {
             _withdraw(110e6);
         }
-        uint256 totalFees = wallet.vaultFeeModule().agentFeesCharged(address(wallet));
+        uint256 totalFees = wallet.vaultFeeModule().feesCharged(address(wallet));
         uint256 expectedTotalFee = (100e6 * 1000) / 10_000;
         // Allow rounding tolerance: 10 operations * potential 1 wei rounding each
         assertApproxEqAbs(totalFees, expectedTotalFee, 10, "Total fees correct despite many small withdrawals");
-        (uint256 cbFinal, uint256 sharesFinal) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(aToken));
+        uint256 cbFinal = wallet.vaultFeeModule().costBasis(address(wallet), address(aToken));
         assertApproxEqAbs(cbFinal, 0, 10, "Cost basis ~0 after full withdrawal");
-        assertApproxEqAbs(sharesFinal, 0, 10, "Shares ~0 after full withdrawal");
     }
 
     // ============ Flow 4: Untracked positions (tokens arriving outside deposit flow) ============
@@ -311,19 +278,21 @@ contract AdapterFlowsTest is Test {
         vm.stopPrank();
         uint256 cTokenBalanceBefore = cToken.balanceOf(address(wallet));
         assertGt(cTokenBalanceBefore, 0, "Wallet should hold cTokens");
-        (uint256 costBasis, uint256 shares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(cToken));
+        uint256 costBasis = wallet.vaultFeeModule().costBasis(address(wallet), address(cToken));
         assertEq(costBasis, 0, "No tracked cost basis");
-        assertEq(shares, 0, "No tracked shares");
         uint256 withdrawAssets = 1_000e6;
         uint256 withdrawShares = (withdrawAssets * 1e18) / cToken.exchangeRateCurrent();
+        uint256 expectedFee = (withdrawAssets * 1000) / 10_000;
         uint256 walletBalanceBefore = baseAsset.balanceOf(address(wallet));
         bytes memory result = wallet.executeAdapter(address(cAdapter), address(cToken), abi.encodeWithSelector(cAdapter.withdraw.selector, withdrawShares));
-        uint256 assetsReceived = baseAsset.balanceOf(address(wallet)) - walletBalanceBefore;
-        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), assetsReceived);
+        uint256 assetsReceived = abi.decode(abi.decode(result, (bytes)), (uint256));
+        uint256 netAssetsReceived = baseAsset.balanceOf(address(wallet)) - walletBalanceBefore;
         assertEq(assetsReceived, withdrawAssets, "Should receive the underlying value of redeemed cTokens");
+        assertEq(netAssetsReceived, withdrawAssets - expectedFee, "Fees are paid from withdrawn untracked shares");
         assertEq(cTokenBalanceBefore - cToken.balanceOf(address(wallet)), withdrawShares, "Redeemed cToken shares");
         assertGt(cToken.balanceOf(address(wallet)), 0, "Remaining cTokens preserved, not liquidated");
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), 0, "Untracked shares have no tracked cost basis");
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), expectedFee, "Untracked shares are charged on withdrawal");
+        assertEq(wallet.vaultFeeModule().feesPaid(address(wallet)), expectedFee);
     }
 
     /// @notice CompoundV3: untracked tokens arrive, then a tracked deposit on top.
@@ -337,19 +306,18 @@ contract AdapterFlowsTest is Test {
         uint256 firstWithdraw = 250e6;
         wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.withdraw.selector, firstWithdraw));
         uint256 firstFee = (firstWithdraw * 1000) / 10_000;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), firstFee, "Fee on untracked withdrawal");
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), firstFee, "Fee on untracked withdrawal");
         uint256 trackedDeposit = 1_000e6;
         wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.deposit.selector, trackedDeposit));
         uint256 totalBalance = comet.balanceOf(address(wallet));
         assertEq(totalBalance, 1_250e6, "250 untracked + 1000 deposit");
-        (uint256 cb,) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(comet));
+        uint256 cb = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
         assertEq(cb, trackedDeposit, "Cost basis equals tracked deposit only");
         wallet.executeAdapter(address(cAdapter), address(comet), abi.encodeWithSelector(cAdapter.withdraw.selector, totalBalance));
         uint256 secondFee = (250e6 * 1000) / 10_000;
         uint256 totalExpectedFees = firstFee + secondFee;
-        assertEq(wallet.vaultFeeModule().agentFeesCharged(address(wallet)), totalExpectedFees, "Total fees account for all untracked tokens");
-        (uint256 finalCb, uint256 finalShares) = wallet.vaultFeeModule().getAgentVaultPosition(address(wallet), address(comet));
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), totalExpectedFees, "Total fees account for all untracked tokens");
+        uint256 finalCb = wallet.vaultFeeModule().costBasis(address(wallet), address(comet));
         assertEq(finalCb, 0, "Position fully cleared");
-        assertEq(finalShares, 0, "Shares fully cleared");
     }
 }

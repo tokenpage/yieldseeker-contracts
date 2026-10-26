@@ -11,18 +11,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 contract MockLendingAaveV3Pool is IAaveV3LendingPool {
     mapping(address asset => ReserveDataLegacy reserve) private _reserves;
     mapping(address user => uint256 category) private _userEMode;
-    address public feeCollector;
-    uint256 public collectorBalanceAtRepay;
     uint256 public lastRepayAmount;
 
     function setReserve(address asset, address aTokenAddress, address variableDebtTokenAddress) external {
         ReserveDataLegacy storage reserve = _reserves[asset];
         reserve.aTokenAddress = aTokenAddress;
         reserve.variableDebtTokenAddress = variableDebtTokenAddress;
-    }
-
-    function setFeeCollector(address collector) external {
-        feeCollector = collector;
     }
 
     function getReserveData(address asset) external view override returns (ReserveDataLegacy memory) {
@@ -59,7 +53,6 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         MockERC20 variableDebtToken = MockERC20(_reserves[asset].variableDebtTokenAddress);
         uint256 debt = variableDebtToken.balanceOf(onBehalfOf);
         repaid = amount == type(uint256).max || amount > debt ? debt : amount;
-        collectorBalanceAtRepay = feeCollector == address(0) ? 0 : IERC20(asset).balanceOf(feeCollector);
         lastRepayAmount = repaid;
         if (repaid != 0) {
             IERC20(asset).transferFrom(onBehalfOf, address(this), repaid);

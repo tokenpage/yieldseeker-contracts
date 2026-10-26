@@ -165,13 +165,6 @@ contract DeployScript is Script {
         revert(string.concat("Unsupported chain id for Aerodrome CL router: ", vm.toString(chainId)));
     }
 
-    function getWellToken(uint256 chainId) internal pure returns (address) {
-        if (chainId == 8453) {
-            return 0xA88594D404727625A9437C3f886C7643872296AE;
-        }
-        revert(string.concat("Unsupported chain id for WELL token: ", vm.toString(chainId)));
-    }
-
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         address planManagerAddress = vm.envAddress("PLAN_MANAGER_ADDRESS");
@@ -359,7 +352,7 @@ contract DeployScript is Script {
         }
 
         if (deployments.moonwellRewardAdapter == address(0)) {
-            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
+            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode));
             console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
         } else {
             console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
@@ -482,14 +475,14 @@ contract DeployScript is Script {
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
-        if (address(feeTracker.feeModules(VAULT_FEE)) == address(0)) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.addFeeModule, (VAULT_FEE, VaultFeeModule(deployments.vaultFeeModule))));
+        if (address(feeTracker.feeModules(VAULT_FEE)) != deployments.vaultFeeModule) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (VAULT_FEE, VaultFeeModule(deployments.vaultFeeModule))));
         }
         if (feeTracker.planRateBps(0, VAULT_FEE) != VAULT_DEFAULT_FEE_BPS) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, VAULT_FEE, VAULT_DEFAULT_FEE_BPS)));
         }
-        if (address(feeTracker.feeModules(BORROW_FEE)) == address(0)) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.addFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
+        if (address(feeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
         }
         if (feeTracker.planRateBps(0, BORROW_FEE) != BORROW_DEFAULT_FEE_BPS) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, BORROW_FEE, BORROW_DEFAULT_FEE_BPS)));

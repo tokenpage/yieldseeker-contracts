@@ -66,7 +66,7 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
     /// @dev Pays vault fees owed to the fee collector right after they are charged, from the base asset just received
     function _payVaultFees() internal {
         YieldSeekerVaultFeeModule vaultFees = _vaultFeeModule();
-        uint256 owed = vaultFees.getFeesOwed(address(this));
+        uint256 owed = vaultFees.feesOwed(address(this));
         if (owed == 0) return;
         IERC20 baseAsset = _baseAsset();
         uint256 balance = baseAsset.balanceOf(address(this));

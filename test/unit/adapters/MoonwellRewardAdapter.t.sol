@@ -48,14 +48,14 @@ contract MoonwellRewardAdapterTest is Test {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         wellToken = new MockERC20("Moonwell", "WELL");
         (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
-        adapter = new YieldSeekerMoonwellRewardAdapter(address(wellToken));
+        adapter = new YieldSeekerMoonwellRewardAdapter();
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         comptroller = new MockMoonwellComptroller(IERC20Like(address(wellToken)));
         wellToken.mint(address(comptroller), 1_000_000e18);
         comptroller.setRewardPerMarket(100e18);
     }
 
-    function test_ClaimReward_TransfersWellAndRecordsFee() public {
+    function test_ClaimReward_TransfersWellWithoutRecordingFee() public {
         address[] memory mTokens = new address[](2);
         mTokens[0] = address(0x1111);
         mTokens[1] = address(0x2222);
@@ -63,7 +63,8 @@ contract MoonwellRewardAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comptroller), abi.encodeWithSelector(adapter.claimReward.selector, address(wallet), mTokens));
 
         assertEq(wellToken.balanceOf(address(wallet)), 200e18);
-        assertEq(wallet.vaultFeeModule().agentYieldTokenFeesOwed(address(wallet), address(wellToken)), 20e18);
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 0);
+        assertEq(wallet.vaultFeeModule().feesPaid(address(wallet)), 0);
     }
 
     function test_ClaimReward_RejectsDifferentHolder() public {

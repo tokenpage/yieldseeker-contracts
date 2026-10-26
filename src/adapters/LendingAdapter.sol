@@ -29,9 +29,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @notice YieldSeeker rules and the borrow fee on top of an AWK lending adapter
  * @dev Collateral must be the wallet's base asset and the debt asset must differ from it; which markets can be
  *      used at all is decided by the registry. Every borrow, repay and collateral withdrawal reports the market's
- *      real debt to the borrow fee module. Fees owed are paid in the borrowed token before each repay. Withdrawing
- *      collateral pays fees owed from the borrowed token and then from the withdrawn collateral at the oracle price,
- *      so fees cannot be left behind. A missing or stale price skips that payment so the owner can always exit.
+ *      real debt to the borrow fee module. Fees owed are paid from the collateral when it is withdrawn, at the oracle
+ *      price; collateral can only leave the protocol that way, so fees cannot be left behind. A missing or stale price
+ *      skips that payment so the owner can always exit.
  */
 abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAdapter {
     using SafeERC20 for IERC20;
@@ -72,7 +72,6 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         YieldSeekerBorrowFeeModule feeModule = _feeModule();
         uint256 debtBefore = _debtOf(market);
         feeModule.checkpoint(keccak256(market), debtAsset, debtBefore);
-        _payFees(feeModule, debtAsset, debtAsset);
         uint256 balance = IERC20(debtAsset).balanceOf(address(this));
         uint256 repayAmount = amount == type(uint256).max ? (debtBefore < balance ? debtBefore : balance) : amount;
         if (repayAmount == 0) revert AWKErrors.InsufficientBalance();
@@ -85,27 +84,24 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         YieldSeekerBorrowFeeModule feeModule = _feeModule();
         feeModule.checkpoint(keccak256(market), debtAsset, _debtOf(market));
         withdrawn = super._withdrawCollateralOperation(market, amount);
-        _payFees(feeModule, debtAsset, debtAsset);
-        _payFees(feeModule, debtAsset, collateralAsset);
+        _payFeesFromCollateral(feeModule, debtAsset, collateralAsset);
     }
 
-    /// @dev Pays fees owed in `debtAsset` with `paymentAsset`, valued at the oracle price when they differ
-    function _payFees(YieldSeekerBorrowFeeModule feeModule, address debtAsset, address paymentAsset) internal {
+    /// @dev Pays fees owed in `debtAsset` with the collateral in the wallet, valued at the oracle price
+    function _payFeesFromCollateral(YieldSeekerBorrowFeeModule feeModule, address debtAsset, address collateralAsset) internal {
         uint256 owed = feeModule.feesOwed(address(this), debtAsset);
         if (owed == 0) return;
-        uint256 owedInPaymentAsset = owed;
-        if (paymentAsset != debtAsset) {
-            try PRICE_ORACLE.quote(debtAsset, paymentAsset, owed) returns (uint256 quoted) {
-                owedInPaymentAsset = quoted;
-            } catch {
-                return;
-            }
+        uint256 owedInCollateral;
+        try PRICE_ORACLE.quote(debtAsset, collateralAsset, owed) returns (uint256 quoted) {
+            owedInCollateral = quoted;
+        } catch {
+            return;
         }
-        uint256 balance = IERC20(paymentAsset).balanceOf(address(this));
-        uint256 payment = owedInPaymentAsset > balance ? balance : owedInPaymentAsset;
+        uint256 balance = IERC20(collateralAsset).balanceOf(address(this));
+        uint256 payment = owedInCollateral > balance ? balance : owedInCollateral;
         if (payment == 0) return;
-        uint256 owedCovered = payment == owedInPaymentAsset ? owed : (owed * payment) / owedInPaymentAsset;
-        IERC20(paymentAsset).safeTransfer(_feeTracker().feeCollector(), payment);
-        feeModule.recordFeePaid(debtAsset, owedCovered, paymentAsset, payment);
+        uint256 owedCovered = payment == owedInCollateral ? owed : (owed * payment) / owedInCollateral;
+        IERC20(collateralAsset).safeTransfer(_feeTracker().feeCollector(), payment);
+        feeModule.recordFeePaid(debtAsset, owedCovered, collateralAsset, payment);
     }
 }

@@ -15,7 +15,7 @@ library AdapterFeeSetup {
 
     function addVaultModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerVaultFeeModule vaultFees) {
         vaultFees = new YieldSeekerVaultFeeModule(feeTracker, maxFeeRateBps);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         feeTracker.setPlanRate(0, VAULT_FEE, rateBps);
     }
 }
@@ -43,10 +43,6 @@ contract AdapterWalletHarness is IAgentWallet {
 
     function vaultFeeModule() external view returns (YieldSeekerVaultFeeModule) {
         return YieldSeekerVaultFeeModule(address(_FEE_TRACKER.feeModules(VAULT_FEE)));
-    }
-
-    function recordAgentYieldTokenEarned(address token, uint256 amount) external {
-        YieldSeekerVaultFeeModule(address(_FEE_TRACKER.feeModules(VAULT_FEE))).recordAgentYieldTokenEarned(token, amount);
     }
 
     /// @notice Execute adapter logic via delegatecall

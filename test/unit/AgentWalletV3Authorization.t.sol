@@ -92,7 +92,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, admin);
         vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -713,11 +713,11 @@ contract AgentWalletV3AuthorizationTest is Test {
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
+        vaultFeeModule.recordDeposit(address(vault), 1_000e6);
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
+        vaultFeeModule.recordWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
 
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 10e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 10e6);
 
         vm.prank(ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
@@ -734,9 +734,9 @@ contract AgentWalletV3AuthorizationTest is Test {
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(address(vault), 1_000e6, 1_000e6);
+        vaultFeeModule.recordDeposit(address(vault), 1_000e6);
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(address(vault), 1_000e6, 1_100e6);
+        vaultFeeModule.recordWithdraw(address(vault), 1_000e6, 1_000e6, 1_100e6);
 
         vm.prank(ownerAddr);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
@@ -796,7 +796,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(20_000e6);
+        vaultFeeModule.recordYield(20_000e6);
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
 
@@ -805,7 +805,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         assertEq(usdc.balanceOf(recipient), 0);
         assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 2_000e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 2_000e6);
     }
 
     function test_WithdrawEthToUser_ValidAmount() public {

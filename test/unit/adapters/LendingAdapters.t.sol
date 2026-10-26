@@ -68,7 +68,7 @@ contract LendingAdaptersTest is Test {
         feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR);
         AdapterFeeSetup.addVaultModule(feeTracker, 10_000, 0);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
-        feeTracker.addFeeModule(BORROW_FEE, feeModule);
+        feeTracker.setFeeModule(BORROW_FEE, feeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
@@ -84,7 +84,6 @@ contract LendingAdaptersTest is Test {
         variableDebtUsdc = new MockERC20("Variable Debt USDC", "vdUSDC");
         aavePool.setReserve(address(weth), address(aWeth), address(0));
         aavePool.setReserve(address(usdc), address(0), address(variableDebtUsdc));
-        aavePool.setFeeCollector(feeTracker.feeCollector());
         aaveV4Spoke.setReserve(1, address(weth), 18);
         aaveV4Spoke.setReserve(2, address(usdc), 6);
 
@@ -168,7 +167,7 @@ contract LendingAdaptersTest is Test {
         assertEq(secondDebtToken.balanceOf(address(wallet)), 30e6);
     }
 
-    function test_YearlyRepayPaysFeeFirstAndCapsRepaymentAtPostFeeBalance() public {
+    function test_YearlyRepayDoesNotPayBorrowFeeFromDebtToken() public {
         bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 0);
         _fundAndSupplyAave(COLLATERAL, market);
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.borrow.selector, market, BORROW_AMOUNT));
@@ -179,15 +178,61 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.repay.selector, market, type(uint256).max));
 
         assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
-        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 500_000);
-        assertEq(aavePool.collectorBalanceAtRepay(), 500_000);
-        assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT - 500_000);
-        assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20_500_000);
+        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
+        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
+        (bool allowed, uint256 reserved) = feeModule.withdrawReserve(address(wallet), address(usdc));
+        assertTrue(allowed);
+        assertEq(reserved, 0);
+        assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT);
+        assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(usdc.balanceOf(address(wallet)), 0);
         (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
-        assertEq(principal, 20_500_000);
-        assertEq(lastDebt, 20_500_000);
+        assertEq(principal, 20e6);
+        assertEq(lastDebt, 20e6);
+    }
+
+    function test_RepayWithFeesOwedPaysLaterFromCollateralAtOraclePrice() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 0);
+        _fundAndSupplyAave(COLLATERAL, market);
+        _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.borrow.selector, market, BORROW_AMOUNT));
+
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + YEAR);
+        aavePool.growDebt(address(usdc), address(wallet), 20e6);
+        usdc.mint(address(wallet), 20e6);
+        _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.repay.selector, market, type(uint256).max));
+
+        assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
+        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
+        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
+        assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT + 20e6);
+
+        wethFeed.setAnswer(int256(2_000e8));
+        usdcFeed.setAnswer(int256(1e8));
+        uint256 collateralFee = 250_000_000_000_000;
+        _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
+
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), collateralFee);
+        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 0);
+        assertEq(weth.balanceOf(address(wallet)), COLLATERAL - collateralFee);
+    }
+
+    function test_PartialCollateralFeePaymentLeavesDebtTokenFeeOwed() public {
+        bytes memory market = _prepareDebtFreeOwedFee();
+        vm.prank(address(wallet));
+        weth.transfer(OWNER, 1e18);
+        wethFeed.setAnswer(int256(1e6));
+        usdcFeed.setAnswer(int256(1e8));
+
+        _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, 1e18));
+
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), 1e18);
+        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 10_000);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 490_000);
+        assertEq(weth.balanceOf(address(wallet)), 0);
     }
 
     function test_ExternalDebtReductionStillAccruesOnPreviousReportedDebt() public {
@@ -201,8 +246,8 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, 1e18));
 
         assertEq(feeModule.feesCharged(address(wallet), address(usdc)), 500_000);
-        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 500_000);
-        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 500_000);
+        assertEq(feeModule.feesPaid(address(wallet), address(usdc)), 0);
+        assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 40e6);
         (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 40e6);

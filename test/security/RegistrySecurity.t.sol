@@ -41,7 +41,7 @@ contract RegistrySecurityTest is Test {
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
         YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);

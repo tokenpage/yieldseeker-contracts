@@ -42,7 +42,7 @@ contract FeeTrackerSecurityTest is Test {
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
         vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5_000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
@@ -65,8 +65,8 @@ contract FeeTrackerSecurityTest is Test {
     function test_RecordYieldAccruesFees() public {
         AgentWalletV3 wallet = _createWallet();
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(1_000e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 100e6);
+        vaultFeeModule.recordYield(1_000e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
@@ -74,49 +74,43 @@ contract FeeTrackerSecurityTest is Test {
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordDeposit(vaultAddr, 1_000e6);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 1_200e6);
+        vaultFeeModule.recordWithdraw(vaultAddr, 1_000e6, 1_000e6, 1_200e6);
 
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
 
-    function test_PartialWithdrawWithVaultTokenFees_DoesNotDoubleChargeProfit() public {
+    function test_PartialWithdrawChargesYieldAcrossRewardShares() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordDeposit(vaultAddr, 1_000e6);
+
+        uint256 initialFees = vaultFeeModule.feesOwed(address(wallet));
+        assertEq(initialFees, 0);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldTokenEarned(vaultAddr, 1_000e6);
+        vaultFeeModule.recordWithdraw(vaultAddr, 100e6, 2_000e6, 120e6);
 
-        uint256 initialFees = vaultFeeModule.getFeesOwed(address(wallet));
-
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 100e6, 120e6);
-
-        uint256 finalFees = vaultFeeModule.getFeesOwed(address(wallet));
-        assertEq(finalFees - initialFees, 120e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)) - initialFees, 7e6);
+        assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 950e6);
     }
 
-    function test_MixedRewardAndDepositShares_WithdrawalRetainsRemainingRewardShares() public {
+    function test_MixedRewardAndDepositSharesSpreadRemainingCostBasis() public {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 100e6, 100e6);
+        vaultFeeModule.recordDeposit(vaultAddr, 100e6);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldTokenEarned(vaultAddr, 50e6);
+        vaultFeeModule.recordWithdraw(vaultAddr, 120e6, 150e6, 150e6);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 120e6, 150e6);
-
-        (uint256 costBasis, uint256 shares) = vaultFeeModule.getAgentVaultPosition(address(wallet), vaultAddr);
-        assertEq(costBasis, 0);
-        assertEq(shares, 0);
+        assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 20e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 7e6);
     }
 
     function test_LossWithdrawalDoesNotChargeFees() public {
@@ -124,39 +118,34 @@ contract FeeTrackerSecurityTest is Test {
         address vaultAddr = address(vault);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareDeposit(vaultAddr, 1_000e6, 1_000e6);
+        vaultFeeModule.recordDeposit(vaultAddr, 1_000e6);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentVaultShareWithdraw(vaultAddr, 1_000e6, 800e6);
+        vaultFeeModule.recordWithdraw(vaultAddr, 1_000e6, 1_000e6, 800e6);
 
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
 
-    function test_YieldTokenFeeTrackedAndConvertedOnSwap() public {
+    function test_YieldTokenSaleChargesFeeOnBaseAssetReceived() public {
         AgentWalletV3 wallet = _createWallet();
-        address rewardToken = address(0xDEAD);
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldTokenEarned(rewardToken, 1_000e6);
-        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), rewardToken), 100e6);
+        vaultFeeModule.recordYield(50e6);
 
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentTokenSwap(rewardToken, 100e6, 50e6);
-
-        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), rewardToken), 0);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 50e6);
+        assertEq(vaultFeeModule.feesCharged(address(wallet)), 5e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 5e6);
     }
 
     function test_FeePaymentReducesFeesOwed() public {
         AgentWalletV3 wallet = _createWallet();
 
         vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(500e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 50e6);
+        vaultFeeModule.recordYield(500e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 50e6);
 
         vm.prank(address(wallet));
         vaultFeeModule.recordFeePaid(30e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
 
     function test_MaxFeeRateEnforced() public {

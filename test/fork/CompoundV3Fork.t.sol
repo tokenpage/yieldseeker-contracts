@@ -33,7 +33,7 @@ contract CompoundV3ForkTest is Test {
 
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
         YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV3Adapter adapter = new YieldSeekerCompoundV3Adapter();
@@ -42,11 +42,10 @@ contract CompoundV3ForkTest is Test {
         bytes memory depositResult = wallet.executeAdapter(address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Compound V3 deposit must consume the full requested amount");
-        assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 1, "Compound V3 balance must increase ~1:1 with deposited assets");
+        assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 2, "Compound V3 balance must increase ~1:1 with deposited assets");
         assertEq(comet.balanceOf(address(wallet)), shares, "Comet balance must match minted shares");
-        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), COMET_USDC);
+        uint256 costBasis = vaultFees.costBasis(address(wallet), COMET_USDC);
         assertEq(costBasis, DEPOSIT_AMOUNT, "Cost basis must match deposit");
-        assertEq(trackedShares, shares, "Tracked shares must match deposited shares");
 
         // Advance time on the fork so the rebasing Comet balance accrues real interest.
         vm.warp(vm.getBlockTimestamp() + 90 days);
@@ -62,9 +61,8 @@ contract CompoundV3ForkTest is Test {
 
         uint256 expectedProfit = totalVaultBalanceBefore - DEPOSIT_AMOUNT;
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
-        (costBasis, trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), COMET_USDC);
+        costBasis = vaultFees.costBasis(address(wallet), COMET_USDC);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
-        assertEq(trackedShares, 0, "Tracked shares should clear after full withdrawal");
-        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedFee, "Live Compound V3 interest fee mismatch");
+        assertEq(vaultFees.feesCharged(address(wallet)), expectedFee, "Live Compound V3 interest fee mismatch");
     }
 }

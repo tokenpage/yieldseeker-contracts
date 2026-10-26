@@ -33,7 +33,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
         feeVault = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR_A);
         feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, 500);
-        feeVault.addFeeModule(BORROW_FEE, feeBorrow);
+        feeVault.setFeeModule(BORROW_FEE, feeBorrow);
         feeVault.setPlanRate(0, BORROW_FEE, 500);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
 

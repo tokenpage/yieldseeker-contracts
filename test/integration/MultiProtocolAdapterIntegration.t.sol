@@ -60,7 +60,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
         vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);

@@ -59,10 +59,10 @@ contract BorrowForkTest is Test {
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
         feeTracker = new FeeTracker(address(this), address(this), feeCollector);
         YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
-        feeTracker.addFeeModule(BORROW_FEE, borrowFeeModule);
+        feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
         feeTracker.setPlanRate(0, BORROW_FEE, 50);
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
@@ -119,22 +119,29 @@ contract BorrowForkTest is Test {
         vm.warp(vm.getBlockTimestamp() + 365 days);
         vm.roll(block.number + 1);
         deal(USDC, address(wallet), 1_200e6);
+        oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 400 days);
+        oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 400 days);
 
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
-        assertEq(IERC20(USDC).balanceOf(feeCollector), 5e6, "0.5% of principal for a year paid on repay");
+        assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
         (uint256 principal,,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0, "principal cleared");
-        assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 0, "nothing owed");
+        assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 5e6, "Borrow fee remains owed until collateral withdrawal");
 
+        uint256 expectedCollateralFee = oracle.quote(USDC, WETH, borrowFeeModule.feesOwed(address(wallet), USDC));
+        uint256 feeCollectorWethBefore = IERC20(WETH).balanceOf(feeCollector);
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max));
-        assertGe(IERC20(WETH).balanceOf(address(wallet)), 1 ether - 1, "collateral back in wallet");
+        uint256 collateralLeft = IERC20(WETH).balanceOf(address(wallet));
+        assertGe(collateralLeft + 1, 1 ether - expectedCollateralFee, "Collateral pays only the borrow fee at the oracle price");
+        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorWethBefore, expectedCollateralFee, "Fee collector receives collateral");
+        assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 0, "Collateral withdrawal pays the borrow fee");
 
         uint256 usdcLeft = IERC20(USDC).balanceOf(address(wallet));
         vm.startPrank(owner);
         wallet.withdrawAllAssetToUser(owner, WETH);
         wallet.withdrawAllAssetToUser(owner, USDC);
         vm.stopPrank();
-        assertGe(IERC20(WETH).balanceOf(owner), 1 ether - 1, "owner exits with collateral");
+        assertEq(IERC20(WETH).balanceOf(owner), collateralLeft, "Owner exits with net collateral");
         assertEq(IERC20(USDC).balanceOf(owner), usdcLeft, "owner exits with leftover cash");
     }
 

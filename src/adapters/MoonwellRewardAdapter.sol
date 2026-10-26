@@ -16,26 +16,12 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKMoonwellRewardAdapter} from "../agentwalletkit/adapters/AWKMoonwellRewardAdapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeekerAdapter {
-    IERC20 public immutable WELL_TOKEN;
-
-    constructor(address wellToken) {
-        if (wellToken == address(0)) revert AWKErrors.ZeroAddress();
-        WELL_TOKEN = IERC20(wellToken);
-    }
-
-    function _claimInternal(address comptroller, address holder, address[] memory mTokens) internal override {
-        uint256 wellBalanceBefore = WELL_TOKEN.balanceOf(address(this));
-        super._claimInternal(comptroller, holder, mTokens);
-        uint256 wellBalanceAfter = WELL_TOKEN.balanceOf(address(this));
-        uint256 claimed = wellBalanceAfter - wellBalanceBefore;
-        if (claimed > 0) {
-            _vaultFeeModule().recordAgentYieldTokenEarned(address(WELL_TOKEN), claimed);
-        }
-    }
-}
+/**
+ * @title YieldSeekerMoonwellRewardAdapter
+ * @notice Claims Moonwell rewards (WELL) into the wallet
+ * @dev WELL is not the base asset, so it pays the vault fee when it is sold through a swap adapter.
+ */
+contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeekerAdapter {}

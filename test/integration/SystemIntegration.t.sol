@@ -59,7 +59,7 @@ contract SystemIntegrationTest is Test {
         registry = new AdapterRegistry(admin, admin); // admin as both admin and emergency admin
         feeTracker = new FeeTracker(admin, admin, feeCollector);
         vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE);
 
         // Deploy factory
@@ -421,7 +421,7 @@ contract SystemIntegrationTest is Test {
         assertEq(assetsReceived, 550e6);
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 5e6);
-        assertEq(vaultFeeModule.getFeesOwed(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 545e6);
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
@@ -437,13 +437,13 @@ contract SystemIntegrationTest is Test {
 
         // Record multiple yield events from the wallet
         vm.startPrank(address(wallet));
-        vaultFeeModule.recordAgentYieldEarned(100e6);
-        vaultFeeModule.recordAgentYieldEarned(50e6);
-        vaultFeeModule.recordAgentYieldEarned(75e6);
+        vaultFeeModule.recordYield(100e6);
+        vaultFeeModule.recordYield(50e6);
+        vaultFeeModule.recordYield(75e6);
         vm.stopPrank();
 
         // Get total fees owed for the wallet
-        uint256 feesOwed = vaultFeeModule.getFeesOwed(address(wallet));
+        uint256 feesOwed = vaultFeeModule.feesOwed(address(wallet));
 
         // Should be sum of all yields * feeRate (0.1 = 10%)
         uint256 expectedFees = (100e6 + 50e6 + 75e6) * 1000 / 10000; // 10% of 225e6 = 22.5e6

@@ -27,7 +27,8 @@ error FeePaidExceedsOwed(uint256 owed, uint256 paid);
 
 /**
  * @title YieldSeekerBorrowFeeModule
- * @notice Fee module for borrowing: a yearly fee on borrowed principal, owed and paid in the borrowed token
+ * @notice Fee module for borrowing: a yearly fee on borrowed principal, counted in the borrowed token and paid in
+ *         collateral (at the oracle price) when collateral is withdrawn
  * @dev Plugged into the fee tracker as BORROW_FEE; the rate comes from the owner's plan in the tracker.
  *      Lending adapters report every borrow, repay and collateral withdrawal per market with the protocol's real debt.
  *      Each period between two reports is charged on min(principal, debt at the start of the period), so repaying
@@ -131,9 +132,8 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return _pendingFee(debtPositions[wallet][market]);
     }
 
-    /// @notice Borrowed tokens may leave minus the fees owed in them; other tokens are not this module's concern
+    /// @notice Borrowed tokens may leave in full; their fees are paid from the collateral when it is withdrawn
     function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
         allowed = isBorrowedToken[wallet][token];
-        if (allowed) reserved = feesOwed(wallet, token);
     }
 }

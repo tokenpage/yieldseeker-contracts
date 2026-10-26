@@ -16,7 +16,7 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKCompoundV2Adapter} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
+import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 interface IWETH {
@@ -38,7 +38,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _vaultFeeModule().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
+        _vaultFeeModule().recordDeposit({vault: vault, assetsDeposited: assetsDeposited});
     }
 
     /**
@@ -47,13 +47,14 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
+        uint256 heldBefore = ICToken(vault).balanceOf(address(this));
         uint256 nativeBalanceBefore = address(this).balance;
         assets = super._withdrawInternal(vault, shares);
         uint256 nativeAssetsReceived = address(this).balance - nativeBalanceBefore;
         if (nativeAssetsReceived > 0) {
             IWETH(asset).deposit{value: nativeAssetsReceived}();
         }
-        _vaultFeeModule().recordAgentVaultShareWithdraw({vault: vault, sharesSpent: shares, assetsReceived: assets});
+        _vaultFeeModule().recordWithdraw({vault: vault, spent: shares, heldBefore: heldBefore, assetsReceived: assets});
         _payVaultFees();
     }
 }

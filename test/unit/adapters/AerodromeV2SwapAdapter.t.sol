@@ -89,7 +89,11 @@ contract AerodromeV2SwapAdapterTest is Test {
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 500e6);
         assertEq(sellToken.balanceOf(address(wallet)), 900e18);
-        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), buyAmount - 50e6);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 50e6);
+        assertEq(wallet.vaultFeeModule().feesCharged(address(wallet)), 50e6);
+        assertEq(wallet.vaultFeeModule().feesPaid(address(wallet)), 50e6);
+        assertEq(wallet.vaultFeeModule().feesOwed(address(wallet)), 0);
     }
 
     function test_Execute_Swap_RevertsOnLowOutput() public {

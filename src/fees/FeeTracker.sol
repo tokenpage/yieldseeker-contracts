@@ -26,16 +26,15 @@ error InvalidFeeRate();
 error UnknownPlan(uint256 planId);
 error PlanRateIncrease(bytes32 feeType, uint256 currentRateBps, uint256 newRateBps);
 error UnknownFeeType(bytes32 feeType);
-error FeeModuleAlreadySet(bytes32 feeType);
 
 /**
  * @title YieldSeekerFeeTracker
  * @notice Fee plans per user (wallet owner), the fee collector and the fee modules that do each fee type's accounting
  * @dev Every fee type is a module (e.g. the vault fee, the borrow fee) that wallets and their adapters call directly.
  *      Every owner starts on plan 0. A plan has a rate per fee type. The admin (timelock) sets plan rates and the fee
- *      collector, adds modules and can assign any plan. The plan manager can only move an owner to a plan that is not
+ *      collector, sets modules and can assign any plan. The plan manager can only move an owner to a plan that is not
  *      more expensive for any fee type.
- *      Modules can be added but never replaced or removed, so fees they hold for wallets cannot be dropped.
+ *      Replacing a module drops the fee state the old one holds for wallets unless it is migrated first.
  *      No rate can exceed its module's MAX_FEE_RATE_BPS, which is fixed at deployment.
  */
 contract YieldSeekerFeeTracker is AccessControl {
@@ -50,7 +49,7 @@ contract YieldSeekerFeeTracker is AccessControl {
     mapping(address owner => uint256 planId) public planOf;
 
     event FeeCollectorUpdated(address feeCollector);
-    event FeeModuleAdded(bytes32 indexed feeType, address indexed module);
+    event FeeModuleSet(bytes32 indexed feeType, address indexed module);
     event PlanRateUpdated(uint256 indexed planId, bytes32 indexed feeType, uint256 rateBps);
     event PlanAssigned(address indexed owner, uint256 indexed planId);
 
@@ -68,13 +67,12 @@ contract YieldSeekerFeeTracker is AccessControl {
         emit FeeCollectorUpdated(newFeeCollector);
     }
 
-    /// @notice Plug in a fee type; set its plan rates with setPlanRate (unset rates are 0)
-    function addFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @notice Plug in or replace a fee type's module; set a new fee type's plan rates with setPlanRate (unset rates are 0)
+    function setFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
-        if (address(feeModules[feeType]) != address(0)) revert FeeModuleAlreadySet(feeType);
+        if (address(feeModules[feeType]) == address(0)) _moduleFeeTypes.push(feeType);
         feeModules[feeType] = module;
-        _moduleFeeTypes.push(feeType);
-        emit FeeModuleAdded(feeType, address(module));
+        emit FeeModuleSet(feeType, address(module));
     }
 
     function moduleFeeTypes() external view returns (bytes32[] memory) {

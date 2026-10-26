@@ -41,7 +41,7 @@ contract MorphoERC4626ForkTest is Test {
 
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
         YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         feeTracker.setPlanRate(0, VAULT_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerERC4626Adapter adapter = new YieldSeekerERC4626Adapter();
@@ -51,10 +51,9 @@ contract MorphoERC4626ForkTest is Test {
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Vault deposit must consume the full requested amount");
         assertGt(shares, 0, "Deposit returned no vault shares");
-        assertEq(vault.balanceOf(address(wallet)), shares, "Tracked shares must match live vault share balance");
-        (uint256 costBasis, uint256 trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), vaultAddress);
+        assertEq(vault.balanceOf(address(wallet)), shares, "Wallet shares must match minted shares");
+        uint256 costBasis = vaultFees.costBasis(address(wallet), vaultAddress);
         assertEq(costBasis, DEPOSIT_AMOUNT, "Cost basis must match deposit");
-        assertEq(trackedShares, shares, "Tracked shares must match minted shares");
 
         // Advance time on the fork so the vault's price-per-share accrues real yield.
         vm.warp(vm.getBlockTimestamp() + 90 days);
@@ -70,9 +69,8 @@ contract MorphoERC4626ForkTest is Test {
 
         uint256 expectedProfit = assetsReceived - DEPOSIT_AMOUNT;
         uint256 expectedFee = (expectedProfit * FEE_RATE_BPS) / 10_000;
-        (costBasis, trackedShares) = vaultFees.getAgentVaultPosition(address(wallet), vaultAddress);
+        costBasis = vaultFees.costBasis(address(wallet), vaultAddress);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
-        assertEq(trackedShares, 0, "Tracked shares should clear after full withdrawal");
-        assertEq(vaultFees.agentFeesCharged(address(wallet)), expectedFee, "Live Morpho vault yield fee mismatch");
+        assertEq(vaultFees.feesCharged(address(wallet)), expectedFee, "Live Morpho vault yield fee mismatch");
     }
 }

@@ -104,7 +104,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, admin);
         YieldSeekerVaultFeeModule vaultFees = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFees);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFees);
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);

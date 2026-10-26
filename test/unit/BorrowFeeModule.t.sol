@@ -35,8 +35,8 @@ contract BorrowFeeModuleTest is Test {
         module = new YieldSeekerBorrowFeeModule(tracker, 1_000);
         vaultModule = new YieldSeekerVaultFeeModule(tracker, 5_000);
         vm.startPrank(admin);
-        tracker.addFeeModule(BORROW_FEE, module);
-        tracker.addFeeModule(VAULT_FEE, vaultModule);
+        tracker.setFeeModule(BORROW_FEE, module);
+        tracker.setFeeModule(VAULT_FEE, vaultModule);
         tracker.setPlanRate(0, BORROW_FEE, 1_000);
         tracker.setPlanRate(0, VAULT_FEE, 1_000);
         vm.stopPrank();
@@ -134,14 +134,14 @@ contract BorrowFeeModuleTest is Test {
         assertTrue(baseAllowed);
         assertEq(baseReserved, 0);
         assertTrue(debtAllowed);
-        assertEq(debtReserved, 60);
+        assertEq(debtReserved, 0);
         assertFalse(unrelatedAllowed);
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordAgentYieldEarned, (100)));
+        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.recordYield, (100)));
 
-        assertEq(vaultModule.getFeesOwed(address(wallet)), 10);
+        assertEq(vaultModule.feesOwed(address(wallet)), 10);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
     }
 

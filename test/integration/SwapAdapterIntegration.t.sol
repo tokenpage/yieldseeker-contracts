@@ -161,7 +161,7 @@ contract SwapAdapterIntegrationTest is Test {
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, admin, feeCollector);
         vaultFeeModule = new YieldSeekerVaultFeeModule(feeTracker, 5000);
-        feeTracker.addFeeModule(VAULT_FEE, vaultFeeModule);
+        feeTracker.setFeeModule(VAULT_FEE, vaultFeeModule);
         feeTracker.setPlanRate(0, VAULT_FEE, 1000);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -203,7 +203,7 @@ contract SwapAdapterIntegrationTest is Test {
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 500e6);
         assertEq(sellToken.balanceOf(address(wallet)), 900e6);
-        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
     }
 
     function test_AerodromeV2Swap_ThroughWallet_Succeeds() public {
@@ -216,7 +216,7 @@ contract SwapAdapterIntegrationTest is Test {
         bytes memory result = wallet.executeViaAdapter(address(aerodromeV2Adapter), address(aerodromeV2Router), data);
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 450e6);
-        assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 405e6);
     }
 
     function test_AerodromeCLSwap_ThroughWallet_Succeeds() public {
@@ -229,7 +229,7 @@ contract SwapAdapterIntegrationTest is Test {
         bytes memory result = wallet.executeViaAdapter(address(aerodromeClAdapter), address(aerodromeClRouter), data);
         uint256 buyAmount = _decodeUint(result);
         assertEq(buyAmount, 470e6);
-        assertEq(baseAsset.balanceOf(address(wallet)), 470e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 423e6);
     }
 
     function test_SwapBatchAcrossAdapters_Succeeds() public {
@@ -258,7 +258,7 @@ contract SwapAdapterIntegrationTest is Test {
         assertEq(_decodeUint(results[0]), 120e6);
         assertEq(_decodeUint(results[1]), 130e6);
         assertEq(_decodeUint(results[2]), 140e6);
-        assertEq(baseAsset.balanceOf(address(wallet)), 390e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 351e6);
         assertEq(sellToken.balanceOf(address(wallet)), 700e6);
     }
 
@@ -307,18 +307,19 @@ contract SwapAdapterIntegrationTest is Test {
         wallet.executeViaAdapter(address(uniswapAdapter), address(aerodromeV2Router), data);
     }
 
-    function test_UniswapSwap_RecordsAndConvertsYieldTokenFees() public {
+    function test_UniswapSwap_ChargesOnBaseAssetReceivedWhenSellingAnUnrecordedToken() public {
         AgentWalletV3 wallet = _createWallet();
         sellToken.mint(address(wallet), 1_000e6);
-        vm.prank(address(wallet));
-        vaultFeeModule.recordAgentYieldTokenEarned(address(sellToken), 100e6);
-        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 10e6);
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeCollector);
         uniswapRouter.setBuyAmount(200e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(50e6), uint256(100e6)));
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
-        assertEq(vaultFeeModule.agentYieldTokenFeesOwed(address(wallet), address(sellToken)), 0);
-        assertEq(vaultFeeModule.agentFeesCharged(address(wallet)), 40e6);
+        assertEq(vaultFeeModule.feesCharged(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.feesPaid(address(wallet)), 20e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeCollector) - feeCollectorBalanceBefore, 20e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 180e6);
     }
 }
