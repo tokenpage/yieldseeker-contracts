@@ -61,8 +61,7 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
     /// @dev Whether a fee module (not the base asset) accounts for `token` in this wallet
     function _isFeeModuleToken(address token) internal view returns (bool) {
         if (token == _baseAssetAddress()) return false;
-        (bool allowed,) = _feeTracker().withdrawReserve(address(this), token);
-        return allowed;
+        return _feeTracker().tracksToken(address(this), token);
     }
 
     function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal virtual override returns (uint256 buyAmount, uint256 soldAmount) {
@@ -70,9 +69,8 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
         if (sellToken == _baseAssetAddress()) {
             uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
             if (buyAmount < minimum) revert SwapBelowOraclePrice(buyAmount, minimum);
-            (, uint256 feesReserved) = _feeTracker().withdrawReserve(address(this), sellToken);
-            if (IERC20(sellToken).balanceOf(address(this)) < feesReserved) revert AWKErrors.InsufficientBalance();
+            if (IERC20(sellToken).balanceOf(address(this)) < _feeTracker().feesHeld(address(this), sellToken)) revert AWKErrors.InsufficientBalance();
         }
-        _report(FeeActions.SWAP, abi.encode(sellToken, soldAmount, buyToken, buyAmount));
+        _reportAction(FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
     }
 }

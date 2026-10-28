@@ -10,7 +10,7 @@ import {AWKAgentWalletV3, InvalidState} from "../../src/agentwalletkit/AWKAgentW
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -91,7 +91,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, admin);
+        feeTracker = new FeeTracker(admin, admin);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
         factory = new AgentWalletFactory(admin, operatorAddr);
@@ -104,31 +104,34 @@ contract AgentWalletV3AuthorizationTest is Test {
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
         vm.stopPrank();
 
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operatorAddr);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
 
         usdc.mint(address(wallet), 1_000e6);
     }
 
     function test_FactoryCreate_RejectsInvalidOwnerAndBaseAsset() public {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        factory.createAgentWallet(address(0), 2, address(usdc), VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(address(0), 2, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
 
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        factory.createAgentWallet(ownerAddr, 2, address(0), VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, address(0), VAULT_AGENT_PROFILE, noFeePlans);
 
         address eoaAsset = address(0xBEEF);
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, eoaAsset));
-        factory.createAgentWallet(ownerAddr, 2, eoaAsset, VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, eoaAsset, VAULT_AGENT_PROFILE, noFeePlans);
     }
 
     function test_FactoryCreate_NonOperatorReverts() public {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(strangerAddr);
         vm.expectRevert();
-        factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
     }
 
     function test_FactoryRejectsImplementationFromDifferentFactory() public {
@@ -164,7 +167,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_ValidateUserOp_EmptySignature_Reverts() public {
         bytes memory callData = _withdrawCallData();
-        bytes32 userOpHash = keccak256(abi.encode(callData, block.timestamp));
+        bytes32 userOpHash = keccak256(abi.encode(callData, vm.getBlockTimestamp()));
         UserOperation memory userOp = _buildUserOp(callData, "");
 
         vm.prank(ENTRY_POINT);
@@ -174,7 +177,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_ValidateUserOp_MalformedSignature_Reverts() public {
         bytes memory callData = _withdrawCallData();
-        bytes32 userOpHash = keccak256(abi.encode(callData, block.timestamp));
+        bytes32 userOpHash = keccak256(abi.encode(callData, vm.getBlockTimestamp()));
         UserOperation memory userOp = _buildUserOp(callData, hex"1234");
 
         vm.prank(ENTRY_POINT);
@@ -297,7 +300,7 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_SyncFromFactory_UpdatesRegistryAndFeeTracker() public {
         AdapterRegistry nextRegistry = new AdapterRegistry(admin, admin);
-        FeeTracker nextTracker = new FeeTracker(admin, admin, admin);
+        FeeTracker nextTracker = new FeeTracker(admin, admin);
 
         vm.prank(admin);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
@@ -711,10 +714,10 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, 1_000);
 
-        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(address(vault), 1_000e6));
-        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(address(vault), 1_000e6, 1_000e6, 1_100e6));
+        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: 1_000e6})));
+        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(vault), spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_100e6})));
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 10e6);
 
@@ -730,10 +733,10 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, 1_000);
 
-        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(address(vault), 1_000e6));
-        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(address(vault), 1_000e6, 1_000e6, 1_100e6));
+        _recordFeeAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: 1_000e6})));
+        _recordFeeAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(vault), spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_100e6})));
 
         vm.prank(ownerAddr);
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
@@ -791,8 +794,8 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
         vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
-        _recordFeeAction(FeeActions.CLAIM, abi.encode(address(usdc), 20_000e6));
+        feeTracker.createPlan(YIELD_FEE, 1_000);
+        _recordFeeAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 20_000e6})));
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
 
@@ -910,8 +913,11 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     // ============ Helpers ============
     function _recordFeeAction(bytes32 action, bytes memory data) private {
+        uint256 baseBalance = usdc.balanceOf(address(wallet));
+        usdc.burn(address(wallet), baseBalance);
         vm.prank(address(wallet));
-        vaultFeeModule.onAction(action, data, address(usdc), 0);
+        vaultFeeModule.onAction(action, data);
+        usdc.mint(address(wallet), baseBalance);
     }
 
     function _ownerActionCallData() internal view returns (bytes[] memory calls) {
@@ -938,7 +944,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function _validateWithSigner(bytes memory callData, uint256 signerKey) internal returns (uint256) {
-        bytes32 userOpHash = keccak256(abi.encode(callData, block.timestamp));
+        bytes32 userOpHash = keccak256(abi.encode(callData, vm.getBlockTimestamp()));
         UserOperation memory userOp = _buildUserOp(callData, _sign(signerKey, userOpHash));
         vm.prank(ENTRY_POINT);
         return wallet.validateUserOp(userOp, userOpHash, 0);

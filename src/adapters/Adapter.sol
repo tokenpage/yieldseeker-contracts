@@ -30,8 +30,8 @@ error BaseAssetNotAllowed();
  * @title YieldSeekerAdapter
  * @notice Base class for all adapters in the YieldSeeker system.
  * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset and fees. Adapters only report what the
- *      wallet did (_report with a FeeActions action); every fee module decides what it charges for, and each report
- *      pays the fees due.
+ *      wallet did (_reportAction with a FeeActions action); every fee module decides what it charges for and the
+ *      fees it settles are paid straight away.
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
     using SafeERC20 for IERC20;
@@ -61,15 +61,12 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
         return _ysAgentWallet().feeTracker();
     }
 
-    /// @dev Reports an action (FeeActions) to every fee module and sends the fees they settle to the fee collector
-    function _report(bytes32 action, bytes memory data) internal {
+    /// @dev Reports an action (FeeActions) to every fee module, paying each module's fees before calling the next
+    function _reportAction(bytes32 action, bytes memory data) internal {
         (IYieldSeekerFeeModule[] memory modules, address feeCollector) = _feeTracker().feeModulesAndCollector();
-        IERC20 baseAsset = _baseAsset();
-        uint256 available = baseAsset.balanceOf(address(this));
-        uint256 payment;
         for (uint256 i = 0; i < modules.length; i++) {
-            payment += modules[i].onAction(action, data, address(baseAsset), available - payment);
+            uint256 payment = modules[i].onAction(action, data);
+            if (payment > 0) _baseAsset().safeTransfer(feeCollector, payment);
         }
-        if (payment > 0) baseAsset.safeTransfer(feeCollector, payment);
     }
 }

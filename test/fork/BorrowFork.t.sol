@@ -14,7 +14,7 @@ import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapA
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
@@ -57,13 +57,13 @@ contract BorrowForkTest is Test {
         oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(SEQUENCER_UPTIME_FEED));
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
-        feeTracker = new FeeTracker(address(this), address(this), feeCollector);
+        feeTracker = new FeeTracker(address(this), feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, 1000);
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
-        feeTracker.setPlanRate(0, BORROW_FEE, 50);
+        feeTracker.createPlan(BORROW_FEE, 50);
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
         factory = new AgentWalletFactory(address(this), operator);
@@ -83,7 +83,7 @@ contract BorrowForkTest is Test {
         _register(borrowRegistry, address(transferAdapter), address(linkRegistry));
         _register(vaultRegistry, address(transferAdapter), address(linkRegistry));
         vm.prank(operator);
-        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE);
+        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE, new FeePlan[](0));
         deal(WETH, address(wallet), 1 ether);
     }
 
@@ -118,7 +118,7 @@ contract BorrowForkTest is Test {
 
         vm.warp(vm.getBlockTimestamp() + 365 days);
         vm.roll(block.number + 1);
-        deal(USDC, address(wallet), 1_200e6);
+        deal(USDC, address(wallet), 2_000e6);
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 400 days);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 400 days);
 
@@ -173,7 +173,7 @@ contract BorrowForkTest is Test {
 
     function test_Transfer_MovesBorrowedCashToLinkedVaultAgent() public {
         vm.prank(operator);
-        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE);
+        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE, new FeePlan[](0));
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));

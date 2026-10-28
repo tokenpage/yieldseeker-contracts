@@ -36,7 +36,7 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
         for (uint256 i = 0; i < tokens.length; i++) {
             if (_listedEarlier(tokens, i)) continue;
             uint256 claimed = IERC20(tokens[i]).balanceOf(address(this)) - balancesBefore[i];
-            if (claimed > 0) _report(FeeActions.CLAIM, abi.encode(tokens[i], claimed));
+            if (claimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: tokens[i], amount: claimed})));
         }
     }
 

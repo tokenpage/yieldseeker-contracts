@@ -16,11 +16,13 @@
 //
 pragma solidity 0.8.28;
 
+import {IAgentWallet} from "../IAgentWallet.sol";
 import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./FeeActions.sol";
 import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -70,30 +72,27 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
-    function onAction(bytes32 action, bytes calldata data, address baseAsset, uint256 available) external returns (uint256 payment) {
-        if (action == FeeActions.DEBT_CHANGE) {
-            (bytes32 market, address debtToken, uint256 debtBefore, uint256 borrowed, uint256 repaid) = abi.decode(data, (bytes32, address, uint256, uint256, uint256));
-            _recordDebtChange(market, debtToken, debtBefore, borrowed, repaid);
-        }
-        return _payFees(baseAsset, available);
+    function onAction(bytes32 action, bytes calldata data) external returns (uint256 payment) {
+        if (action == FeeActions.DEBT_CHANGE) _recordDebtChange(abi.decode(data, (FeeActions.DebtChange)));
+        return _payFees();
     }
 
-    function _recordDebtChange(bytes32 market, address debtToken, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        _accrue(msg.sender, market, debtToken, debtBefore);
-        DebtPosition storage position = debtPositions[msg.sender][market];
-        if (borrowed > 0) {
-            position.principal = (uint256(position.principal) + borrowed).toUint128();
-            position.lastDebt = (uint256(position.lastDebt) + borrowed).toUint128();
-            if (!isBorrowedToken[msg.sender][debtToken]) {
-                isBorrowedToken[msg.sender][debtToken] = true;
-                _borrowedTokens[msg.sender].push(debtToken);
+    function _recordDebtChange(FeeActions.DebtChange memory change) internal {
+        _accrue(msg.sender, change.market, change.debtToken, change.debtBefore);
+        DebtPosition storage position = debtPositions[msg.sender][change.market];
+        if (change.borrowed > 0) {
+            position.principal = (uint256(position.principal) + change.borrowed).toUint128();
+            position.lastDebt = (uint256(position.lastDebt) + change.borrowed).toUint128();
+            if (!isBorrowedToken[msg.sender][change.debtToken]) {
+                isBorrowedToken[msg.sender][change.debtToken] = true;
+                _borrowedTokens[msg.sender].push(change.debtToken);
             }
         }
-        if (repaid > 0) {
-            uint256 interest = debtBefore > position.principal ? debtBefore - position.principal : 0;
-            uint256 principalRepaid = repaid > interest ? repaid - interest : 0;
+        if (change.repaid > 0) {
+            uint256 interest = change.debtBefore > position.principal ? change.debtBefore - position.principal : 0;
+            uint256 principalRepaid = change.repaid > interest ? change.repaid - interest : 0;
             position.principal = principalRepaid >= position.principal ? 0 : position.principal - principalRepaid.toUint128();
-            position.lastDebt = (debtBefore > repaid ? debtBefore - repaid : 0).toUint128();
+            position.lastDebt = (change.debtBefore > change.repaid ? change.debtBefore - change.repaid : 0).toUint128();
         }
     }
 
@@ -116,9 +115,12 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return (accruingPrincipal * position.rateBps * (block.timestamp - position.lastAccrual)) / (SECONDS_PER_YEAR * 1e4);
     }
 
-    /// @dev Pays the calling wallet's fees, token by token, from `available` base asset at the oracle price
-    function _payFees(address baseAsset, uint256 available) internal returns (uint256 paid) {
+    /// @dev Pays the calling wallet's fees, token by token, from its base asset at the oracle price
+    function _payFees() internal returns (uint256 paid) {
         address[] storage tokens = _borrowedTokens[msg.sender];
+        if (tokens.length == 0) return 0;
+        address baseAsset = address(IAgentWallet(msg.sender).baseAsset());
+        uint256 available = IERC20(baseAsset).balanceOf(msg.sender);
         for (uint256 i = 0; i < tokens.length && paid < available; i++) {
             address token = tokens[i];
             uint256 owed = feesOwed[msg.sender][token];
@@ -145,8 +147,13 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return _borrowedTokens[wallet];
     }
 
-    /// @notice Borrowed tokens may leave in full; their fees are paid in the base asset
-    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
-        allowed = isBorrowedToken[wallet][token];
+    /// @notice Borrowed tokens are accounted for here, so they may be held, swapped into and sent out
+    function tracksToken(address wallet, address token) external view returns (bool) {
+        return isBorrowedToken[wallet][token];
+    }
+
+    /// @notice Borrow fees are paid in the base asset as soon as the wallet holds it, so nothing is held back
+    function feesHeld(address, address) external pure returns (uint256) {
+        return 0;
     }
 }

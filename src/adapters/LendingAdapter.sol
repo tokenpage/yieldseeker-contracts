@@ -46,7 +46,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debtBefore = _debtOf(market);
         borrowed = super._borrowOperation(market, amount);
-        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debtBefore, borrowed, 0));
+        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: 0})));
     }
 
     function _repayOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
@@ -56,13 +56,13 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         uint256 repayAmount = amount == type(uint256).max ? (debtBefore < balance ? debtBefore : balance) : amount;
         if (repayAmount == 0) revert AWKErrors.InsufficientBalance();
         repaid = super._repayOperation(market, repayAmount);
-        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debtBefore, 0, repaid));
+        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: 0, repaid: repaid})));
     }
 
     function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debt = _debtOf(market);
         withdrawn = super._withdrawCollateralOperation(market, amount);
-        _report(FeeActions.DEBT_CHANGE, abi.encode(keccak256(market), debtAsset, debt, 0, 0));
+        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debt, borrowed: 0, repaid: 0})));
     }
 }

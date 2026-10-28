@@ -38,6 +38,6 @@ contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeek
         uint256 wellBalanceBefore = WELL_TOKEN.balanceOf(address(this));
         super._claimInternal(comptroller, holder, mTokens);
         uint256 claimed = WELL_TOKEN.balanceOf(address(this)) - wellBalanceBefore;
-        if (claimed > 0) _report(FeeActions.CLAIM, abi.encode(address(WELL_TOKEN), claimed));
+        if (claimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(WELL_TOKEN), amount: claimed})));
     }
 }

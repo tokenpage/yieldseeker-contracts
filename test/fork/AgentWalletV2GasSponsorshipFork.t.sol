@@ -7,7 +7,7 @@ import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -102,7 +102,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, admin);
+        feeTracker = new FeeTracker(admin, admin);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
         factory = new AgentWalletFactory(admin, operatorAddr);
@@ -116,7 +116,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 1_000e6);
 

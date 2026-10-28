@@ -14,7 +14,7 @@ import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
-import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
@@ -66,11 +66,11 @@ contract LendingAdaptersTest is Test {
         oracle.setSource(address(weth), IPriceFeed(address(wethFeed)), 1 days);
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), FEE_COLLECTOR);
+        feeTracker = new YieldSeekerFeeTracker(address(this), FEE_COLLECTOR);
         AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 0);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
-        feeTracker.setPlanRate(0, BORROW_FEE, 50);
+        feeTracker.createPlan(BORROW_FEE, 50);
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
@@ -96,7 +96,7 @@ contract LendingAdaptersTest is Test {
         registry.registerAdapter(address(aaveV4Adapter));
 
         vm.prank(OPERATOR);
-        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE);
+        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE, new FeePlan[](0));
     }
 
     function test_UnregisteredMarketCannotReachTheAdapter() public {
@@ -180,9 +180,8 @@ contract LendingAdaptersTest is Test {
 
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
-        (bool allowed, uint256 reserved) = feeModule.withdrawReserve(address(wallet), address(usdc));
-        assertTrue(allowed);
-        assertEq(reserved, 0);
+        assertTrue(feeTracker.tracksToken(address(wallet), address(usdc)));
+        assertEq(feeTracker.feesHeld(address(wallet), address(usdc)), 0);
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(usdc.balanceOf(address(wallet)), 0);

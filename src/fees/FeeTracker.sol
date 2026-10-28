@@ -17,49 +17,51 @@
 pragma solidity 0.8.28;
 
 import {IAgentWallet} from "../IAgentWallet.sol";
-import {AWKAgentWalletV3} from "../agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 error InvalidFeeRate();
-error UnknownPlan(uint256 planId);
-error PlanRateIncrease(bytes32 feeType, uint256 currentRateBps, uint256 newRateBps);
+error UnknownPlan(bytes32 feeType, uint256 planId);
 error UnknownFeeType(bytes32 feeType);
+
+/// @notice A wallet's plan for one fee type
+struct FeePlan {
+    bytes32 feeType;
+    uint256 planId;
+}
 
 /**
  * @title YieldSeekerFeeTracker
- * @notice Fee plans per user (wallet owner), the fee collector and the fee modules that do each fee type's accounting
+ * @notice The fee modules (one per fee type), their plans, each wallet's plans and the fee collector
  * @dev Every fee type is a module (e.g. the yield fee, the borrow fee) that adapters report every wallet action to.
- *      Every owner starts on plan 0. A plan has a rate per fee type. The admin (timelock) sets plan rates and the fee
- *      collector, sets modules and can assign any plan. The plan manager can only move an owner to a plan that is not
- *      more expensive for any fee type.
+ *      A plan is a rate for one fee type; plans are numbered per fee type from 0 and never change once created.
+ *      The wallet factory sets a wallet's plans when it creates the wallet, and they never change either: moving to
+ *      another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0.
+ *      The admin (timelock) sets modules, creates plans and sets the fee collector.
  *      Replacing a module drops the fee state the old one holds for wallets unless it is migrated first.
- *      No rate can exceed its module's MAX_FEE_RATE_BPS, which is fixed at deployment.
+ *      No plan rate can exceed its module's MAX_FEE_RATE_BPS, which is fixed at deployment.
  */
 contract YieldSeekerFeeTracker is AccessControl {
-    bytes32 public constant PLAN_MANAGER_ROLE = keccak256("PLAN_MANAGER_ROLE");
+    bytes32 public constant WALLET_FACTORY_ROLE = keccak256("WALLET_FACTORY_ROLE");
     uint256 public constant MODULE_GAS_LIMIT = 200_000;
 
     address public feeCollector;
     bytes32[] internal _moduleFeeTypes;
     IYieldSeekerFeeModule[] internal _modules;
     mapping(bytes32 feeType => IYieldSeekerFeeModule) public feeModules;
-    mapping(uint256 planId => mapping(bytes32 feeType => uint256 rateBps)) public planRateBps;
-    mapping(uint256 planId => bool exists) public planExists;
-    mapping(address owner => uint256 planId) public planOf;
+    mapping(bytes32 feeType => uint256[] rateBps) internal _planRates;
+    mapping(address wallet => mapping(bytes32 feeType => uint256 planId)) public walletPlan;
 
     event FeeCollectorUpdated(address feeCollector);
     event FeeModuleSet(bytes32 indexed feeType, address indexed module);
-    event PlanRateUpdated(uint256 indexed planId, bytes32 indexed feeType, uint256 rateBps);
-    event PlanAssigned(address indexed owner, uint256 indexed planId);
+    event PlanCreated(bytes32 indexed feeType, uint256 indexed planId, uint256 rateBps);
+    event WalletPlanSet(address indexed wallet, bytes32 indexed feeType, uint256 indexed planId);
 
-    constructor(address admin, address planManager, address initialFeeCollector) {
-        if (admin == address(0) || planManager == address(0) || initialFeeCollector == address(0)) revert AWKErrors.ZeroAddress();
+    constructor(address admin, address initialFeeCollector) {
+        if (admin == address(0) || initialFeeCollector == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(PLAN_MANAGER_ROLE, planManager);
         feeCollector = initialFeeCollector;
-        planExists[0] = true;
     }
 
     function setFeeCollector(address newFeeCollector) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -68,9 +70,14 @@ contract YieldSeekerFeeTracker is AccessControl {
         emit FeeCollectorUpdated(newFeeCollector);
     }
 
-    /// @notice Plug in or replace a fee type's module; set a new fee type's plan rates with setPlanRate (unset rates are 0)
+    /// @notice Plug in or replace a fee type's module; a replacement must allow every existing plan's rate
     function setFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
+        uint256[] storage rates = _planRates[feeType];
+        uint256 maxRateBps = module.MAX_FEE_RATE_BPS();
+        for (uint256 i = 0; i < rates.length; i++) {
+            if (rates[i] > maxRateBps) revert InvalidFeeRate();
+        }
         if (address(feeModules[feeType]) == address(0)) {
             _moduleFeeTypes.push(feeType);
             _modules.push(module);
@@ -92,54 +99,64 @@ contract YieldSeekerFeeTracker is AccessControl {
         return (_modules, feeCollector);
     }
 
-    function setPlanRate(uint256 planId, bytes32 feeType, uint256 rateBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (rateBps > maxFeeRateBps(feeType)) revert InvalidFeeRate();
-        planRateBps[planId][feeType] = rateBps;
-        planExists[planId] = true;
-        emit PlanRateUpdated(planId, feeType, rateBps);
-    }
-
-    function maxFeeRateBps(bytes32 feeType) public view returns (uint256) {
+    /// @notice Add a plan for a fee type; the first one (plan 0) applies to every wallet not given another
+    function createPlan(bytes32 feeType, uint256 rateBps) external onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 planId) {
         IYieldSeekerFeeModule module = feeModules[feeType];
         if (address(module) == address(0)) revert UnknownFeeType(feeType);
-        return module.MAX_FEE_RATE_BPS();
+        if (rateBps > module.MAX_FEE_RATE_BPS()) revert InvalidFeeRate();
+        planId = _planRates[feeType].length;
+        _planRates[feeType].push(rateBps);
+        emit PlanCreated(feeType, planId, rateBps);
     }
 
-    function assignPlan(address owner, uint256 planId) external {
-        if (!planExists[planId]) revert UnknownPlan(planId);
-        if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
-            if (!hasRole(PLAN_MANAGER_ROLE, msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
-            uint256 currentPlanId = planOf[owner];
-            for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
-                _requireNotMoreExpensive(currentPlanId, planId, _moduleFeeTypes[i]);
-            }
+    function planCount(bytes32 feeType) external view returns (uint256) {
+        return _planRates[feeType].length;
+    }
+
+    function planRateBps(bytes32 feeType, uint256 planId) external view returns (uint256) {
+        if (planId >= _planRates[feeType].length) revert UnknownPlan(feeType, planId);
+        return _planRates[feeType][planId];
+    }
+
+    /// @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
+    function setWalletPlans(address wallet, FeePlan[] calldata plans) external onlyRole(WALLET_FACTORY_ROLE) {
+        for (uint256 i = 0; i < plans.length; i++) {
+            FeePlan calldata plan = plans[i];
+            if (plan.planId >= _planRates[plan.feeType].length) revert UnknownPlan(plan.feeType, plan.planId);
+            walletPlan[wallet][plan.feeType] = plan.planId;
+            emit WalletPlanSet(wallet, plan.feeType, plan.planId);
         }
-        planOf[owner] = planId;
-        emit PlanAssigned(owner, planId);
     }
 
-    function _requireNotMoreExpensive(uint256 currentPlanId, uint256 newPlanId, bytes32 feeType) internal view {
-        uint256 currentRateBps = planRateBps[currentPlanId][feeType];
-        uint256 newRateBps = planRateBps[newPlanId][feeType];
-        if (newRateBps > currentRateBps) revert PlanRateIncrease(feeType, currentRateBps, newRateBps);
-    }
-
-    /// @notice The rate of a fee type for a wallet, from its owner's plan
-    function feeRateBps(bytes32 feeType, address wallet) public view returns (uint256) {
-        return planRateBps[planOf[AWKAgentWalletV3(payable(wallet)).owner()]][feeType];
+    /// @notice The rate of a fee type for a wallet, from its plan (0 until the fee type has a plan)
+    function feeRateBps(bytes32 feeType, address wallet) external view returns (uint256) {
+        uint256[] storage rates = _planRates[feeType];
+        uint256 planId = walletPlan[wallet][feeType];
+        return planId < rates.length ? rates[planId] : 0;
     }
 
     /**
-     * @notice Whether `token` may leave `wallet`, and how much of it the wallet must keep for fees owed
-     * @dev The base asset may always leave; other tokens only if a module accounts for them. Each module is called
-     *      with a gas limit and a module that fails counts as (false, 0), so no module can block a wallet's exits.
+     * @notice Whether `wallet` may hold and send `token`: its base asset, or a token a module accounts for
+     * @dev Each module is called with a gas limit and a module that fails counts as false.
      */
-    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
-        allowed = token == address(IAgentWallet(wallet).baseAsset());
+    function tracksToken(address wallet, address token) external view returns (bool) {
+        if (token == address(IAgentWallet(wallet).baseAsset())) return true;
         for (uint256 i = 0; i < _modules.length; i++) {
-            try _modules[i].withdrawReserve{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool moduleAllows, uint256 moduleReserved) {
-                allowed = allowed || moduleAllows;
-                reserved += moduleReserved;
+            try _modules[i].tracksToken{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool tracked) {
+                if (tracked) return true;
+            } catch {}
+        }
+        return false;
+    }
+
+    /**
+     * @notice How much `token` `wallet` must keep for fees owed, across every module
+     * @dev Each module is called with a gas limit and a module that fails counts as 0, so no module can block exits.
+     */
+    function feesHeld(address wallet, address token) external view returns (uint256 held) {
+        for (uint256 i = 0; i < _modules.length; i++) {
+            try _modules[i].feesHeld{gas: MODULE_GAS_LIMIT}(wallet, token) returns (uint256 moduleHeld) {
+                held += moduleHeld;
             } catch {}
         }
     }

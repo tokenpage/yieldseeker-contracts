@@ -7,7 +7,7 @@ import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -81,10 +81,10 @@ contract ReentrancySecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -106,8 +106,9 @@ contract ReentrancySecurityTest is Test {
     }
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
     }
 
     function test_ReenterExecuteViaAdapter_RevertsReentrancy() public {

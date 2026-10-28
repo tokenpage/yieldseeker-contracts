@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
@@ -29,12 +29,13 @@ contract YieldFeeModuleTest is Test {
         baseAsset = new MockERC20("Base", "BASE");
         agent1 = new MockFeeWallet(owner1, IERC20(address(baseAsset)));
         agent2 = new MockFeeWallet(owner2, IERC20(address(baseAsset)));
-        feeTracker = new YieldSeekerFeeTracker(admin, admin, collector);
+        feeTracker = new YieldSeekerFeeTracker(admin, collector);
         vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5_000);
 
         vm.startPrank(admin);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, DEFAULT_FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, DEFAULT_FEE_RATE);
+        feeTracker.grantRole(feeTracker.WALLET_FACTORY_ROLE(), address(this));
         vm.stopPrank();
     }
 
@@ -46,12 +47,13 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.feesOwed(address(agent2)), 200);
     }
 
-    function testShareWithdrawalsUseEachOwnersPlanRate() public {
+    function testShareWithdrawalsUseEachWalletsPlanRate() public {
         address vault = makeAddr("vault");
         vm.prank(admin);
-        feeTracker.setPlanRate(1, YIELD_FEE, 500);
-        vm.prank(admin);
-        feeTracker.assignPlan(owner1, 1);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, 500);
+        FeePlan[] memory plans = new FeePlan[](1);
+        plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
+        feeTracker.setWalletPlans(address(agent1), plans);
         _recordDeposit(agent1, vault, 1_000e6);
         _recordDeposit(agent2, vault, 1_000e6);
 
@@ -62,12 +64,13 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.feesOwed(address(agent2)), 10e6);
     }
 
-    function testAssetWithdrawalsUseEachOwnersPlanRate() public {
+    function testAssetWithdrawalsUseEachWalletsPlanRate() public {
         address vault = makeAddr("vault");
         vm.prank(admin);
-        feeTracker.setPlanRate(1, YIELD_FEE, 500);
-        vm.prank(admin);
-        feeTracker.assignPlan(owner1, 1);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, 500);
+        FeePlan[] memory plans = new FeePlan[](1);
+        plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
+        feeTracker.setWalletPlans(address(agent1), plans);
         _recordDeposit(agent1, vault, 1_000e6);
         _recordDeposit(agent2, vault, 1_000e6);
 
@@ -175,25 +178,13 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.costBasis(address(agent1), vault), 500e6);
     }
 
-    function testAssetWithdrawalRateIncreaseBeforeSettlement() public {
+    function testCreatingHigherPlanDoesNotChangeExistingWalletRate() public {
         address vault = makeAddr("vault");
         _recordDeposit(agent1, vault, 1_000e6);
 
         vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 2_000);
-        _recordAssetWithdraw(agent1, vault, 1_100e6, 1_100e6, 1_100e6);
-
-        assertEq(vaultFees.feesOwed(address(agent1)), 20e6);
-    }
-
-    function testAssetWithdrawalRateDecreaseBeforeSettlement() public {
-        address vault = makeAddr("vault");
-        vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 2_000);
-        _recordDeposit(agent1, vault, 1_000e6);
-
-        vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, DEFAULT_FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, 2_000);
+        assertEq(feeTracker.feeRateBps(YIELD_FEE, address(agent1)), DEFAULT_FEE_RATE);
         _recordAssetWithdraw(agent1, vault, 1_100e6, 1_100e6, 1_100e6);
 
         assertEq(vaultFees.feesOwed(address(agent1)), 10e6);
@@ -217,25 +208,21 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.feesOwed(address(agent1)), 10e6);
     }
 
-    function testFeePaymentReducesReserveAndOnlyBaseAssetMayLeave() public {
+    function testFeePaymentReducesHeldFees() public {
         address rewardToken = makeAddr("rewardToken");
         _recordYield(agent1, 100e6);
 
-        (bool baseAllowed, uint256 baseReserved) = vaultFees.withdrawReserve(address(agent1), address(baseAsset));
-        (bool rewardAllowed, uint256 rewardReserved) = vaultFees.withdrawReserve(address(agent1), rewardToken);
-        assertTrue(baseAllowed);
-        assertEq(baseReserved, 10e6);
-        assertFalse(rewardAllowed);
-        assertEq(rewardReserved, 0);
+        assertFalse(vaultFees.tracksToken(address(agent1), address(baseAsset)));
+        assertFalse(vaultFees.tracksToken(address(agent1), rewardToken));
+        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 10e6);
+        assertEq(vaultFees.feesHeld(address(agent1), rewardToken), 0);
 
         assertEq(_settleFees(agent1, 2e6), 2e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 8e6);
-        (, baseReserved) = vaultFees.withdrawReserve(address(agent1), address(baseAsset));
-        assertEq(baseReserved, 8e6);
+        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 8e6);
         assertEq(_settleFees(agent1, 8e6), 8e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 0);
-        (, baseReserved) = vaultFees.withdrawReserve(address(agent1), address(baseAsset));
-        assertEq(baseReserved, 0);
+        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 0);
     }
 
     function testZeroAmountRewardTokenSaleDoesNotChangeFeesOwed() public {
@@ -245,27 +232,31 @@ contract YieldFeeModuleTest is Test {
     }
 
     function _settleFees(MockFeeWallet wallet, uint256 available) internal returns (uint256 payment) {
-        bytes memory returnData = wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (bytes32(0), bytes(""), address(baseAsset), available)));
+        baseAsset.burn(address(wallet), baseAsset.balanceOf(address(wallet)));
+        baseAsset.mint(address(wallet), available);
+        bytes memory returnData = wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (bytes32(0), bytes(""))));
         payment = abi.decode(returnData, (uint256));
     }
 
     function _recordDeposit(MockFeeWallet wallet, address vault, uint256 assets) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.DEPOSIT, abi.encode(vault, assets), address(baseAsset), 0)));
+        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vault, assetsIn: assets})))));
     }
 
     function _recordShareWithdraw(MockFeeWallet wallet, address vault, uint256 spent, uint256 heldBefore, uint256 assetsReceived) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.WITHDRAW, abi.encode(vault, spent, heldBefore, assetsReceived), address(baseAsset), 0)));
+        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vault, spent: spent, heldBefore: heldBefore, assetsOut: assetsReceived})))));
     }
 
     function _recordAssetWithdraw(MockFeeWallet wallet, address vault, uint256 spent, uint256 heldBefore, uint256 assetsReceived) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.WITHDRAW, abi.encode(vault, spent, heldBefore, assetsReceived), address(baseAsset), 0)));
+        _recordShareWithdraw(wallet, vault, spent, heldBefore, assetsReceived);
     }
 
     function _recordYield(MockFeeWallet wallet, uint256 amount) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.CLAIM, abi.encode(address(baseAsset), amount), address(baseAsset), 0)));
+        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: amount})))));
     }
 
     function _recordRewardTokenSale(MockFeeWallet wallet, uint256 baseReceived) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.SWAP, abi.encode(makeAddr("rewardToken"), baseReceived, address(baseAsset), baseReceived), address(baseAsset), 0)));
+        wallet.execute(
+            address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: makeAddr("rewardToken"), soldAmount: baseReceived, bought: address(baseAsset), boughtAmount: baseReceived}))))
+        );
     }
 }

@@ -6,7 +6,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -41,10 +41,10 @@ contract FeeTrackerSecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5_000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -59,13 +59,14 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
+        FeePlan[] memory feePlans = new FeePlan[](0);
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, feePlans))));
     }
 
     function test_RecordYieldAccruesFees() public {
         AgentWalletV3 wallet = _createWallet();
-        _report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 1_000e6), 0);
+        _report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 1_000e6})), 0);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 100e6);
     }
 
@@ -73,9 +74,9 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vaultAddr, assetsIn: 1_000e6})), 0);
 
-        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 1_000e6, 1_000e6, 1_200e6), 0);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vaultAddr, spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_200e6})), 0);
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
@@ -84,12 +85,12 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vaultAddr, assetsIn: 1_000e6})), 0);
 
         uint256 initialFees = vaultFeeModule.feesOwed(address(wallet));
         assertEq(initialFees, 0);
 
-        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 100e6, 2_000e6, 120e6), 0);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vaultAddr, spent: 100e6, heldBefore: 2_000e6, assetsOut: 120e6})), 0);
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)) - initialFees, 7e6);
         assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 950e6);
@@ -99,9 +100,9 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 100e6), 0);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vaultAddr, assetsIn: 100e6})), 0);
 
-        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 120e6, 150e6, 150e6), 0);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vaultAddr, spent: 120e6, heldBefore: 150e6, assetsOut: 150e6})), 0);
 
         assertEq(vaultFeeModule.costBasis(address(wallet), vaultAddr), 20e6);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 7e6);
@@ -111,9 +112,9 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         address vaultAddr = address(vault);
 
-        _report(wallet, FeeActions.DEPOSIT, abi.encode(vaultAddr, 1_000e6), 0);
+        _report(wallet, FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vaultAddr, assetsIn: 1_000e6})), 0);
 
-        _report(wallet, FeeActions.WITHDRAW, abi.encode(vaultAddr, 1_000e6, 1_000e6, 800e6), 0);
+        _report(wallet, FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vaultAddr, spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 800e6})), 0);
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
@@ -121,7 +122,7 @@ contract FeeTrackerSecurityTest is Test {
     function test_YieldTokenSaleChargesFeeOnBaseAssetReceived() public {
         AgentWalletV3 wallet = _createWallet();
 
-        _report(wallet, FeeActions.SWAP, abi.encode(address(vault), 50e6, address(usdc), 50e6), 0);
+        _report(wallet, FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: address(vault), soldAmount: 50e6, bought: address(usdc), boughtAmount: 50e6})), 0);
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 5e6);
     }
@@ -129,22 +130,29 @@ contract FeeTrackerSecurityTest is Test {
     function test_FeePaymentReducesFeesOwed() public {
         AgentWalletV3 wallet = _createWallet();
 
-        _report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 500e6), 0);
+        _report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 500e6})), 0);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 50e6);
 
-        assertEq(_report(wallet, FeeActions.CLAIM, abi.encode(address(usdc), 0), 30e6), 30e6);
+        assertEq(_report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 0})), 30e6), 30e6);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
     }
 
     function test_MaxFeeRateEnforced() public {
+        uint256 maximumRate = vaultFeeModule.MAX_FEE_RATE_BPS();
+        uint256 tooHigh = maximumRate + 1;
+        vm.prank(admin);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, maximumRate);
+        assertEq(planId, 1);
+
         vm.expectRevert(InvalidFeeRate.selector);
         vm.prank(admin);
-        feeTracker.setPlanRate(0, YIELD_FEE, 5_001);
+        feeTracker.createPlan(YIELD_FEE, tooHigh);
     }
 
-    function _report(AgentWalletV3 wallet, bytes32 action, bytes memory data, uint256 available) internal returns (uint256 payment) {
-        address baseAsset = address(usdc);
+    function _report(AgentWalletV3 wallet, bytes32 action, bytes memory data, uint256 walletBalance) internal returns (uint256 payment) {
+        usdc.burn(address(wallet), usdc.balanceOf(address(wallet)));
+        usdc.mint(address(wallet), walletBalance);
         vm.prank(address(wallet));
-        payment = vaultFeeModule.onAction(action, data, baseAsset, available);
+        payment = vaultFeeModule.onAction(action, data);
     }
 }

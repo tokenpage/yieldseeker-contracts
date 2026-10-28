@@ -10,7 +10,7 @@ import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
@@ -58,10 +58,10 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
@@ -94,7 +94,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_AaveV3_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(aaveAdapter), address(aToken), abi.encodeCall(aaveAdapter.deposit, (5_000e6)));
@@ -114,7 +114,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_CompoundV3_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(compoundV3Adapter), address(comet), abi.encodeCall(compoundV3Adapter.deposit, (5_000e6)));
@@ -133,7 +133,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_CompoundV2_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.deposit, (5_000e6)));
@@ -155,7 +155,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_MovePositionAcrossProtocols() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         wallet.executeViaAdapter(address(aaveAdapter), address(aToken), abi.encodeCall(aaveAdapter.deposit, (10_000e6)));
@@ -170,7 +170,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_DistributeAcrossAllProtocols() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 9_000e6);
         address[] memory adapters = new address[](3);
         address[] memory targets = new address[](3);
@@ -193,7 +193,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_ConsolidateFromAllProtocols() public {
         vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 9_000e6);
         uint256 compoundV2Shares = _cTokenSharesForAssets(3_000e6);
         address[] memory adapters = new address[](3);

@@ -112,14 +112,15 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
 
     /**
-     * @notice Calculate withdrawable balance (total balance minus fees owed)
-     * @param asset Address of the asset to check (must be allowed by the fee tracker, e.g. the base asset)
+     * @notice Calculate withdrawable balance (total balance minus fees held)
+     * @param asset Address of the asset to check (must be tracked by the fee tracker, e.g. the base asset)
      */
     function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
-        (bool allowed, uint256 reserved) = feeTracker().withdrawReserve(address(this), asset);
-        if (!allowed) revert InvalidAsset();
+        FeeTracker tracker = feeTracker();
+        if (!tracker.tracksToken(address(this), asset)) revert InvalidAsset();
         uint256 balance = IERC20(asset).balanceOf(address(this));
-        return balance > reserved ? balance - reserved : 0;
+        uint256 feesHeld = tracker.feesHeld(address(this), asset);
+        return balance > feesHeld ? balance - feesHeld : 0;
     }
 
     /**

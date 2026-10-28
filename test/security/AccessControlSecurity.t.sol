@@ -5,7 +5,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -38,10 +38,10 @@ contract AccessControlSecurityTest is Test {
         entryPoint = new MockEntryPoint();
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -54,14 +54,16 @@ contract AccessControlSecurityTest is Test {
     }
 
     function _createWallet() internal returns (address wallet) {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operator);
-        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE));
+        wallet = address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans));
     }
 
     function test_NonOperatorCannotCreateWallet() public {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(attacker);
         vm.expectRevert();
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
     }
 
     function test_OperatorCreatesWalletSetsOwner() public {
@@ -115,11 +117,13 @@ contract AccessControlSecurityTest is Test {
         AgentWalletV3(payable(wallet)).executeViaAdapter(address(vaultAdapter), address(vault), deposit);
     }
 
-    function test_AdminCanUpdateFeeConfig() public {
+    function test_AdminCanCreateFeePlan() public {
         bytes32 vaultFeeType = YIELD_FEE;
         vm.prank(admin);
-        feeTracker.setPlanRate(0, vaultFeeType, 2000);
-        assertEq(feeTracker.planRateBps(0, vaultFeeType), 2000);
+        uint256 planId = feeTracker.createPlan(vaultFeeType, 2000);
+        assertEq(planId, 1);
+        assertEq(feeTracker.planRateBps(vaultFeeType, 0), FEE_RATE);
+        assertEq(feeTracker.planRateBps(vaultFeeType, planId), 2000);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 

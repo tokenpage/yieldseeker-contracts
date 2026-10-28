@@ -5,7 +5,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -39,10 +39,10 @@ contract StressSecurityTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -57,8 +57,9 @@ contract StressSecurityTest is Test {
     }
 
     function _createWallet(address owner, uint32 idx) internal returns (AgentWalletV3 wallet) {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(owner, idx, address(usdc), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(owner, idx, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
     }
 
     function test_MassWalletCreation_OperatorOnly() public {
@@ -69,9 +70,10 @@ contract StressSecurityTest is Test {
     }
 
     function test_MassWalletCreation_NonOperatorReverts() public {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(address(0xBEEF));
         vm.expectRevert();
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE);
+        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
     }
 
     function test_LargeBatchExecution_Succeeds() public {

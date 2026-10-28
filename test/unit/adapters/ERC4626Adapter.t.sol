@@ -156,11 +156,9 @@ contract ERC4626AdapterTest is Test {
         uint256 approveGas = g6 - gasleft();
         // 8) YieldFeeModule.onAction (1 SSTORE)
         YieldSeekerYieldFeeModule yieldFeeModule = wallet.yieldFeeModule();
-        bytes memory actionData = abi.encode(address(vault), depositAmount);
-        address baseAssetAddress = address(baseAsset);
         uint256 g7 = gasleft();
         vm.prank(address(wallet));
-        yieldFeeModule.onAction(FeeActions.DEPOSIT, actionData, baseAssetAddress, 0);
+        yieldFeeModule.onAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: depositAmount})));
         uint256 feeTrackerGas = g7 - gasleft();
         // Summary
         console.log("=== ERC4626 Deposit Gas Breakdown ===");

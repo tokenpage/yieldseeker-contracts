@@ -21,6 +21,7 @@ import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./FeeActions.sol";
 import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 bytes32 constant YIELD_FEE = keccak256("yield");
@@ -34,7 +35,7 @@ bytes32 constant YIELD_FEE = keccak256("yield");
  *      have no cost basis, so they are charged when withdrawn. Rewards claimed in the base asset, and the base asset
  *      received for selling any other token, are yield when they arrive.
  *      Fees are paid from the base asset as soon as the wallet holds it; what can't be paid stays owed.
- *      The rate comes from the owner's plan in the fee tracker (YIELD_FEE).
+ *      The rate comes from the wallet's YIELD_FEE plan in the fee tracker.
  */
 contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
     YieldSeekerFeeTracker public immutable FEE_TRACKER;
@@ -53,20 +54,22 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
-    function onAction(bytes32 action, bytes calldata data, address baseAsset, uint256 available) external returns (uint256 payment) {
+    function onAction(bytes32 action, bytes calldata data) external returns (uint256 payment) {
         uint256 yield;
+        address baseAsset;
         if (action == FeeActions.DEPOSIT) {
-            (address target, uint256 assetsIn) = abi.decode(data, (address, uint256));
-            costBasis[msg.sender][target] += assetsIn;
+            FeeActions.Deposit memory deposit = abi.decode(data, (FeeActions.Deposit));
+            costBasis[msg.sender][deposit.target] += deposit.assetsIn;
         } else if (action == FeeActions.WITHDRAW) {
-            (address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) = abi.decode(data, (address, uint256, uint256, uint256));
-            yield = _releaseCostBasis(target, spent, heldBefore, assetsOut);
+            yield = _releaseCostBasis(abi.decode(data, (FeeActions.Withdraw)));
         } else if (action == FeeActions.SWAP) {
-            (address sold,, address bought, uint256 boughtAmount) = abi.decode(data, (address, uint256, address, uint256));
-            if (bought == baseAsset && sold != baseAsset) yield = boughtAmount;
+            FeeActions.Swap memory swap = abi.decode(data, (FeeActions.Swap));
+            baseAsset = _baseAsset();
+            if (swap.bought == baseAsset && swap.sold != baseAsset) yield = swap.boughtAmount;
         } else if (action == FeeActions.CLAIM) {
-            (address token, uint256 amount) = abi.decode(data, (address, uint256));
-            if (token == baseAsset) yield = amount;
+            FeeActions.Claim memory claim = abi.decode(data, (FeeActions.Claim));
+            baseAsset = _baseAsset();
+            if (claim.token == baseAsset) yield = claim.amount;
         }
         uint256 owed = feesOwed[msg.sender];
         if (yield > 0) {
@@ -75,22 +78,31 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
             emit YieldRecorded(msg.sender, yield, fee);
         }
         if (owed == 0) return 0;
-        payment = Math.min(owed, available);
+        if (baseAsset == address(0)) baseAsset = _baseAsset();
+        payment = Math.min(owed, IERC20(baseAsset).balanceOf(msg.sender));
         feesOwed[msg.sender] = owed - payment;
         if (payment > 0) emit FeePaid(msg.sender, payment);
     }
 
-    /// @notice The base asset may leave minus fees owed; other tokens are not this module's concern
-    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved) {
-        allowed = token == address(IAgentWallet(wallet).baseAsset());
-        if (allowed) reserved = feesOwed[wallet];
+    /// @notice The base asset is tracked by the fee tracker itself; this module accounts for no other token
+    function tracksToken(address, address) external pure returns (bool) {
+        return false;
     }
 
-    function _releaseCostBasis(address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) internal returns (uint256 yield) {
-        if (spent == 0 || heldBefore == 0) return 0;
-        uint256 basis = costBasis[msg.sender][target];
-        uint256 releasedBasis = spent >= heldBefore ? basis : Math.mulDiv(basis, spent, heldBefore);
-        costBasis[msg.sender][target] = basis - releasedBasis;
-        if (assetsOut > releasedBasis) yield = assetsOut - releasedBasis;
+    /// @notice Fees owed are held back from the base asset
+    function feesHeld(address wallet, address token) external view returns (uint256) {
+        return token == address(IAgentWallet(wallet).baseAsset()) ? feesOwed[wallet] : 0;
+    }
+
+    function _releaseCostBasis(FeeActions.Withdraw memory withdrawal) internal returns (uint256 yield) {
+        if (withdrawal.spent == 0 || withdrawal.heldBefore == 0) return 0;
+        uint256 basis = costBasis[msg.sender][withdrawal.target];
+        uint256 releasedBasis = withdrawal.spent >= withdrawal.heldBefore ? basis : Math.mulDiv(basis, withdrawal.spent, withdrawal.heldBefore);
+        costBasis[msg.sender][withdrawal.target] = basis - releasedBasis;
+        if (withdrawal.assetsOut > releasedBasis) yield = withdrawal.assetsOut - releasedBasis;
+    }
+
+    function _baseAsset() internal view returns (address) {
+        return address(IAgentWallet(msg.sender).baseAsset());
     }
 }

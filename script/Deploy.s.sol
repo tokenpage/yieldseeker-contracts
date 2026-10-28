@@ -174,7 +174,6 @@ contract DeployScript is Script {
 
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
-        address planManagerAddress = vm.envAddress("PLAN_MANAGER_ADDRESS");
         address feeCollectorAddress = vm.envAddress("FEE_COLLECTOR_ADDRESS");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployerAddress = vm.addr(deployerPrivateKey);
@@ -196,7 +195,6 @@ contract DeployScript is Script {
         console2.log("Deployer:", deployerAddress);
         console2.log("Multisig Admin:", multisigAdminAddress);
         console2.log("Server:", serverAddress);
-        console2.log("Plan Manager:", planManagerAddress);
         console2.log("Fee Collector:", feeCollectorAddress);
         console2.log("Timelock Proposer:", timelockProposerAddress);
         console2.log("Timelock Executor:", timelockExecutorAddress);
@@ -287,7 +285,7 @@ contract DeployScript is Script {
 
         // Fee tracker and fee modules
         if (deployments.feeTracker == address(0)) {
-            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, planManagerAddress, feeCollectorAddress)));
+            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, feeCollectorAddress)));
             console2.log("-> FeeTracker deployed at:", deployments.feeTracker);
         } else {
             console2.log("-> Using existing feeTracker:", deployments.feeTracker);
@@ -482,17 +480,20 @@ contract DeployScript is Script {
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
+        if (!feeTracker.hasRole(feeTracker.WALLET_FACTORY_ROLE(), deployments.agentWalletFactory)) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.grantRole, (feeTracker.WALLET_FACTORY_ROLE(), deployments.agentWalletFactory)));
+        }
         if (address(feeTracker.feeModules(YIELD_FEE)) != deployments.yieldFeeModule) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (YIELD_FEE, YieldFeeModule(deployments.yieldFeeModule))));
         }
-        if (feeTracker.planRateBps(0, YIELD_FEE) != YIELD_DEFAULT_FEE_BPS) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, YIELD_FEE, YIELD_DEFAULT_FEE_BPS)));
+        if (feeTracker.planCount(YIELD_FEE) == 0) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (YIELD_FEE, YIELD_DEFAULT_FEE_BPS)));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
         }
-        if (feeTracker.planRateBps(0, BORROW_FEE) != BORROW_DEFAULT_FEE_BPS) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setPlanRate, (0, BORROW_FEE, BORROW_DEFAULT_FEE_BPS)));
+        if (feeTracker.planCount(BORROW_FEE) == 0) {
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (BORROW_FEE, BORROW_DEFAULT_FEE_BPS)));
         }
         // 2. Register Adapters
         console2.log("-> Preparing adapter registration...");

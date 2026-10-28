@@ -9,14 +9,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 library AdapterFeeSetup {
     function deploy(address feeCollector, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerFeeTracker feeTracker, YieldSeekerYieldFeeModule yieldFees) {
-        feeTracker = new YieldSeekerFeeTracker(address(this), address(this), feeCollector);
+        feeTracker = new YieldSeekerFeeTracker(address(this), feeCollector);
         yieldFees = addYieldModule(feeTracker, maxFeeRateBps, rateBps);
     }
 
     function addYieldModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerYieldFeeModule yieldFees) {
         yieldFees = new YieldSeekerYieldFeeModule(feeTracker, maxFeeRateBps);
         feeTracker.setFeeModule(YIELD_FEE, yieldFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, rateBps);
+        feeTracker.createPlan(YIELD_FEE, rateBps);
     }
 }
 

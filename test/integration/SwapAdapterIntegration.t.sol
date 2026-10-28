@@ -16,7 +16,7 @@ import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agent
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
@@ -118,7 +118,7 @@ contract SwapAdapterIntegrationTest is Test {
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -159,10 +159,10 @@ contract SwapAdapterIntegrationTest is Test {
         MockFeePriceFeed tokenPriceFeed = new MockFeePriceFeed(8, 1e8, now_);
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, 1000);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);

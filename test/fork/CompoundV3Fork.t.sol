@@ -31,10 +31,10 @@ contract CompoundV3ForkTest is Test {
         IERC20Metadata asset = IERC20Metadata(USDC);
         IComet comet = IComet(COMET_USDC);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this));
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV3Adapter adapter = new YieldSeekerCompoundV3Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);

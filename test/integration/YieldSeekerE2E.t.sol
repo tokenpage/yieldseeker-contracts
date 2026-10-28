@@ -8,7 +8,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
@@ -48,10 +48,10 @@ contract YieldSeekerE2ETest is Test {
         vm.startPrank(admin);
 
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin, admin, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -87,7 +87,7 @@ contract YieldSeekerE2ETest is Test {
     function test_UserWorkflow_OnboardingToActiveTrading() public {
         // Step 1: User onboards and creates first agent
         vm.prank(operator);
-        AgentWalletV3 agent1 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent1 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         // Step 2: User deposits initial capital
         usdc.mint(address(agent1), 50000e6);
@@ -98,7 +98,7 @@ contract YieldSeekerE2ETest is Test {
 
         // Step 3: User creates second agent (to diversify)
         vm.prank(operator);
-        AgentWalletV3 agent2 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 1, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent2 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 1, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         // Step 4: User deposits to second agent
         usdc.mint(address(agent2), 30000e6);
@@ -117,13 +117,13 @@ contract YieldSeekerE2ETest is Test {
     function test_MultiAgentScenario_SharedVault() public {
         // Create agents for 3 users depositing to same vault
         vm.prank(operator);
-        AgentWalletV3 agent1 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent1 = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         vm.prank(operator);
-        AgentWalletV3 agent2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         vm.prank(operator);
-        AgentWalletV3 agent3 = AgentWalletV3(payable(address(factory.createAgentWallet(user3, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent3 = AgentWalletV3(payable(address(factory.createAgentWallet(user3, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         // All users deposit different amounts
         usdc.mint(address(agent1), 10000e6);
@@ -153,7 +153,7 @@ contract YieldSeekerE2ETest is Test {
     function test_ComplexRebalancingStrategy() public {
         // Create agent with large capital
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(agent), 100000e6);
 
@@ -185,7 +185,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_HighFrequencyTrading_RapidDepositWithdrawals() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(agent), 100000e6);
 
@@ -209,7 +209,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_LargeScaleOperations() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         // Max out user balance
         usdc.mint(address(agent), 100000e6);
@@ -237,7 +237,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_RecoveryFromBlockedAdapter() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(agent), 10000e6);
 
@@ -267,7 +267,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_RecoveryFromRegistryPause() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(agent), 10000e6);
 
@@ -301,7 +301,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_AccessControl_OwnerCanControlWallet() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(agent), 10000e6);
 
@@ -317,7 +317,7 @@ contract YieldSeekerE2ETest is Test {
 
     function test_AccessControl_BlockingIsOwnerPrerogative() public {
         vm.prank(operator);
-        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE))));
+        AgentWalletV3 agent = AgentWalletV3(payable(address(factory.createAgentWallet(user1, 0, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         // Only owner can block
         vm.prank(user2);

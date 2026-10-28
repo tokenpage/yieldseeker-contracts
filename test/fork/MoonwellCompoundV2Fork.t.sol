@@ -47,10 +47,10 @@ contract MoonwellCompoundV2ForkTest is Test {
         IMoonwellMarket market = IMoonwellMarket(marketAddress);
         assertEq(asset.decimals(), expectedDecimals, "Unexpected underlying decimals");
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this));
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
         deal(assetAddress, address(wallet), depositAmount);
@@ -87,10 +87,10 @@ contract MoonwellCompoundV2ForkTest is Test {
         IERC20Metadata weth = IERC20Metadata(WETH);
         IMoonwellMarket market = IMoonwellMarket(MWETH);
 
-        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this), address(this));
+        YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this));
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.setPlanRate(0, YIELD_FEE, FEE_RATE_BPS);
+        feeTracker.createPlan(YIELD_FEE, FEE_RATE_BPS);
         AdapterWalletHarness wallet = new AdapterWalletHarness(weth, feeTracker);
         YieldSeekerCompoundV2Adapter adapter = new YieldSeekerCompoundV2Adapter();
 
