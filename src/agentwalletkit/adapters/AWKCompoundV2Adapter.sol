@@ -27,7 +27,7 @@ interface ICToken {
     function underlying() external view returns (address);
     function decimals() external view returns (uint8);
     function mint(uint256 mintAmount) external returns (uint256);
-    function redeemUnderlying(uint256 redeemAmount) external returns (uint256);
+    function redeem(uint256 redeemTokens) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function exchangeRateStored() external view returns (uint256);
     function exchangeRateCurrent() external returns (uint256);
@@ -72,15 +72,17 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
 
     /**
      * @notice Internal withdraw implementation for Compound V2
-     * @dev Runs in wallet context via delegatecall. The shares parameter represents the underlying amount to withdraw
-     *      (redeemUnderlying takes the underlying amount, not cToken amount).
-     * NOTE(krishan711): we should switch this to use actual shares instead of assets!!
+     * @dev Runs in wallet context via delegatecall. The shares parameter is the cToken amount to redeem.
+     *      Returns the underlying received, including any paid out as native ETH.
      */
     function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         if (shares == 0) revert AWKErrors.ZeroAmount();
-        uint256 redeemResult = ICToken(vault).redeemUnderlying(shares);
+        IERC20 asset = IERC20(ICToken(vault).underlying());
+        uint256 assetBalanceBefore = asset.balanceOf(address(this));
+        uint256 nativeBalanceBefore = address(this).balance;
+        uint256 redeemResult = ICToken(vault).redeem(shares);
         require(redeemResult == 0, "AWKCompoundV2Adapter: redeem failed");
-        assets = shares;
+        assets = asset.balanceOf(address(this)) - assetBalanceBefore + address(this).balance - nativeBalanceBefore;
         emit Withdrawn(address(this), vault, shares, assets);
     }
 }

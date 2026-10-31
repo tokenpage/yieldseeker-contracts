@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {FeeActions} from "../../../src/fees/FeeActions.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test, console} from "forge-std/Test.sol";
 
 contract ERC4626AdapterTest is Test {
@@ -25,8 +27,7 @@ contract ERC4626AdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         altAsset = new MockERC20("Alt", "ALT");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         adapter = new YieldSeekerERC4626Adapter();
         vault = new MockERC4626(address(baseAsset), "Vault", "vUSDC");
@@ -39,8 +40,8 @@ contract ERC4626AdapterTest is Test {
         uint256 shares = _decodeUint(result);
         assertEq(shares, amount);
         assertEq(vault.balanceOf(address(wallet)), amount);
-        assertEq(feeTracker.agentVaultCostBasis(address(wallet), address(vault)), amount);
-        assertEq(feeTracker.agentVaultShares(address(wallet), address(vault)), amount);
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(vault));
+        assertEq(costBasis, amount);
     }
 
     function test_Execute_DepositPercentage_UsesBalance() public {
@@ -83,9 +84,8 @@ contract ERC4626AdapterTest is Test {
         uint256 assetsReceived = _decodeUint(result);
         assertEq(assetsReceived, 1_200e6);
         assertEq(baseAsset.balanceOf(address(wallet)), walletBalanceBefore + assetsReceived);
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(wallet), address(vault));
+        uint256 costBasis = wallet.yieldFeeModule().costBasis(address(wallet), address(vault));
         assertEq(costBasis, 800e6);
-        assertEq(shares, 800e6);
     }
 
     function test_Execute_WithdrawZeroShares_Reverts() public {
@@ -97,7 +97,7 @@ contract ERC4626AdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.deposit.selector, 1_000e6));
         baseAsset.mint(address(vault), 500e6);
         wallet.executeAdapter(address(adapter), address(vault), abi.encodeWithSelector(adapter.withdraw.selector, uint256(1_000e6)));
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 50e6);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 50e6);
     }
 
     function test_Deposit_PrecisionWithExistingShares() public {
@@ -154,9 +154,11 @@ contract ERC4626AdapterTest is Test {
         uint256 g6 = gasleft();
         baseAsset.approve(address(vault), depositAmount);
         uint256 approveGas = g6 - gasleft();
-        // 8) FeeTracker.recordAgentVaultShareDeposit (2 SSTORE)
+        // 8) YieldFeeModule.onAction (1 SSTORE)
+        YieldSeekerYieldFeeModule yieldFeeModule = wallet.yieldFeeModule();
         uint256 g7 = gasleft();
-        feeTracker.recordAgentVaultShareDeposit(address(vault), depositAmount, depositAmount);
+        vm.prank(address(wallet));
+        yieldFeeModule.onAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: depositAmount})));
         uint256 feeTrackerGas = g7 - gasleft();
         // Summary
         console.log("=== ERC4626 Deposit Gas Breakdown ===");
@@ -169,7 +171,7 @@ contract ERC4626AdapterTest is Test {
         console.log("Read wallet.baseAsset():         ", readBaseAssetGas);
         console.log("2x balanceOf (balance-delta):    ", twoBalanceOfGas);
         console.log("ERC20 approve:                   ", approveGas);
-        console.log("FeeTracker record deposit:       ", feeTrackerGas);
+        console.log("Vault fee module record deposit: ", feeTrackerGas);
     }
 
     function test_DecimalVariant_CbBTC() public {
@@ -195,9 +197,8 @@ contract ERC4626AdapterTest is Test {
         bytes memory withdrawResult = variantWallet.executeAdapter(address(adapter), address(variantVault), abi.encodeWithSelector(adapter.withdraw.selector, amount));
 
         assertEq(_decodeUint(withdrawResult), amount + yieldAmount);
-        assertEq(feeTracker.agentFeesCharged(address(variantWallet)), yieldAmount / 10);
-        (uint256 costBasis, uint256 shares) = feeTracker.getAgentVaultPosition(address(variantWallet), address(variantVault));
+        assertEq(asset.balanceOf(feeTracker.feeCollector()), yieldAmount / 10);
+        uint256 costBasis = variantWallet.yieldFeeModule().costBasis(address(variantWallet), address(variantVault));
         assertEq(costBasis, 0);
-        assertEq(shares, 0);
     }
 }

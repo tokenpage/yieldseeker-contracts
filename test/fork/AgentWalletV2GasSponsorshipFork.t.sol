@@ -5,10 +5,10 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -56,16 +56,17 @@ contract LocalAcceptAllPaymaster is IPaymaster {
     }
 }
 
-/// @title Agent Wallet V2 Gas Sponsorship Fork Test
+/// @title Agent Wallet V3 Gas Sponsorship Fork Test
 /// @notice Runs against the real, canonical ERC-4337 v0.6 EntryPoint singleton deployed on Base.
-///         Demonstrates the actual property the integrator needs, on the real V2 implementation:
+///         Demonstrates the actual property the integrator needs, on the real V3 implementation:
 ///         a relayer that is neither the owner nor an operator can submit and pay for a
 ///         withdrawal, while only the owner's signature can ever authorize it, and an operator's
 ///         signature can authorize adapter execution but never a withdrawal.
-contract AgentWalletV2GasSponsorshipForkTest is Test {
+contract AgentWalletV3GasSponsorshipForkTest is Test {
     using MessageHashUtils for bytes32;
 
     IEntryPoint internal constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
 
     AgentWalletFactory factory;
     AdapterRegistry registry;
@@ -73,7 +74,7 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
     ERC4626Adapter vaultAdapter;
     MockERC20 usdc;
     MockERC4626 vault;
-    AgentWalletV2 wallet;
+    AgentWalletV3 wallet;
 
     address admin = makeAddr("admin");
     address ownerAddr;
@@ -101,20 +102,21 @@ contract AgentWalletV2GasSponsorshipForkTest is Test {
 
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(0, admin);
+        feeTracker = new FeeTracker(admin, admin);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
         factory = new AgentWalletFactory(admin, operatorAddr);
-        AgentWalletV2 implementation = new AgentWalletV2(address(factory));
-        factory.setAdapterRegistry(registry);
+        AgentWalletV3 implementation = new AgentWalletV3(address(factory));
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(implementation))));
+        factory.setAgentWalletImplementation(implementation);
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
         vm.stopPrank();
 
         vm.prank(operatorAddr);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc)))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 1_000e6);
 

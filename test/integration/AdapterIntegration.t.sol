@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKAgentWalletV1, AdapterIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -18,10 +19,12 @@ import {MockERC4626} from "../mocks/MockERC4626.sol";
 /// @title Adapter Integration Tests
 /// @notice Tests for real adapter interactions with multiple vault scenarios
 contract AdapterIntegrationTest is Test {
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     // Real contract instances
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     ERC4626Adapter vaultAdapter1;
     ERC4626Adapter vaultAdapter2;
     ERC4626Adapter vaultAdapter3;
@@ -50,19 +53,22 @@ contract AdapterIntegrationTest is Test {
         vault2 = new MockERC4626(address(usdc), "Vault 2", "V2");
         vault3 = new MockERC4626(address(usdc), "Vault 3", "V3");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
 
         // Deploy infrastructure
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         factory = new AgentWalletFactory(admin, operator);
-        factory.setAdapterRegistry(registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
 
-        AgentWalletV2 walletImplementation = new AgentWalletV2(address(factory));
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(walletImplementation))));
+        AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
 
         // Deploy adapters
         vaultAdapter1 = new ERC4626Adapter();
@@ -98,7 +104,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_SequentialDepositsAndWithdrawals() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 10000e6);
 
@@ -130,7 +136,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_AdapterBlockingPreventsAllOperations() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 5000e6);
 
         // Initial deposit works
@@ -162,7 +168,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_DistributionAcrossMultipleVaults() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 9000e6);
 
@@ -194,7 +200,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_ConsolidateFromMultipleVaults() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 9000e6);
 
@@ -251,7 +257,7 @@ contract AdapterIntegrationTest is Test {
     function test_MultipleUsersIndependentPositions() public {
         // User 1 creates wallet and deposits
         vm.prank(operator);
-        AgentWalletV2 wallet1 = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet1), 5000e6);
         vm.prank(user);
@@ -259,7 +265,7 @@ contract AdapterIntegrationTest is Test {
 
         // User 2 creates wallet and deposits
         vm.prank(operator);
-        AgentWalletV2 wallet2 = AgentWalletV2(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet2), 3000e6);
         vm.prank(user2);
@@ -283,7 +289,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_RegistryAdapterRemoval_AffectsActiveWallets() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 5000e6);
 
@@ -303,7 +309,7 @@ contract AdapterIntegrationTest is Test {
 
     function test_AdapterRegistrationAfterWalletCreation() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
 
         usdc.mint(address(wallet), 5000e6);
 
@@ -327,7 +333,7 @@ contract AdapterIntegrationTest is Test {
     function test_ERC4626_DepositThenAppreciateThenWithdraw_ChargesFees() public {
         // Create wallet and fund with 10 USDC
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10e6);
 
         // Deposit 10 USDC via adapter (expect 10 shares minted)
@@ -341,7 +347,7 @@ contract AdapterIntegrationTest is Test {
         usdc.mint(address(vault1), 1e6);
 
         // Withdraw all shares; assets should be 11 USDC after growth
-        uint256 feesBefore = feeTracker.getFeesOwed(address(wallet));
+        uint256 feeCollectorBalanceBefore = usdc.balanceOf(feeCollector);
 
         vm.prank(user);
         bytes memory withdrawResult = wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.withdraw, (10e6)));
@@ -349,11 +355,12 @@ contract AdapterIntegrationTest is Test {
         uint256 assetsReceived = abi.decode(withdrawInner, (uint256));
         assertEq(assetsReceived, 11e6, "Should withdraw 11 USDC after appreciation");
 
-        uint256 feesAfter = feeTracker.getFeesOwed(address(wallet));
-        uint256 feesCharged = feesAfter - feesBefore;
+        uint256 feeCollectorBalanceAfter = usdc.balanceOf(feeCollector);
 
-        // Profit = 1 USDC, fee at 10% should be 0.1 USDC
-        assertEq(feesCharged, 0.1e6, "Should charge 0.1 USDC fee on 1 USDC profit");
+        // Profit = 1 USDC, fee at 10% should be 0.1 USDC and paid immediately.
+        assertEq(feeCollectorBalanceAfter - feeCollectorBalanceBefore, 0.1e6, "Fee collector should receive the fee");
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0, "No base-asset fees should remain owed");
+        assertEq(usdc.balanceOf(address(wallet)), 10.9e6, "Wallet should retain 10.9 USDC after fees");
 
         // Position should be cleared
         assertEq(vault1.balanceOf(address(wallet)), 0, "Shares should be zero after full withdrawal");

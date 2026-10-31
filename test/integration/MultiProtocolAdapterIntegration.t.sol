@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AWKAgentWalletV1} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
@@ -22,10 +22,12 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 /// @title Multi-Protocol Adapter Integration Tests
 /// @notice Tests for Aave V3, Compound V3, and Compound V2 adapter interactions
 contract MultiProtocolAdapterIntegrationTest is Test {
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     // Real contract instances
     AgentWalletFactory factory;
     AdapterRegistry registry;
     FeeTracker feeTracker;
+    YieldSeekerYieldFeeModule vaultFeeModule;
     AaveV3Adapter aaveAdapter;
     CompoundV3Adapter compoundV3Adapter;
     CompoundV2Adapter compoundV2Adapter;
@@ -54,15 +56,18 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         comet = new MockCompoundV3Comet(address(usdc));
         cToken = new MockCToken(address(usdc), "Mock cUSDC", "cUSDC");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
+        vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
-        factory.setAdapterRegistry(registry);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
-        AgentWalletV2 walletImplementation = new AgentWalletV2(address(factory));
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(walletImplementation))));
+        AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
+        factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
         aaveAdapter = new AaveV3Adapter();
         compoundV3Adapter = new CompoundV3Adapter();
         compoundV2Adapter = new CompoundV2Adapter();
@@ -90,7 +95,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_AaveV3_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(aaveAdapter), address(aToken), abi.encodeCall(aaveAdapter.deposit, (5_000e6)));
@@ -110,7 +115,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_CompoundV3_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(compoundV3Adapter), address(comet), abi.encodeCall(compoundV3Adapter.deposit, (5_000e6)));
@@ -129,7 +134,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_CompoundV2_DepositWithdraw() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.deposit, (5_000e6)));
@@ -137,10 +142,12 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         uint256 expectedShares = _cTokenSharesForAssets(5_000e6);
         assertEq(shares, expectedShares, "Should receive exchange-rate-adjusted shares");
         assertEq(cToken.balanceOf(address(wallet)), expectedShares, "Wallet should have cTokens");
+        uint256 sharesToWithdraw = _cTokenSharesForAssets(3_000e6);
         vm.prank(user);
-        bytes memory withdrawResult = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.withdraw, (3_000e6)));
+        bytes memory withdrawResult = wallet.executeViaAdapter(address(compoundV2Adapter), address(cToken), abi.encodeCall(compoundV2Adapter.withdraw, (sharesToWithdraw)));
         uint256 assetsReceived = _decodeUint(withdrawResult);
         assertEq(assetsReceived, 3_000e6, "Should withdraw correct amount");
+        assertEq(cToken.balanceOf(address(wallet)), expectedShares - sharesToWithdraw, "Should have remaining cTokens");
     }
 
     // ========================================
@@ -149,7 +156,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_MovePositionAcrossProtocols() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 10_000e6);
         vm.prank(user);
         wallet.executeViaAdapter(address(aaveAdapter), address(aToken), abi.encodeCall(aaveAdapter.deposit, (10_000e6)));
@@ -164,7 +171,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_DistributeAcrossAllProtocols() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 9_000e6);
         address[] memory adapters = new address[](3);
         address[] memory targets = new address[](3);
@@ -187,8 +194,9 @@ contract MultiProtocolAdapterIntegrationTest is Test {
 
     function test_ConsolidateFromAllProtocols() public {
         vm.prank(operator);
-        AgentWalletV2 wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
         usdc.mint(address(wallet), 9_000e6);
+        uint256 compoundV2Shares = _cTokenSharesForAssets(3_000e6);
         address[] memory adapters = new address[](3);
         address[] memory targets = new address[](3);
         bytes[] memory calls = new bytes[](3);
@@ -214,7 +222,7 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         calls[1] = abi.encodeCall(compoundV3Adapter.withdraw, (3_000e6));
         adapters[2] = address(compoundV2Adapter);
         targets[2] = address(cToken);
-        calls[2] = abi.encodeCall(compoundV2Adapter.withdraw, (3_000e6));
+        calls[2] = abi.encodeCall(compoundV2Adapter.withdraw, (compoundV2Shares));
         vm.prank(user);
         wallet.executeViaAdapterBatch(adapters, targets, calls);
         assertEq(aToken.balanceOf(address(wallet)), 0, "Should have 0 in Aave");

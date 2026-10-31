@@ -97,20 +97,24 @@ Since adapters execute via `delegatecall` in the wallet's context:
 
 ## Fee Model
 
-The system uses a **cost-basis tracking model** to calculate platform fees on realized gains.
+Adapters never decide fees. After every action they report what the wallet did (a deposit, a withdrawal, a swap, a claim, a debt change) to every fee module, and each module decides what that costs. The adapter then pays each module's fees due from the wallet's base asset to the fee collector, in the same transaction.
 
-### How It Works
+### Yield fee (`YIELD_FEE`, all agent types)
 
-1. **On Deposit**: FeeTracker records the deposit amount as "cost basis" for the wallet
-2. **On Withdrawal**: FeeTracker compares withdrawal value to cost basis
-   - If profit: Fee = `profitAmount * feeRate / 10000`
-   - If loss: No fee, cost basis adjusted for remaining position
-3. **Fee Collection**: Platform can call `collectFees(wallet)` to transfer owed fees
+1. **On Deposit**: the module adds the base asset deposited to the target's cost basis
+2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults); the same share of the cost basis is released, and anything received above it is yield
+   - Fee = `yield * rateBps / 10000`, where `rateBps` comes from the wallet's `YIELD_FEE` plan
+   - If loss: No fee, cost basis reduced for the remaining position
+3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling any other token is yield. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
+
+### Borrow fee (`BORROW_FEE`)
+
+A yearly fee on borrowed principal, counted in the borrowed token per market and reported by the lending adapters on every borrow, repay and collateral withdrawal. It is due in the base asset (the collateral) at the oracle price and paid at the first action that leaves base asset in the wallet; a token without a fresh price waits until it has one. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet, debtToken)` plus `pendingFee(wallet, market)`, converted with the price oracle.
 
 ### Key Properties
-- **Loss Protection**: If a withdrawal results in a loss, the cost basis for remaining shares is adjusted, and no fees are accrued.
-- **Transparency**: Users can query `feeTracker().getFeesOwed(wallet)` at any time to see their outstanding fee balance.
-- **Non-Custodial**: Fees are only collected from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
+- **Loss Protection**: If a withdrawal results in a loss, the cost basis for the remaining position is reduced, and no fees are accrued.
+- **No pending fees in the wallet**: fees are paid as soon as the wallet holds base asset, so the wallet's base-asset balance is what the owner can withdraw.
+- **Non-Custodial**: Fees are only paid from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---
 
@@ -255,7 +259,7 @@ Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `createAgentWallet(owner, index, asset)` | Operator | Deploys new wallet via CREATE2 |
+| `createAgentWallet(owner, index, asset, agentProfile, feePlans)` | Operator | Deploys new wallet via CREATE2; sets its fee plans, fixed for life |
 | `getAddress(owner, index)` | View | Predicts address before deployment |
 | `setAgentWalletImplementation(newImpl)` | Admin | Updates implementation for NEW wallets |
 | `setAdapterRegistry(newRegistry)` | Admin | Updates registry for NEW wallets |
@@ -292,18 +296,19 @@ The central registry that manages authorized adapters and their targets.
 
 ---
 
-#### FeeTracker (`src/FeeTracker.sol`)
+#### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-Tracks cost basis and calculates fees on realized gains.
+The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans and the fee collector. After every action, the adapter reports it to every module with `onAction(action, data)`. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset and returns that amount; the adapter sends it to the fee collector before calling the next module. Modules are keyed on `msg.sender`, so a caller can only affect its own accounting.
 
-**Key Functions:**
+**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
 
-| Function | Access | Description |
-|----------|--------|-------------|
-| `recordDeposit(wallet, amount)` | Adapters only | Record deposit for cost basis |
-| `recordWithdrawal(wallet, shares, assets)` | Adapters only | Calculate fees on withdrawal |
-| `collectFees(wallet)` | Fee Collector | Transfer owed fees from wallet |
-| `getFeesOwed(wallet)` | View | Query outstanding fees |
+| Contract | Role |
+|----------|------|
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), plans (`createPlan`, `plan`), wallet plans (`setWalletPlans`, factory only; `walletPlanId`, `walletPlan`), `feeCollector`; `tracksToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
+| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
+| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change; fees paid in the base asset at the oracle price; tracks borrowed tokens |
+
+Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for plan 0 and any others); adapters, the tracker and wallets don't change. Adding an action (for a new agent type's adapters) needs a new `FeeActions` ID and struct; deployed modules ignore actions they don't know, so only modules that should charge for it change.
 
 ---
 
@@ -316,7 +321,7 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 **YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
 Abstract base class for all adapters providing:
 - `onlyDelegateCall` modifier to prevent direct calls
-- Helper functions: `_agentWallet()`, `_baseAsset()`, `_feeTracker()`
+- Fee reporting: `_reportAction(action, data)` (tells every fee module and pays the fees each settles)
 - Base asset validation: `_requireBaseAsset(address)`
 
 #### Concrete Adapters
@@ -332,7 +337,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 **Validation:**
 - Enforces that the vault's underlying asset matches the wallet's `baseAsset`
-- Calls FeeTracker to record deposits/withdrawals for fee calculation
+- Reports deposits and withdrawals (shares redeemed out of shares held) to the fee modules
 
 **Known Limitation / Future Work**:
 - Deposits do not accept a `minShares` bound, and withdrawals do not accept a `minAssets` bound.
@@ -377,8 +382,7 @@ For Aave V3 lending pools. Handles deposits/withdrawals to Aave pools where the 
 
 **Validation:**
 - Enforces that the pool's underlying asset matches the wallet's `baseAsset`
-- Calls FeeTracker to record deposits/withdrawals for fee calculation
-- Uses aToken balance to track shares (1:1 rebasing with underlying + yield)
+- Reports deposits and withdrawals (balance withdrawn out of balance held) to the fee modules
 
 **Technical Notes:**
 - Aave V3 uses rebasing aTokens where balance increases automatically with accrued yield
@@ -398,8 +402,7 @@ For Compound V3 (Comet) markets. Handles deposits/withdrawals to Compound V3 mar
 
 **Validation:**
 - Enforces that the Comet's base token matches the wallet's `baseAsset`
-- Calls FeeTracker to record deposits/withdrawals for fee calculation
-- Uses Comet balance as shares (rebasing model)
+- Reports deposits and withdrawals (balance withdrawn out of balance held) to the fee modules
 
 **Technical Notes:**
 - Compound V3 uses a rebasing balance model where `balanceOf()` returns principal + accrued interest
@@ -415,17 +418,17 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 **Functions:**
 - `deposit(cToken, assetAmount)` - Mint cTokens by supplying underlying asset
 - `depositPercentage(cToken, percentageBps)` - Deposit percentage of wallet balance
-- `withdraw(cToken, assetAmount)` - Redeem underlying by burning cTokens
+- `withdraw(cToken, cTokenAmount)` - Redeem cTokens for underlying
 
 **Validation:**
 - Enforces that the cToken's underlying matches the wallet's `baseAsset`
-- Calls FeeTracker to record deposits/withdrawals for fee calculation
-- Uses cToken balance to track shares
+- Reports deposits and withdrawals (cTokens redeemed out of cTokens held) to the fee modules
+- Wraps underlying paid out as native ETH back into the base asset
 
 **Technical Notes:**
 - Compound V2 uses an exchange rate model where cTokens appreciate over time
 - `mint(amount)` supplies underlying and mints cTokens at the current exchange rate
-- `redeemUnderlying(amount)` redeems a specific amount of underlying, burning the required cTokens
+- `redeem(cTokens)` burns cTokens and pays out underlying at the current exchange rate
 - Exchange rate = (totalCash + totalBorrows - reserves) / totalSupply
 - Works with Moonwell (mTokens), Venus (vTokens), and other Compound V2 forks
 
@@ -580,9 +583,11 @@ sequenceDiagram
 ```solidity
 // Anyone with AGENT_OPERATOR_ROLE can create wallet for user
 address walletAddr = factory.createAgentWallet(
-    userAddress,     // Owner
-    0,               // Index
-    usdcAddress      // Base Asset
+    userAddress,             // Owner
+    0,                       // Index
+    usdcAddress,             // Base Asset
+    keccak256("vault"),      // Agent profile
+    new FeePlan[](0)         // Fee plans (empty: plan 0 for every fee type)
 );
 
 // User can now deposit USDC
@@ -684,8 +689,8 @@ sequenceDiagram
     Wallet->>Adapter: DELEGATECALL withdraw(vault, shares)
     Adapter->>Vault: vault.redeem(shares, wallet, wallet)
     Vault-->>Wallet: USDC returned to wallet
-    Adapter->>FeeTracker: recordWithdrawal(wallet, shares, assets)
-    FeeTracker->>FeeTracker: Calculate fees on profit
+    Adapter->>FeeModules: onAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
+    FeeModules->>FeeModules: Charge on profit, settle fees owed
     Wallet-->>EP: ✓
 
     Note over User: User withdraws USDC
@@ -701,42 +706,31 @@ sequenceDiagram
 
 ---
 
-### Flow 4: Fee Collection
+### Flow 4: Fee Payment
 
 **Actors:**
-- Platform Fee Collector
+- Server (agent operator)
 - User's Wallet
 
 **Pre-requisites:**
-- User has realized profits from vault withdrawals
-- FeeTracker has recorded fees owed
+- The wallet has a vault position in profit
 
 **Sequence:**
 
 ```mermaid
 sequenceDiagram
-    participant Collector as Fee Collector
-    participant FeeTracker
+    participant Server
     participant Wallet
+    participant Adapter as ERC4626Adapter (delegatecall)
+    participant Modules as Fee modules
     participant USDC
 
-    Collector->>FeeTracker: collectFees(walletAddress)
-    FeeTracker->>FeeTracker: Calculate feesOwed for wallet
-    FeeTracker->>Wallet: Transfer feesOwed to feeCollector
-    Wallet->>USDC: transfer(feeCollector, feesOwed)
-    USDC-->>Collector: USDC received
-    FeeTracker->>FeeTracker: Reset feesOwed to 0
-```
-
-**Code Example:**
-```solidity
-// Check fees owed
-uint256 feesOwed = feeTracker.getFeesOwed(walletAddress);
-
-// Collect fees (only fee collector can call)
-if (feesOwed > 0) {
-    feeTracker.collectFees(walletAddress);
-}
+    Server->>Wallet: executeViaAdapter(adapter, vault, withdraw(shares))
+    Wallet->>Adapter: delegatecall execute(vault, withdraw)
+    Adapter->>Modules: onAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
+    Modules->>Modules: yield module charges on profit, pays from the wallet's USDC
+    Modules-->>Adapter: payment
+    Adapter->>USDC: transfer(feeCollector, payment)
 ```
 
 **Fee Calculation:**
@@ -778,13 +772,13 @@ sequenceDiagram
     Wallet2->>Registry: getTargetAdapter(target)
     Registry-->>Wallet2: REVERT: Paused
 
-    Note over Emergency: All wallets protected instantly
+    Note over Emergency: Adapter execution stops for wallets using this registry
 ```
 
 **Key Properties:**
-- Single `pause()` call protects ALL wallets
-- No need to update individual wallets
-- Users can still withdraw directly via `withdrawToken()` / `withdrawETH()`
+- A single `pause()` call blocks adapter execution through the paused registry.
+- Direct owner withdrawals through `withdrawToken()` / `withdrawETH()` remain available.
+- Pausing the borrow registry also blocks adapter-based repay and collateral withdrawal until the timelock unpauses it.
 
 ---
 
@@ -792,70 +786,127 @@ sequenceDiagram
 
 ### Setup
 
-Required environment variables:
-- `DEPLOYER_PRIVATE_KEY`: Private key for deployment transactions
-- `SERVER_ADDRESS`: Backend server address
-- `RPC_NODE_URL_8453`: Base network RPC endpoint
-- `ETHERSCAN_API_KEY`:  For contract verification (optional)
+Set these environment variables before running the scripts:
+- `DEPLOYER_PRIVATE_KEY`: deployer and timelock proposer key
+- `MULTISIG_ADMIN_ADDRESS`: timelock admin and executor
+- `SERVER_ADDRESS`: backend operator address
+- `FEE_COLLECTOR_ADDRESS`: receives fees
+- `RPC_NODE_URL_8453`: Base RPC endpoint
+- `ETHERSCAN_API_KEY`: optional contract verification key
 
-Notes:
-- `Deploy.s.sol` currently has swap router/factory addresses hardcoded for Base mainnet (`chainId == 8453`)
-- `Deploy.s.sol` is selective and only deploys contracts with missing/zero addresses in `deployments.json`
-
+The scripts target Base (chain ID 8453). `Deploy.s.sol` keeps the deployer as emergency admin.
 
 ### Deploy
 
-```bash
-forge script script/Deploy.s.sol:DeployScript --rpc-url $RPC_NODE_URL_8453 --broadcast --verify
-```
-
-Deployment addresses saved to `deployments.json`.
-
-
-### Post-Deployment
+`Deploy.s.sol` deploys contracts whose addresses are missing or zero in `deployments.json`. It deploys the V3 vault registry and borrow registry with their adapters, the fee tracker and its vault and borrow fee modules, configures the static borrow targets, copies every V2 vault registry target into the V3 vault registry (see below), wires the factory and fee tracker, grants the operator role, and schedules a configuration batch. It never deploys or changes the V2 system, which stays in `deployments.json` under `agentWalletV2*` keys.
 
 ```bash
-# Register ERC4626 vaults
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
-
-# Register other vaults
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB aave
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xb125E6687d4313864e53df431d5425969c15Eb2F compound
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22 moonwell
-
-# Rgister UniswapV3 router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x2626664c2603336E57B271c5C0b26F421741e481 uniswapv3
-# Rgister AerodromeV2 router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43 aerodromev2
-# Rgister AerodromeCL router
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5 aerodromecl
-# Register Merkl
-forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address,string)" 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae merkl
-
-# Add sellable tokens to the swap sell policy (tokens that agents are allowed to swap)
-forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url $RPC_NODE_URL_8453 --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
+forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify
 ```
 
-### Execute From Multisig
+New and reused addresses are saved to `deployments.json`. In production, execute the emitted deploy configuration batch and wait for it to complete before setting price sources or registering borrow markets.
 
-When `TESTING_MODE=false`, scripts schedule timelock operations and do not execute them immediately.
+### Two vault registries
 
-1. Wait until the timelock delay has passed.
-2. In Safe UI (Base), create a transaction to `adminTimelock` with `value=0`.
-3. Use:
-   - `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` for the deploy config batch.
-   - `execute(address,uint256,bytes,bytes32,bytes32)` for single operations (vault registration, sellable tokens).
-4. Copy arguments exactly from the script output / `contracts/broadcast/.../run-latest.json` (`targets`, `values`, `datas`, `predecessor`, `salt`).
-5. Collect multisig approvals and execute.
+V2 wallets keep using the V2 vault registry (`agentWalletV2AdapterRegistry`), whose adapters record fees on the legacy V2 FeeTracker. V3 vault wallets use the V3 vault registry (`vaultAdapterRegistry`), whose adapters record fees on the V3 vault fee module. A registry maps each target to one adapter, so the two systems can't share one registry. Until every V2 wallet has moved to V3, the two vault registries must hold exactly the same targets:
+- `Deploy.s.sol` maps every V2 vault registry target onto the V3 adapter of the same kind (and fails on a V2 adapter it doesn't know). Re-running it schedules any target the V3 registry is missing.
+- `RegisterVault.s.sol` always registers a vault in both registries in one timelock batch.
+- Sellable tokens live in the one `swapSellPolicy` that both registries' swap adapters read, so they can't drift.
+- An emergency `removeTarget` or `unregisterAdapter` on one registry must be repeated on the other.
+- The V3 vault registry also maps the wallet link registry to the agent transfer adapter; the V2 registry doesn't.
 
-NOTE: f you scheduled operations with a `predecessor`, execute the predecessor operation first.
+### Configure vaults and sellable tokens
 
+Register each vault target that vault agents may use (in both vault registries, in one timelock batch):
 
-### Selective Redeployment
+```bash
+forge script script/RegisterVault.s.sol:RegisterVaultScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,string)" <VAULT_ADDRESS> erc4626
 
-To redeploy specific contracts:
-1. Set the contract's address to `0x0000000000000000000000000000000000000000` in `deployments.json`
-2. Run the deploy script again
+# Add tokens that agents are allowed to sell in swaps
+forge script script/AddSellableTokens.s.sol:AddSellableTokensScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address[])" "[<token_1>, <token_2>, ...]"
+```
+
+### Set price sources
+
+Set all collateral and debt asset price sources before registering borrow markets. Staleness limits are in seconds: WETH and cbBTC use one hour (`3600`), USDC uses 25 hours (`90000`), and MAG7 equity feeds use two hours (`7200`). The short MAG7 limit stops swaps and collateral fee payments when the stock market is closed; fees remain owed until they can be paid.
+
+```bash
+WETH=0x4200000000000000000000000000000000000006
+CBBTC=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
+USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
+RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
+
+# WETH, cbBTC, and USDC Chainlink USD feeds
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$WETH" 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70 3600
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$CBBTC" 0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D 3600
+forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$USDC" 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B 90000
+
+# Configure each MAG7 reserve token from the Aave V4 spoke oracle (excluding USDC reserve 7)
+AAVE_V4_ORACLE=$(cast call "$AAVE_V4_SPOKE" "ORACLE()(address)" --rpc-url "$RPC_NODE_URL_8453")
+for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
+  [ "$reserveId" -eq 7 ] && continue
+  RESERVE=$(cast call "$AAVE_V4_SPOKE" "getReserve(uint256)((address,address,uint16,uint8,uint24,uint8,uint32))" "$reserveId" --rpc-url "$RPC_NODE_URL_8453" --json)
+  ASSET=$(printf '%s' "$RESERVE" | jq -r '.[0]')
+  case "$ASSET" in "$WETH"|"$CBBTC"|"$USDC") continue ;; esac
+  FEED=$(cast call "$AAVE_V4_ORACLE" "getReserveSource(uint256)(address)" "$reserveId" --rpc-url "$RPC_NODE_URL_8453")
+  forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$ASSET" "$FEED" 7200
+done
+```
+
+Each `SetPriceSource` run prints the feed decimals, description, and latest round data, and rejects nonpositive or stale answers. In production, execute the emitted price-source timelock operations before continuing.
+
+### Register borrow markets
+
+The script validates the Base protocol addresses, requires collateral and debt to differ, and requires price sources for both assets. Market bytes are ABI encodings of protocol and market parameters; `cast abi-encode` produces the `bytes` argument. It prints the raw market bytes and target so the multisig can recompute the registration target.
+
+Configuration rules:
+- Register at most one borrow market per `(pool or spoke, collateral)` pair; do not add eMode variants.
+- Do not register a base-asset Aave V3 vault in the borrow registry.
+- Do not register opposite borrow pairs: if X is collateral and Y is debt, do not also register Y as collateral and X as debt.
+
+```bash
+WETH=0x4200000000000000000000000000000000000006
+USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+CBBTC=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
+AAVE_V3_POOL=0xA238Dd80C259a72e81d7e4664a9801593F98d1c5
+
+# Aave V3 WETH/USDC and cbBTC/USDC, eMode 0
+MARKET=$(cast abi-encode "f(address,address,address,uint8)" "$AAVE_V3_POOL" "$WETH" "$USDC" 0)
+forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev3 "$MARKET"
+MARKET=$(cast abi-encode "f(address,address,address,uint8)" "$AAVE_V3_POOL" "$CBBTC" "$USDC" 0)
+forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev3 "$MARKET"
+
+# Morpho Blue USDC loans against WETH and cbBTC, LLTV 0.86e18
+MORPHO_BLUE=0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb
+MORPHO_ADAPTIVE_IRM=0x46415998764C29aB2a25CbeA6254146D50D22687
+MORPHO_WETH_USDC_ORACLE=0xFEa2D58cEfCb9fcb597723c6bAE66fFE4193aFE4
+MORPHO_CBBTC_USDC_ORACLE=0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9
+LLTV=860000000000000000
+MARKET=$(cast abi-encode "f(address,(address,address,address,address,uint256))" "$MORPHO_BLUE" "($USDC,$WETH,$MORPHO_WETH_USDC_ORACLE,$MORPHO_ADAPTIVE_IRM,$LLTV)")
+forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" morpho "$MARKET"
+MARKET=$(cast abi-encode "f(address,(address,address,address,address,uint256))" "$MORPHO_BLUE" "($USDC,$CBBTC,$MORPHO_CBBTC_USDC_ORACLE,$MORPHO_ADAPTIVE_IRM,$LLTV)")
+forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" morpho "$MARKET"
+
+# Aave V4 MAG7 collateral against USDC reserve 7
+AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
+RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
+for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
+  [ "$reserveId" -eq 7 ] && continue
+  MARKET=$(cast abi-encode "f(address,uint256,uint256)" "$AAVE_V4_SPOKE" "$reserveId" 7)
+  forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev4 "$MARKET"
+done
+```
+
+In production, execute each emitted borrow-market timelock operation after the required delay.
+
+### Execute from the multisig
+
+In production, scripts schedule timelock operations rather than executing them immediately. Wait for each operation's delay, then execute the deploy configuration and vault registrations with `executeBatch(address[],uint256[],bytes[],bytes32,bytes32)` or an individual market/source update with `execute(address,uint256,bytes,bytes32,bytes32)`. Copy the emitted arguments exactly.
+
+### Selective redeployment
+
+To redeploy a contract, set its address to `0x0000000000000000000000000000000000000000` in `deployments.json` and run the deployment script again.
 
 ---
 
@@ -907,118 +958,15 @@ We have comprehensive tests in `test/`:
 
 ---
 
-### FeeTracker Migration Guide
+### Changing fee logic
 
-**IMPORTANT**: FeeTracker stores per-wallet fee accounting state. Changing the FeeTracker requires careful migration to prevent fee loss.
+Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
 
-#### The Problem
-
-When `factory.setFeeTracker(newTracker)` is called and wallets subsequently call `syncFromFactory()`:
-- The wallet's `feeTracker` reference switches to the new contract
-- All historical fee data remains **orphaned** in the old FeeTracker:
-  - `agentFeesCharged[wallet]` - total fees charged
-  - `agentFeesPaid[wallet]` - total fees paid
-  - `agentVaultCostBasis[wallet][vault]` - cost basis for profit calculations
-  - `agentVaultShares[wallet][vault]` - tracked vault shares
-  - `agentYieldTokenFeesOwed[wallet][token]` - pending yield token fees
-- New FeeTracker has **zero state** for existing wallets
-- `newTracker.getFeesOwed(wallet)` returns **0** instead of the actual debt
-- Users could withdraw all funds without paying accrued fees
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  DANGEROUS: FeeTracker Switch Without Migration                      │
-│                                                                      │
-│  Day 1:  Wallet → FeeTrackerA (feesCharged: 1000 USDC)             │
-│  Day 30: Admin sets Factory.feeTracker = FeeTrackerB                │
-│  Day 31: Wallet.syncFromFactory() → points to FeeTrackerB           │
-│          FeeTrackerB.getFeesOwed(wallet) = 0  ← FEES LOST!         │
-│  Day 32: User withdraws all funds, platform never collects fees     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### Required Migration Pattern
-
-The new FeeTracker should store a reference to the previous tracker and aggregate fee queries:
-
-```solidity
-contract YieldSeekerFeeTrackerV2 is AccessControl {
-    // Reference to the previous FeeTracker for migration
-    YieldSeekerFeeTracker public immutable LEGACY_TRACKER;
-
-    // Track which wallets have been migrated
-    mapping(address wallet => bool) public migrated;
-
-    constructor(address admin, address legacyTracker) {
-        _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        LEGACY_TRACKER = YieldSeekerFeeTracker(legacyTracker);
-    }
-
-    /**
-     * @notice Get fees owed, checking both legacy and current tracker
-     * @dev For unmigrated wallets, this returns the sum of:
-     *      - Legacy tracker fees (historical debt)
-     *      - Current tracker fees (new activity)
-     */
-    function getFeesOwed(address wallet) external view returns (uint256) {
-        uint256 currentOwed = _getCurrentFeesOwed(wallet);
-
-        // If not migrated, also include legacy fees
-        if (!migrated[wallet] && address(LEGACY_TRACKER) != address(0)) {
-            uint256 legacyOwed = LEGACY_TRACKER.getFeesOwed(wallet);
-            return currentOwed + legacyOwed;
-        }
-
-        return currentOwed;
-    }
-
-    /**
-     * @notice Migrate a wallet's fee state from legacy tracker
-     * @dev Called once per wallet to snapshot legacy state into new tracker
-     *      Can only be called by the wallet itself (msg.sender pattern)
-     */
-    function migrateFromLegacy() external {
-        address wallet = msg.sender;
-        require(!migrated[wallet], "Already migrated");
-        require(address(LEGACY_TRACKER) != address(0), "No legacy tracker");
-
-        // Copy fee accounting state
-        (uint256 charged, uint256 paid, ) = LEGACY_TRACKER.getWalletStats(wallet);
-        agentFeesCharged[wallet] = charged;
-        agentFeesPaid[wallet] = paid;
-
-        // Note: Vault positions (cost basis, shares) should also be migrated
-        // if the new tracker needs to continue tracking existing positions
-
-        migrated[wallet] = true;
-        emit WalletMigrated(wallet, charged, paid);
-    }
-}
-```
-
-#### State That Must Be Migrated
-
-| State Variable | Purpose | Migration Notes |
-|----------------|---------|-----------------|
-| `agentFeesCharged[wallet]` | Total fees charged to wallet | Direct copy |
-| `agentFeesPaid[wallet]` | Total fees paid by wallet | Direct copy |
-| `agentVaultCostBasis[wallet][vault]` | Cost basis for profit calculation | Requires knowing all vaults used by wallet |
-| `agentVaultShares[wallet][vault]` | Tracked shares for profit calculation | Requires knowing all vaults used by wallet |
-| `agentYieldTokenFeesOwed[wallet][token]` | Pending fees in yield tokens | Requires knowing all yield tokens received |
-
-**Note**: For vault positions (`costBasis`, `shares`) and yield token fees, you need to either:
-1. Track which vaults/tokens each wallet has interacted with (off-chain indexing)
-2. Have wallets self-report their positions during migration
-3. Accept that only `feesCharged` and `feesPaid` matter for fee enforcement (positions only affect future fee calculations)
-
-#### Why This Matters
-
-The FeeTracker is different from other factory configurations:
-- `AdapterRegistry`: Stateless - new registry just needs same adapters registered
-- `AgentOperators`: Cached locally but no critical accounting state
-- `FeeTracker`: **Stateful** - contains critical per-wallet accounting data
-
-Failing to migrate FeeTracker state allows users to avoid paying accrued platform fees, directly impacting revenue.
+- **New fee types:** write a module that implements `IYieldSeekerFeeModule`, defines its `Plan` struct and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, abi.encode(Module.Plan(...)))` for plan 0 (existing wallets use it). No adapter changes.
+- **New actions:** add an ID and a struct to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled. Never change an existing struct.
+- **New plans:** `createPlan(feeType, plan)`; only new wallets can be put on it. Plans never change, so a different rate for existing users means moving their agents to new wallets. A replacement module can read old plans and accept new ones in a richer format (e.g. decode by length), so it can add rates without touching existing plans.
+- **`WALLET_FACTORY_ROLE` only goes to wallet factories.** Factories call `setWalletPlans` only for the wallet they are creating; that is what keeps a wallet's plans fixed for life. Any other holder of the role could change a live wallet's plans.
+- **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
 
 ---
 

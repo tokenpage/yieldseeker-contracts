@@ -17,6 +17,7 @@
 pragma solidity 0.8.28;
 
 import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 interface IWETH {
@@ -27,8 +28,8 @@ interface IWETH {
  * @title YieldSeekerCompoundV2Adapter
  * @notice YieldSeeker-specific Compound V2 adapter with fee tracking
  * @dev Extends the generic AWKCompoundV2Adapter with base asset validation and fee tracking.
- *      Compound V2 uses exchange rate model (cToken * exchangeRate = underlying).
- *      Fee computation uses actual underlying balance proportion for cost basis.
+ *      Withdrawals redeem cTokens (shares), so fees use the share-based cost basis, as for ERC4626 vaults.
+ *      Underlying paid out as native ETH is wrapped back into the base asset.
  */
 contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapter {
     /**
@@ -38,7 +39,7 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
         (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
+        _reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vault, assetsIn: assetsDeposited})));
     }
 
     /**
@@ -47,17 +48,13 @@ contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapte
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
         address asset = _getVaultAsset(vault);
         _requireBaseAsset(asset);
-        uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
-        uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
-        uint256 assetExchangeRatePrecision = _feeTracker().ASSET_EXCHANGE_RATE_PRECISION();
-        // Compound V2 exchange rates are 1e18-scaled and include decimal normalization.
-        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / assetExchangeRatePrecision;
+        uint256 heldBefore = ICToken(vault).balanceOf(address(this));
         uint256 nativeBalanceBefore = address(this).balance;
         assets = super._withdrawInternal(vault, shares);
         uint256 nativeAssetsReceived = address(this).balance - nativeBalanceBefore;
         if (nativeAssetsReceived > 0) {
             IWETH(asset).deposit{value: nativeAssetsReceived}();
         }
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: exchangeRate});
+        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vault, spent: shares, heldBefore: heldBefore, assetsOut: assets})));
     }
 }

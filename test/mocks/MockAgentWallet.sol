@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {InvalidState} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -12,8 +12,7 @@ interface IAdapterRegistry {
 }
 
 interface IFeeTracker {
-    function getReferralDiscount(address user) external view returns (uint256);
-    function getFeesOwed(address agent) external view returns (uint256);
+    function withdrawReserve(address wallet, address token) external view returns (bool allowed, uint256 reserved);
 }
 
 /// @title MockAgentWallet
@@ -144,8 +143,8 @@ contract MockAgentWallet {
 
         // If withdrawing baseAsset, respect fees
         if (asset == baseAsset) {
-            uint256 feesOwed = feeTracker.getFeesOwed(address(this));
-            uint256 withdrawable = balance > feesOwed ? balance - feesOwed : 0;
+            (, uint256 reserved) = feeTracker.withdrawReserve(address(this), asset);
+            uint256 withdrawable = balance > reserved ? balance - reserved : 0;
             if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
         } else {
             // For non-baseAsset tokens, allow direct withdrawal (recovery mechanism)
@@ -169,8 +168,8 @@ contract MockAgentWallet {
 
         // If withdrawing baseAsset, deduct fees from withdrawable amount
         if (asset == baseAsset) {
-            uint256 feesOwed = feeTracker.getFeesOwed(address(this));
-            amount = balance > feesOwed ? balance - feesOwed : 0;
+            (, uint256 reserved) = feeTracker.withdrawReserve(address(this), asset);
+            amount = balance > reserved ? balance - reserved : 0;
         }
 
         if (amount > 0) {

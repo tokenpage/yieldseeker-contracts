@@ -16,22 +16,22 @@
 //
 pragma solidity 0.8.28;
 
-import {YieldSeekerAgentWalletV1 as AgentWallet} from "./AgentWalletV1.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "./FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
 import {AWKAgentWalletFactory} from "./agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 
 /**
  * @title YieldSeekerAgentWalletFactory
  * @notice Factory for deploying YieldSeeker agent wallets with fee tracking
  * @dev Extends AWKAgentWalletFactory with YieldSeeker-specific fee tracker and baseAsset handling
- *      Note: agentWalletImplementation() returns YieldSeekerAgentWalletV1 (aliased as AgentWallet in this contract)
+ *      Note: agentWalletImplementation() returns YieldSeekerAgentWalletV3 (aliased as AgentWallet in this contract)
  *      Reuses AWKAgentWalletProxy since YieldSeekerAgentWalletFactory IS-A AWKAgentWalletFactory (inheritance)
  */
 contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
     FeeTracker public feeTracker;
 
-    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset);
+    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
@@ -53,14 +53,17 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
      * @notice Create a YieldSeeker AgentWallet with baseAsset support
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner (enables multiple agents per owner)
-     * @param baseAsset Base asset token address for this agent (e.g., USDC)
+     * @param baseAsset Base asset token address for this agent (e.g., USDC, or a borrow agent's collateral)
+     * @param agentProfile The agent profile (agent type), which selects the adapter registry
+     * @param feePlans The wallet's fee plans, fixed for its life (fee types not listed use plan 0)
      * @return ret The deployed AgentWallet
      */
-    function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
+    function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset, bytes32 agentProfile, FeePlan[] calldata feePlans) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (baseAsset.code.length == 0) revert AWKErrors.NotAContract(baseAsset);
-        ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex))));
-        ret.initialize(owner, ownerAgentIndex, baseAsset);
-        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset);
+        ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex, agentProfile))));
+        ret.initialize(owner, ownerAgentIndex, baseAsset, agentProfile);
+        if (feePlans.length > 0) feeTracker.setWalletPlans(address(ret), feePlans);
+        emit AgentWalletCreated(address(ret), owner, ownerAgentIndex, baseAsset, agentProfile);
     }
 }

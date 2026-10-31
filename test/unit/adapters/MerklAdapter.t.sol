@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerMerklAdapter} from "../../../src/adapters/MerklAdapter.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract MockMerklDistributor {
@@ -33,8 +33,7 @@ contract MerklAdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         rewardToken = new MockERC20("Reward", "RWD");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         adapter = new YieldSeekerMerklAdapter();
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         distributor = new MockMerklDistributor();
@@ -52,13 +51,15 @@ contract MerklAdapterTest is Test {
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
 
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeTracker.feeCollector());
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
-        assertEq(baseAsset.balanceOf(address(wallet)), 1_000e6);
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 100e6);
+        assertEq(baseAsset.balanceOf(address(wallet)), 900e6);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 100e6);
     }
 
-    function test_Claim_DuplicateTokens_DeduplicatesFeeTracking() public {
+    function test_Claim_DuplicateNonBaseTokensRecordsNoFee() public {
         address[] memory users = new address[](1);
         users[0] = address(wallet);
         address[] memory tokens = new address[](3);
@@ -76,13 +77,12 @@ contract MerklAdapterTest is Test {
 
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
-        uint256 totalClaimed = amounts[0] + amounts[1] + amounts[2];
-        uint256 expectedFeeToken = (totalClaimed * 1000) / 10_000;
-        uint256 owed = feeTracker.agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
-        assertEq(owed, expectedFeeToken);
+        assertEq(rewardToken.balanceOf(address(wallet)), amounts[0] + amounts[1] + amounts[2]);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 0);
     }
 
-    function test_Claim_MixedTokens_TracksSeparately() public {
+    function test_Claim_MixedTokens_TracksOnlyBaseAssetFee() public {
         address[] memory users = new address[](1);
         users[0] = address(wallet);
         address[] memory tokens = new address[](2);
@@ -95,12 +95,13 @@ contract MerklAdapterTest is Test {
         proofs[0] = new bytes32[](0);
         proofs[1] = new bytes32[](0);
 
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeTracker.feeCollector());
         wallet.executeAdapter(address(adapter), address(distributor), abi.encodeWithSelector(adapter.claim.selector, users, tokens, amounts, proofs));
 
-        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
-        assertEq(feeTracker.agentFeesCharged(address(wallet)), 50e6);
-        uint256 owed = feeTracker.agentYieldTokenFeesOwed(address(wallet), address(rewardToken));
-        assertEq(owed, (amounts[1] * 1000) / 10_000);
+        assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()) - feeCollectorBalanceBefore, 50e6);
+        assertEq(rewardToken.balanceOf(address(wallet)), amounts[1]);
     }
 
     function test_Claim_RevertPropagates() public {

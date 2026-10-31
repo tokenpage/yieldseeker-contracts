@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {YieldSeekerFeeTracker} from "../../../src/FeeTracker.sol";
 import {YieldSeekerMoonwellRewardAdapter} from "../../../src/adapters/MoonwellRewardAdapter.sol";
+import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
-import {AdapterWalletHarness} from "./AdapterHarness.t.sol";
+import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract MockMoonwellComptroller {
@@ -47,8 +47,7 @@ contract MoonwellRewardAdapterTest is Test {
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         wellToken = new MockERC20("Moonwell", "WELL");
-        feeTracker = new YieldSeekerFeeTracker(address(this));
-        feeTracker.setFeeConfig(1000, address(0xBEEF));
+        (feeTracker,) = AdapterFeeSetup.deploy(address(0xBEEF), 5000, 1000);
         adapter = new YieldSeekerMoonwellRewardAdapter(address(wellToken));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
         comptroller = new MockMoonwellComptroller(IERC20Like(address(wellToken)));
@@ -56,7 +55,7 @@ contract MoonwellRewardAdapterTest is Test {
         comptroller.setRewardPerMarket(100e18);
     }
 
-    function test_ClaimReward_TransfersWellAndRecordsFee() public {
+    function test_ClaimReward_TransfersWellWithoutRecordingFee() public {
         address[] memory mTokens = new address[](2);
         mTokens[0] = address(0x1111);
         mTokens[1] = address(0x2222);
@@ -64,7 +63,8 @@ contract MoonwellRewardAdapterTest is Test {
         wallet.executeAdapter(address(adapter), address(comptroller), abi.encodeWithSelector(adapter.claimReward.selector, address(wallet), mTokens));
 
         assertEq(wellToken.balanceOf(address(wallet)), 200e18);
-        assertEq(feeTracker.agentYieldTokenFeesOwed(address(wallet), address(wellToken)), 20e18);
+        assertEq(wallet.yieldFeeModule().feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), 0);
     }
 
     function test_ClaimReward_RejectsDifferentHolder() public {

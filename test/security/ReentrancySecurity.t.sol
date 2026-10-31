@@ -3,11 +3,12 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
-import {YieldSeekerAgentWalletV2 as AgentWalletV2} from "../../src/AgentWalletV2.sol";
-import {YieldSeekerFeeTracker as FeeTracker} from "../../src/FeeTracker.sol";
+import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {AWKAgentWalletV1, AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV1.sol";
+import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
@@ -70,6 +71,7 @@ contract ReentrancySecurityTest is Test {
     address feeCollector = makeAddr("feeCollector");
 
     uint256 constant FEE_RATE = 1000;
+    bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
     uint32 constant AGENT_INDEX = 1;
 
     function setUp() public {
@@ -77,16 +79,19 @@ contract ReentrancySecurityTest is Test {
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
         entryPoint = new MockEntryPoint();
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
-        feeTracker = new FeeTracker(admin);
-        feeTracker.setFeeConfig(FEE_RATE, feeCollector);
+        feeTracker = new FeeTracker(admin, feeCollector);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         factory = new AgentWalletFactory(admin, operator);
-        AgentWalletV2 impl = new AgentWalletV2(address(factory));
-        factory.setAdapterRegistry(registry);
+        AgentWalletV3 impl = new AgentWalletV3(address(factory));
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
-        factory.setAgentWalletImplementation(AWKAgentWalletV1(payable(address(impl))));
+        factory.setAgentWalletImplementation(impl);
 
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -101,13 +106,14 @@ contract ReentrancySecurityTest is Test {
         vm.stopPrank();
     }
 
-    function _createWallet() internal returns (AgentWalletV2 wallet) {
+    function _createWallet() internal returns (AgentWalletV3 wallet) {
+        FeePlan[] memory noFeePlans = new FeePlan[](0);
         vm.prank(operator);
-        wallet = AgentWalletV2(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc)))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
     }
 
     function test_ReenterExecuteViaAdapter_RevertsReentrancy() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(user);
@@ -116,7 +122,7 @@ contract ReentrancySecurityTest is Test {
     }
 
     function test_ReenterWithdrawBaseAsset_RevertsReentrancy() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(user);
@@ -125,7 +131,7 @@ contract ReentrancySecurityTest is Test {
     }
 
     function test_ReenterDuringBatch_RevertsReentrancy() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         address[] memory adapters = new address[](2);
@@ -146,7 +152,7 @@ contract ReentrancySecurityTest is Test {
     }
 
     function test_NonExecutorCannotTriggerReenterAdapter() public {
-        AgentWalletV2 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet();
         usdc.mint(address(wallet), 1000e6);
 
         vm.prank(feeCollector);
