@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, InvalidFeeRate, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, InvalidPlan, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -25,8 +25,8 @@ contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
         _heldAmount = heldAmount_;
     }
 
-    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
-        return 10_000;
+    function isValidPlan(bytes calldata plan) external pure override returns (bool) {
+        return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
     }
 
     function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
@@ -49,8 +49,8 @@ contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
         _burnsGas = burnsGas_;
     }
 
-    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
-        return 10_000;
+    function isValidPlan(bytes calldata plan) external pure override returns (bool) {
+        return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
     }
 
     function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
@@ -103,12 +103,14 @@ contract FeeTrackerTest is Test {
         oracle = new MockSwapAdapterPriceOracle();
         vaultModule = new YieldSeekerYieldFeeModule(tracker, 2_000);
         borrowModule = new YieldSeekerBorrowFeeModule(tracker, oracle, 500);
+        bytes memory initialBorrowPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 300}));
+        bytes memory initialYieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
 
         vm.startPrank(admin);
         tracker.setFeeModule(BORROW_FEE, borrowModule);
         tracker.setFeeModule(YIELD_FEE, vaultModule);
-        initialBorrowPlanId = tracker.createPlan(BORROW_FEE, 300);
-        initialYieldPlanId = tracker.createPlan(YIELD_FEE, 1_000);
+        initialBorrowPlanId = tracker.createPlan(BORROW_FEE, initialBorrowPlan);
+        initialYieldPlanId = tracker.createPlan(YIELD_FEE, initialYieldPlan);
         tracker.grantRole(tracker.WALLET_FACTORY_ROLE(), address(this));
         vm.stopPrank();
     }
@@ -118,23 +120,31 @@ contract FeeTrackerTest is Test {
         assertEq(initialBorrowPlanId, 0);
         assertEq(tracker.planCount(YIELD_FEE), 1);
         assertEq(tracker.planCount(BORROW_FEE), 1);
-        assertEq(tracker.planRateBps(YIELD_FEE, 0), 1_000);
-        assertEq(tracker.planRateBps(BORROW_FEE, 0), 300);
+        YieldSeekerYieldFeeModule.Plan memory storedYieldPlan = abi.decode(tracker.plan(YIELD_FEE, 0), (YieldSeekerYieldFeeModule.Plan));
+        YieldSeekerBorrowFeeModule.Plan memory storedBorrowPlan = abi.decode(tracker.plan(BORROW_FEE, 0), (YieldSeekerBorrowFeeModule.Plan));
+        assertEq(storedYieldPlan.rateBps, 1_000);
+        assertEq(storedBorrowPlan.rateBps, 300);
 
         uint256 yieldMaximum = vaultModule.MAX_FEE_RATE_BPS();
         uint256 borrowMaximum = borrowModule.MAX_FEE_RATE_BPS();
         uint256 tooHighYield = yieldMaximum + 1;
         uint256 tooHighBorrow = borrowMaximum + 1;
+        bytes memory maximumYieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: yieldMaximum}));
+        bytes memory maximumBorrowPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: borrowMaximum}));
+        bytes memory tooHighYieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: tooHighYield}));
+        bytes memory tooHighBorrowPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: tooHighBorrow}));
 
         vm.prank(admin);
-        uint256 yieldPlanId = tracker.createPlan(YIELD_FEE, yieldMaximum);
+        uint256 yieldPlanId = tracker.createPlan(YIELD_FEE, maximumYieldPlan);
         vm.prank(admin);
-        uint256 borrowPlanId = tracker.createPlan(BORROW_FEE, borrowMaximum);
+        uint256 borrowPlanId = tracker.createPlan(BORROW_FEE, maximumBorrowPlan);
 
         assertEq(yieldPlanId, 1);
         assertEq(borrowPlanId, 1);
-        assertEq(tracker.planRateBps(YIELD_FEE, yieldPlanId), yieldMaximum);
-        assertEq(tracker.planRateBps(BORROW_FEE, borrowPlanId), borrowMaximum);
+        YieldSeekerYieldFeeModule.Plan memory storedMaximumYieldPlan = abi.decode(tracker.plan(YIELD_FEE, yieldPlanId), (YieldSeekerYieldFeeModule.Plan));
+        YieldSeekerBorrowFeeModule.Plan memory storedMaximumBorrowPlan = abi.decode(tracker.plan(BORROW_FEE, borrowPlanId), (YieldSeekerBorrowFeeModule.Plan));
+        assertEq(storedMaximumYieldPlan.rateBps, yieldMaximum);
+        assertEq(storedMaximumBorrowPlan.rateBps, borrowMaximum);
         assertEq(tracker.planCount(YIELD_FEE), 2);
         assertEq(tracker.planCount(BORROW_FEE), 2);
         FeePlan[] memory maximumPlan = new FeePlan[](1);
@@ -143,18 +153,24 @@ contract FeeTrackerTest is Test {
         _recordYield(wallet, 10_000);
         assertEq(vaultModule.feesOwed(address(wallet)), 2_000);
 
-        vm.expectRevert(InvalidFeeRate.selector);
+        uint256 invalidYieldPlanId = tracker.planCount(YIELD_FEE);
+        uint256 invalidBorrowPlanId = tracker.planCount(BORROW_FEE);
+        bytes memory invalidYieldPlanError = abi.encodeWithSelector(InvalidPlan.selector, YIELD_FEE, invalidYieldPlanId);
+        bytes memory invalidBorrowPlanError = abi.encodeWithSelector(InvalidPlan.selector, BORROW_FEE, invalidBorrowPlanId);
+        vm.expectRevert(invalidYieldPlanError);
         vm.prank(admin);
-        tracker.createPlan(YIELD_FEE, tooHighYield);
+        tracker.createPlan(YIELD_FEE, tooHighYieldPlan);
 
-        vm.expectRevert(InvalidFeeRate.selector);
+        vm.expectRevert(invalidBorrowPlanError);
         vm.prank(admin);
-        tracker.createPlan(BORROW_FEE, tooHighBorrow);
+        tracker.createPlan(BORROW_FEE, tooHighBorrowPlan);
 
         bytes32 unknownFeeType = keccak256("unknown");
-        vm.expectRevert(abi.encodeWithSelector(UnknownFeeType.selector, unknownFeeType));
+        bytes memory unknownFeePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 0}));
+        bytes memory unknownFeeTypeError = abi.encodeWithSelector(UnknownFeeType.selector, unknownFeeType);
+        vm.expectRevert(unknownFeeTypeError);
         vm.prank(admin);
-        tracker.createPlan(unknownFeeType, 0);
+        tracker.createPlan(unknownFeeType, unknownFeePlan);
     }
 
     function testSetWalletPlansRequiresFactoryRoleAndRejectsUnknownPlans() public {
@@ -166,32 +182,36 @@ contract FeeTrackerTest is Test {
         vm.prank(stranger);
         tracker.setWalletPlans(address(wallet), plans);
 
+        bytes memory unknownPlanError = abi.encodeWithSelector(UnknownPlan.selector, YIELD_FEE, 99);
         plans[0] = FeePlan({feeType: YIELD_FEE, planId: 99});
-        vm.expectRevert(abi.encodeWithSelector(UnknownPlan.selector, YIELD_FEE, 99));
+        vm.expectRevert(unknownPlanError);
         tracker.setWalletPlans(address(wallet), plans);
 
-        assertEq(tracker.walletPlan(address(wallet), YIELD_FEE), 0);
+        assertEq(tracker.walletPlanId(address(wallet), YIELD_FEE), 0);
     }
 
     function testWalletRatesUsePerFeeTypePlansAndAreKeyedByWallet() public {
         MockFeeWallet secondWallet = new MockFeeWallet(ownerA, IERC20(address(baseAsset)));
+        bytes memory yieldPlanData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 500}));
+        bytes memory borrowPlanData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 400}));
         vm.prank(admin);
-        uint256 yieldPlanId = tracker.createPlan(YIELD_FEE, 500);
+        uint256 yieldPlanId = tracker.createPlan(YIELD_FEE, yieldPlanData);
         vm.prank(admin);
-        uint256 borrowPlanId = tracker.createPlan(BORROW_FEE, 400);
+        uint256 borrowPlanId = tracker.createPlan(BORROW_FEE, borrowPlanData);
 
         FeePlan[] memory plans = new FeePlan[](2);
         plans[0] = FeePlan({feeType: YIELD_FEE, planId: yieldPlanId});
         plans[1] = FeePlan({feeType: BORROW_FEE, planId: borrowPlanId});
         tracker.setWalletPlans(address(wallet), plans);
 
-        assertEq(tracker.feeRateBps(YIELD_FEE, address(wallet)), 500);
-        assertEq(tracker.feeRateBps(BORROW_FEE, address(wallet)), 400);
-        assertEq(tracker.feeRateBps(YIELD_FEE, address(secondWallet)), 1_000);
-        assertEq(tracker.feeRateBps(BORROW_FEE, address(secondWallet)), 300);
-        assertEq(tracker.walletPlan(address(wallet), YIELD_FEE), yieldPlanId);
-        assertEq(tracker.walletPlan(address(secondWallet), YIELD_FEE), 0);
-        assertEq(tracker.feeRateBps(keccak256("unconfigured"), address(wallet)), 0);
+        assertEq(vaultModule.walletPlan(address(wallet)).rateBps, 500);
+        assertEq(borrowModule.walletPlan(address(wallet)).rateBps, 400);
+        assertEq(vaultModule.walletPlan(address(secondWallet)).rateBps, 1_000);
+        assertEq(borrowModule.walletPlan(address(secondWallet)).rateBps, 300);
+        assertEq(tracker.walletPlanId(address(wallet), YIELD_FEE), yieldPlanId);
+        assertEq(tracker.walletPlanId(address(secondWallet), YIELD_FEE), 0);
+        bytes32 unconfiguredFeeType = keccak256("unconfigured");
+        assertEq(tracker.walletPlan(address(wallet), unconfiguredFeeType).length, 0);
 
         _recordYield(wallet, 10e6);
         _recordYield(secondWallet, 10e6);
@@ -201,27 +221,58 @@ contract FeeTrackerTest is Test {
     }
 
     function testModuleReplacementMustSupportEveryExistingPlanRate() public {
+        bytes memory additionalPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
-        uint256 planId = tracker.createPlan(BORROW_FEE, 500);
+        uint256 planId = tracker.createPlan(BORROW_FEE, additionalPlan);
         assertEq(planId, 1);
 
         YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, replacement);
 
-        YieldSeekerBorrowFeeModule tooSmall = new YieldSeekerBorrowFeeModule(tracker, oracle, 499);
-        vm.expectRevert(InvalidFeeRate.selector);
+        YieldSeekerBorrowFeeModule tooSmall = new YieldSeekerBorrowFeeModule(tracker, oracle, 299);
+        bytes memory unsupportedPlanError = abi.encodeWithSelector(InvalidPlan.selector, BORROW_FEE, 0);
+        vm.expectRevert(unsupportedPlanError);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, tooSmall);
 
         assertEq(address(tracker.feeModules(BORROW_FEE)), address(replacement));
-        assertEq(tracker.planRateBps(BORROW_FEE, planId), 500);
+        YieldSeekerBorrowFeeModule.Plan memory storedPlan = abi.decode(tracker.plan(BORROW_FEE, planId), (YieldSeekerBorrowFeeModule.Plan));
+        assertEq(storedPlan.rateBps, 500);
         assertEq(tracker.planCount(BORROW_FEE), 2);
 
         bytes32[] memory feeTypes = tracker.moduleFeeTypes();
         assertEq(feeTypes.length, 2);
         assertEq(feeTypes[0], BORROW_FEE);
         assertEq(feeTypes[1], YIELD_FEE);
+    }
+
+    function testHigherMaximumReplacementPreservesPlansAndWalletRates() public {
+        bytes memory existingPlanData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
+        vm.prank(admin);
+        uint256 existingPlanId = tracker.createPlan(BORROW_FEE, existingPlanData);
+        FeePlan[] memory walletPlans = new FeePlan[](1);
+        walletPlans[0] = FeePlan({feeType: BORROW_FEE, planId: existingPlanId});
+        tracker.setWalletPlans(address(wallet), walletPlans);
+
+        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
+        vm.prank(admin);
+        tracker.setFeeModule(BORROW_FEE, replacement);
+
+        YieldSeekerBorrowFeeModule.Plan memory originalDefaultPlan = abi.decode(tracker.plan(BORROW_FEE, 0), (YieldSeekerBorrowFeeModule.Plan));
+        YieldSeekerBorrowFeeModule.Plan memory originalAssignedPlan = abi.decode(tracker.plan(BORROW_FEE, existingPlanId), (YieldSeekerBorrowFeeModule.Plan));
+        assertEq(originalDefaultPlan.rateBps, 300);
+        assertEq(originalAssignedPlan.rateBps, 500);
+        assertEq(replacement.walletPlan(address(wallet)).rateBps, 500);
+
+        bytes memory newPlanData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 600}));
+        assertFalse(borrowModule.isValidPlan(newPlanData));
+        assertTrue(replacement.isValidPlan(newPlanData));
+        vm.prank(admin);
+        uint256 newPlanId = tracker.createPlan(BORROW_FEE, newPlanData);
+        assertEq(newPlanId, 2);
+        YieldSeekerBorrowFeeModule.Plan memory newPlan = abi.decode(tracker.plan(BORROW_FEE, newPlanId), (YieldSeekerBorrowFeeModule.Plan));
+        assertEq(newPlan.rateBps, 600);
     }
 
     function testTracksTokenAndFeesHeldAggregateModulesAndIgnoreFailures() public {

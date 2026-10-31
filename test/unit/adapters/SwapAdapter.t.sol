@@ -72,7 +72,7 @@ contract SwapAdapterTest is Test {
         yieldFees = AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 1_000);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
-        feeTracker.createPlan(BORROW_FEE, 50);
+        feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
@@ -136,7 +136,7 @@ contract SwapAdapterTest is Test {
     function test_BaseToBorrowedUsdcCannotSpendYieldFeeReserve() public {
         _prepareBorrowedWallet();
         uint256 yieldAmount = 1e18;
-        uint256 expectedFee = (yieldAmount * feeTracker.feeRateBps(YIELD_FEE, address(wallet))) / 10_000;
+        uint256 expectedFee = (yieldAmount * yieldFees.walletPlan(address(wallet)).rateBps) / 10_000;
         uint256 baseBalance = weth.balanceOf(address(wallet));
         bytes memory claimData = abi.encode(FeeActions.Claim({token: address(weth), amount: yieldAmount}));
         vm.prank(address(wallet));
@@ -175,7 +175,7 @@ contract SwapAdapterTest is Test {
     function test_SellableRewardCanSwapToWethWithoutAnOraclePrice() public {
         uint256 rewardAmount = 7e18;
         uint256 wethOutput = 11e17;
-        uint256 expectedWethFee = (wethOutput * feeTracker.feeRateBps(YIELD_FEE, address(wallet))) / 10_000;
+        uint256 expectedWethFee = (wethOutput * yieldFees.walletPlan(address(wallet)).rateBps) / 10_000;
         uint256 feeCollectorBalanceBefore = weth.balanceOf(feeTracker.feeCollector());
         reward.mint(address(wallet), rewardAmount);
         weth.mint(address(router), wethOutput);
@@ -192,7 +192,7 @@ contract SwapAdapterTest is Test {
         uint256 rewardAmount = 7e18;
         uint256 sellAmount = 3e18;
         uint256 wethOutput = 11e17;
-        uint256 expectedWethFee = (wethOutput * feeTracker.feeRateBps(YIELD_FEE, address(wallet))) / 10_000;
+        uint256 expectedWethFee = (wethOutput * yieldFees.walletPlan(address(wallet)).rateBps) / 10_000;
         uint256 feeCollectorBalanceBefore = weth.balanceOf(feeTracker.feeCollector());
         reward.mint(address(wallet), rewardAmount);
         weth.mint(address(router), wethOutput);

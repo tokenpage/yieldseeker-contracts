@@ -56,12 +56,13 @@ contract MultiProtocolAdapterIntegrationTest is Test {
         comet = new MockCompoundV3Comet(address(usdc));
         cToken = new MockCToken(address(usdc), "Mock cUSDC", "cUSDC");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);

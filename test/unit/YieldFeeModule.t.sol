@@ -32,9 +32,10 @@ contract YieldFeeModuleTest is Test {
         feeTracker = new YieldSeekerFeeTracker(admin, collector);
         vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5_000);
 
+        bytes memory initialPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: DEFAULT_FEE_RATE}));
         vm.startPrank(admin);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.createPlan(YIELD_FEE, DEFAULT_FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, initialPlan);
         feeTracker.grantRole(feeTracker.WALLET_FACTORY_ROLE(), address(this));
         vm.stopPrank();
     }
@@ -49,8 +50,9 @@ contract YieldFeeModuleTest is Test {
 
     function testShareWithdrawalsUseEachWalletsPlanRate() public {
         address vault = makeAddr("vault");
+        bytes memory planData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
-        uint256 planId = feeTracker.createPlan(YIELD_FEE, 500);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, planData);
         FeePlan[] memory plans = new FeePlan[](1);
         plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
         feeTracker.setWalletPlans(address(agent1), plans);
@@ -66,8 +68,9 @@ contract YieldFeeModuleTest is Test {
 
     function testAssetWithdrawalsUseEachWalletsPlanRate() public {
         address vault = makeAddr("vault");
+        bytes memory planData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
-        uint256 planId = feeTracker.createPlan(YIELD_FEE, 500);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, planData);
         FeePlan[] memory plans = new FeePlan[](1);
         plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
         feeTracker.setWalletPlans(address(agent1), plans);
@@ -182,9 +185,10 @@ contract YieldFeeModuleTest is Test {
         address vault = makeAddr("vault");
         _recordDeposit(agent1, vault, 1_000e6);
 
+        bytes memory higherPlanData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 2_000}));
         vm.prank(admin);
-        feeTracker.createPlan(YIELD_FEE, 2_000);
-        assertEq(feeTracker.feeRateBps(YIELD_FEE, address(agent1)), DEFAULT_FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, higherPlanData);
+        assertEq(vaultFees.walletPlan(address(agent1)).rateBps, DEFAULT_FEE_RATE);
         _recordAssetWithdraw(agent1, vault, 1_100e6, 1_100e6, 1_100e6);
 
         assertEq(vaultFees.feesOwed(address(agent1)), 10e6);

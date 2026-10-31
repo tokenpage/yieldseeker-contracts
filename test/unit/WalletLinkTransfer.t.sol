@@ -53,10 +53,10 @@ contract WalletLinkTransferTest is Test {
         vaultFees = new YieldSeekerFeeTracker(address(this), feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
         vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
-        vaultFees.createPlan(YIELD_FEE, 1_000);
+        vaultFees.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
         borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, new MockSwapAdapterPriceOracle(), 1_000);
         vaultFees.setFeeModule(BORROW_FEE, borrowFees);
-        vaultFees.createPlan(BORROW_FEE, 1_000);
+        vaultFees.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);

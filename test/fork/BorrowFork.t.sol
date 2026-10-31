@@ -60,10 +60,10 @@ contract BorrowForkTest is Test {
         feeTracker = new FeeTracker(address(this), feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.createPlan(YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000})));
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
-        feeTracker.createPlan(BORROW_FEE, 50);
+        feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
         factory = new AgentWalletFactory(address(this), operator);
@@ -118,13 +118,13 @@ contract BorrowForkTest is Test {
 
         vm.warp(vm.getBlockTimestamp() + 365 days);
         vm.roll(block.number + 1);
-        deal(USDC, address(wallet), 2_000e6);
+        deal(USDC, address(wallet), 100_000e6);
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 400 days);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 400 days);
 
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
         assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
-        (uint256 principal,,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
+        (uint256 principal,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0, "principal cleared");
         assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 5e6, "Borrow fee remains owed until collateral withdrawal");
 

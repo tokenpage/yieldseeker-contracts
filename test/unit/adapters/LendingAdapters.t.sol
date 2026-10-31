@@ -70,7 +70,7 @@ contract LendingAdaptersTest is Test {
         AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 0);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
-        feeTracker.createPlan(BORROW_FEE, 50);
+        feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
@@ -158,12 +158,10 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(secondMarket), _lendingCall(aaveV3Adapter.supplyCollateral.selector, secondMarket, 2e18));
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(secondMarket), _lendingCall(aaveV3Adapter.borrow.selector, secondMarket, 30e6));
 
-        (uint128 firstPrincipal,,, uint16 firstRate) = feeModule.debtPositions(address(wallet), keccak256(firstMarket));
-        (uint128 secondPrincipal,,, uint16 secondRate) = feeModule.debtPositions(address(wallet), keccak256(secondMarket));
+        (uint128 firstPrincipal,,) = feeModule.debtPositions(address(wallet), keccak256(firstMarket));
+        (uint128 secondPrincipal,,) = feeModule.debtPositions(address(wallet), keccak256(secondMarket));
         assertEq(firstPrincipal, 20e6);
         assertEq(secondPrincipal, 30e6);
-        assertEq(firstRate, 50);
-        assertEq(secondRate, 50);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(secondDebtToken.balanceOf(address(wallet)), 30e6);
     }
@@ -185,7 +183,7 @@ contract LendingAdaptersTest is Test {
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(usdc.balanceOf(address(wallet)), 0);
-        (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (uint128 principal, uint128 lastDebt,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 20e6);
         assertEq(lastDebt, 20e6);
     }
@@ -280,7 +278,7 @@ contract LendingAdaptersTest is Test {
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 40e6);
-        (uint128 principal, uint128 lastDebt,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (uint128 principal, uint128 lastDebt,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 40e6);
         assertEq(lastDebt, 40e6);
     }
@@ -366,7 +364,7 @@ contract LendingAdaptersTest is Test {
         (, uint128 borrowShares, uint128 collateral) = morpho.position(marketId, address(wallet));
         assertEq(collateral, 5e18);
         assertGt(borrowShares, 0);
-        (uint128 principal,,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (uint128 principal,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 20e6);
 
         _execute(OPERATOR, address(morphoAdapter), morphoAdapter.marketTarget(market), _lendingCall(morphoAdapter.repay.selector, market, type(uint256).max));
@@ -374,7 +372,7 @@ contract LendingAdaptersTest is Test {
         (, borrowShares, collateral) = morpho.position(marketId, address(wallet));
         assertEq(borrowShares, 0);
         assertEq(collateral, 0);
-        (principal,,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (principal,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0);
         assertEq(weth.balanceOf(address(wallet)), 5e18);
         assertEq(usdc.balanceOf(address(wallet)), 0);
@@ -389,14 +387,14 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV4Adapter), aaveV4Adapter.marketTarget(market), _lendingCall(aaveV4Adapter.borrow.selector, market, 20e6));
         assertTrue(aaveV4Spoke.usingAsCollateral(1, address(wallet)));
         assertEq(aaveV4Spoke.getUserTotalDebt(2, address(wallet)), 20e6);
-        (uint128 principal,,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (uint128 principal,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 20e6);
 
         _execute(OPERATOR, address(aaveV4Adapter), aaveV4Adapter.marketTarget(market), _lendingCall(aaveV4Adapter.repay.selector, market, type(uint256).max));
         _execute(OPERATOR, address(aaveV4Adapter), aaveV4Adapter.marketTarget(market), _lendingCall(aaveV4Adapter.withdrawCollateral.selector, market, type(uint256).max));
         assertEq(aaveV4Spoke.getUserSuppliedAssets(1, address(wallet)), 0);
         assertEq(aaveV4Spoke.getUserTotalDebt(2, address(wallet)), 0);
-        (principal,,,) = feeModule.debtPositions(address(wallet), keccak256(market));
+        (principal,,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0);
         assertEq(weth.balanceOf(address(wallet)), 5e18);
         assertEq(usdc.balanceOf(address(wallet)), 0);

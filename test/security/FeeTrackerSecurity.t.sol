@@ -6,7 +6,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, InvalidFeeRate, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlan, InvalidPlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -39,12 +39,13 @@ contract FeeTrackerSecurityTest is Test {
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
         entryPoint = new MockEntryPoint();
 
+        bytes memory initialPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5_000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, initialPlan);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -140,13 +141,16 @@ contract FeeTrackerSecurityTest is Test {
     function test_MaxFeeRateEnforced() public {
         uint256 maximumRate = vaultFeeModule.MAX_FEE_RATE_BPS();
         uint256 tooHigh = maximumRate + 1;
+        bytes memory maximumPlanData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: maximumRate}));
         vm.prank(admin);
-        uint256 planId = feeTracker.createPlan(YIELD_FEE, maximumRate);
+        uint256 planId = feeTracker.createPlan(YIELD_FEE, maximumPlanData);
         assertEq(planId, 1);
 
-        vm.expectRevert(InvalidFeeRate.selector);
+        bytes memory tooHighPlanData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: tooHigh}));
+        bytes memory invalidPlanError = abi.encodeWithSelector(InvalidPlan.selector, YIELD_FEE, feeTracker.planCount(YIELD_FEE));
+        vm.expectRevert(invalidPlanError);
         vm.prank(admin);
-        feeTracker.createPlan(YIELD_FEE, tooHigh);
+        feeTracker.createPlan(YIELD_FEE, tooHighPlanData);
     }
 
     function _report(AgentWalletV3 wallet, bytes32 action, bytes memory data, uint256 walletBalance) internal returns (uint256 payment) {

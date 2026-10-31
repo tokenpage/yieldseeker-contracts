@@ -157,12 +157,13 @@ contract SwapAdapterIntegrationTest is Test {
         now_ = vm.getBlockTimestamp();
         MockFeePriceFeed sequencerFeed = new MockFeePriceFeed(0, 0, now_ - 2 hours);
         MockFeePriceFeed tokenPriceFeed = new MockFeePriceFeed(8, 1e8, now_);
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, 1000);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);

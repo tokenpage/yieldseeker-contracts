@@ -19,8 +19,8 @@ import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
-    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
-        return 10_000;
+    function isValidPlan(bytes calldata) external pure override returns (bool) {
+        return true;
     }
 
     function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
@@ -37,8 +37,8 @@ contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
 }
 
 contract GasBurningFeeQueriesModule is IYieldSeekerFeeModule {
-    function MAX_FEE_RATE_BPS() external pure override returns (uint256) {
-        return 10_000;
+    function isValidPlan(bytes calldata) external pure override returns (bool) {
+        return true;
     }
 
     function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
@@ -98,10 +98,10 @@ contract AgentWalletV3Test is Test {
         vaultFees = new YieldSeekerFeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
         vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
-        vaultFees.createPlan(YIELD_FEE, 1_000);
+        vaultFees.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
         borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, new MockSwapAdapterPriceOracle(), 1_000);
         vaultFees.setFeeModule(BORROW_FEE, borrowFees);
-        vaultFees.createPlan(BORROW_FEE, 1_000);
+        vaultFees.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));

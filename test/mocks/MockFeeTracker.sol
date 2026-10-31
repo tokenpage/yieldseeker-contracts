@@ -4,8 +4,7 @@ pragma solidity 0.8.28;
 import {InvalidAsset} from "../../src/AgentWalletV3.sol";
 import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {InvalidFeeRate} from "../../src/fees/FeeTracker.sol";
-import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
+import {IYieldSeekerFeeModule, InvalidFeeRate} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 

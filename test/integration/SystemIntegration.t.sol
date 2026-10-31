@@ -54,6 +54,7 @@ contract SystemIntegrationTest is Test {
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
 
         // Deploy real contracts in correct order
@@ -61,7 +62,7 @@ contract SystemIntegrationTest is Test {
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         // Deploy factory
         factory = new AgentWalletFactory(admin, operator);
@@ -99,7 +100,7 @@ contract SystemIntegrationTest is Test {
         assertEq(mappedAdapter, address(vaultAdapter));
 
         // Verify fee tracker configuration
-        assertEq(feeTracker.planRateBps(YIELD_FEE, 0), FEE_RATE);
+        assertEq(abi.decode(feeTracker.plan(YIELD_FEE, 0), (YieldSeekerYieldFeeModule.Plan)).rateBps, FEE_RATE);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 

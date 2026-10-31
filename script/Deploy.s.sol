@@ -487,13 +487,13 @@ contract DeployScript is Script {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (YIELD_FEE, YieldFeeModule(deployments.yieldFeeModule))));
         }
         if (feeTracker.planCount(YIELD_FEE) == 0) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (YIELD_FEE, YIELD_DEFAULT_FEE_BPS)));
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (YIELD_FEE, abi.encode(YieldFeeModule.Plan({rateBps: YIELD_DEFAULT_FEE_BPS})))));
         }
         if (address(feeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
         }
         if (feeTracker.planCount(BORROW_FEE) == 0) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (BORROW_FEE, BORROW_DEFAULT_FEE_BPS)));
+            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (BORROW_FEE, abi.encode(BorrowFeeModule.Plan({rateBps: BORROW_DEFAULT_FEE_BPS})))));
         }
         // 2. Register Adapters
         console2.log("-> Preparing adapter registration...");

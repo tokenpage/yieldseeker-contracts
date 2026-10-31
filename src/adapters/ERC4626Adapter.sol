@@ -24,13 +24,13 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 /**
  * @title YieldSeekerERC4626Adapter
  * @notice YieldSeeker-specific ERC4626 adapter with fee tracking
- * @dev Extends the generic AWKERC4626Adapter and implements post hooks for fee tracking.
- *      Records position changes with FeeTracker for yield fee calculation.
+ * @dev Extends the generic AWKERC4626Adapter and reports deposits and withdrawals to the fee modules (FeeActions),
+ *      which charge the yield fee and are paid in the same call.
  */
 contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
     /**
      * @notice Internal deposit implementation with validation and fee tracking
-     * @dev Overrides AWK logic to add pre-check and post-fee-tracking
+     * @dev Overrides AWK logic to add the base asset check and fee reporting
      */
     function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = IERC4626(vault).asset();
@@ -41,7 +41,7 @@ contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
 
     /**
      * @notice Internal withdraw implementation with validation and fee tracking
-     * @dev Overrides AWK logic to add pre-check and post-fee-tracking
+     * @dev Overrides AWK logic to add the base asset check and fee reporting
      */
     function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
         address asset = IERC4626(vault).asset();

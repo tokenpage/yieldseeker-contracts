@@ -74,6 +74,7 @@ abstract contract AgentWalletIntegrationBase is Test {
         entryPoint = new MockEntryPoint();
         merklDistributor = new MockMerklDistributor();
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
 
         // Deploy real contracts in correct order
@@ -81,7 +82,7 @@ abstract contract AgentWalletIntegrationBase is Test {
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         // Deploy timelock with admin as proposer and executor
         address[] memory proposers = new address[](1);

@@ -21,11 +21,11 @@ import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-error InvalidFeeRate();
+error InvalidPlan(bytes32 feeType, uint256 planId);
 error UnknownPlan(bytes32 feeType, uint256 planId);
 error UnknownFeeType(bytes32 feeType);
 
-/// @notice A wallet's plan for one fee type
+/// @notice A wallet's choice of plan for one fee type
 struct FeePlan {
     bytes32 feeType;
     uint256 planId;
@@ -35,12 +35,12 @@ struct FeePlan {
  * @title YieldSeekerFeeTracker
  * @notice The fee modules (one per fee type), their plans, each wallet's plans and the fee collector
  * @dev Every fee type is a module (e.g. the yield fee, the borrow fee) that adapters report every wallet action to.
- *      A plan is a rate for one fee type; plans are numbered per fee type from 0 and never change once created.
- *      The wallet factory sets a wallet's plans when it creates the wallet, and they never change either: moving to
- *      another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0.
+ *      A plan is the module's plan struct (its rates), ABI-encoded and validated by the module. Plans are numbered
+ *      per fee type from 0 and never change once created; a replacement module must accept every existing plan, and
+ *      can add new ones. The wallet factory sets a wallet's plans when it creates the wallet, and they never change
+ *      either: moving to another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0.
  *      The admin (timelock) sets modules, creates plans and sets the fee collector.
  *      Replacing a module drops the fee state the old one holds for wallets unless it is migrated first.
- *      No plan rate can exceed its module's MAX_FEE_RATE_BPS, which is fixed at deployment.
  */
 contract YieldSeekerFeeTracker is AccessControl {
     bytes32 public constant WALLET_FACTORY_ROLE = keccak256("WALLET_FACTORY_ROLE");
@@ -50,12 +50,12 @@ contract YieldSeekerFeeTracker is AccessControl {
     bytes32[] internal _moduleFeeTypes;
     IYieldSeekerFeeModule[] internal _modules;
     mapping(bytes32 feeType => IYieldSeekerFeeModule) public feeModules;
-    mapping(bytes32 feeType => uint256[] rateBps) internal _planRates;
-    mapping(address wallet => mapping(bytes32 feeType => uint256 planId)) public walletPlan;
+    mapping(bytes32 feeType => bytes[] plan) internal _plans;
+    mapping(address wallet => mapping(bytes32 feeType => uint256 planId)) public walletPlanId;
 
     event FeeCollectorUpdated(address feeCollector);
     event FeeModuleSet(bytes32 indexed feeType, address indexed module);
-    event PlanCreated(bytes32 indexed feeType, uint256 indexed planId, uint256 rateBps);
+    event PlanCreated(bytes32 indexed feeType, uint256 indexed planId, bytes plan);
     event WalletPlanSet(address indexed wallet, bytes32 indexed feeType, uint256 indexed planId);
 
     constructor(address admin, address initialFeeCollector) {
@@ -70,13 +70,12 @@ contract YieldSeekerFeeTracker is AccessControl {
         emit FeeCollectorUpdated(newFeeCollector);
     }
 
-    /// @notice Plug in or replace a fee type's module; a replacement must allow every existing plan's rate
+    /// @notice Plug in or replace a fee type's module; a replacement must accept every existing plan of the fee type
     function setFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
-        uint256[] storage rates = _planRates[feeType];
-        uint256 maxRateBps = module.MAX_FEE_RATE_BPS();
-        for (uint256 i = 0; i < rates.length; i++) {
-            if (rates[i] > maxRateBps) revert InvalidFeeRate();
+        bytes[] storage plans = _plans[feeType];
+        for (uint256 i = 0; i < plans.length; i++) {
+            if (!module.isValidPlan(plans[i])) revert InvalidPlan(feeType, i);
         }
         if (address(feeModules[feeType]) == address(0)) {
             _moduleFeeTypes.push(feeType);
@@ -99,40 +98,40 @@ contract YieldSeekerFeeTracker is AccessControl {
         return (_modules, feeCollector);
     }
 
-    /// @notice Add a plan for a fee type; the first one (plan 0) applies to every wallet not given another
-    function createPlan(bytes32 feeType, uint256 rateBps) external onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 planId) {
+    /// @notice Add a plan (the module's plan struct, ABI-encoded); plan 0 applies to every wallet not given another
+    function createPlan(bytes32 feeType, bytes calldata newPlan) external onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 planId) {
         IYieldSeekerFeeModule module = feeModules[feeType];
         if (address(module) == address(0)) revert UnknownFeeType(feeType);
-        if (rateBps > module.MAX_FEE_RATE_BPS()) revert InvalidFeeRate();
-        planId = _planRates[feeType].length;
-        _planRates[feeType].push(rateBps);
-        emit PlanCreated(feeType, planId, rateBps);
+        planId = _plans[feeType].length;
+        if (!module.isValidPlan(newPlan)) revert InvalidPlan(feeType, planId);
+        _plans[feeType].push(newPlan);
+        emit PlanCreated(feeType, planId, newPlan);
     }
 
     function planCount(bytes32 feeType) external view returns (uint256) {
-        return _planRates[feeType].length;
+        return _plans[feeType].length;
     }
 
-    function planRateBps(bytes32 feeType, uint256 planId) external view returns (uint256) {
-        if (planId >= _planRates[feeType].length) revert UnknownPlan(feeType, planId);
-        return _planRates[feeType][planId];
+    function plan(bytes32 feeType, uint256 planId) external view returns (bytes memory) {
+        if (planId >= _plans[feeType].length) revert UnknownPlan(feeType, planId);
+        return _plans[feeType][planId];
     }
 
     /// @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
     function setWalletPlans(address wallet, FeePlan[] calldata plans) external onlyRole(WALLET_FACTORY_ROLE) {
         for (uint256 i = 0; i < plans.length; i++) {
-            FeePlan calldata plan = plans[i];
-            if (plan.planId >= _planRates[plan.feeType].length) revert UnknownPlan(plan.feeType, plan.planId);
-            walletPlan[wallet][plan.feeType] = plan.planId;
-            emit WalletPlanSet(wallet, plan.feeType, plan.planId);
+            FeePlan calldata feePlan = plans[i];
+            if (feePlan.planId >= _plans[feePlan.feeType].length) revert UnknownPlan(feePlan.feeType, feePlan.planId);
+            walletPlanId[wallet][feePlan.feeType] = feePlan.planId;
+            emit WalletPlanSet(wallet, feePlan.feeType, feePlan.planId);
         }
     }
 
-    /// @notice The rate of a fee type for a wallet, from its plan (0 until the fee type has a plan)
-    function feeRateBps(bytes32 feeType, address wallet) external view returns (uint256) {
-        uint256[] storage rates = _planRates[feeType];
-        uint256 planId = walletPlan[wallet][feeType];
-        return planId < rates.length ? rates[planId] : 0;
+    /// @notice A wallet's plan for a fee type (the module's plan struct, ABI-encoded); empty until the type has plans
+    function walletPlan(address wallet, bytes32 feeType) external view returns (bytes memory) {
+        bytes[] storage plans = _plans[feeType];
+        uint256 planId = walletPlanId[wallet][feeType];
+        return planId < plans.length ? plans[planId] : bytes("");
     }
 
     /**

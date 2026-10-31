@@ -34,7 +34,7 @@ contract AaveV3ForkTest is Test {
         YieldSeekerFeeTracker feeTracker = new YieldSeekerFeeTracker(address(this), address(this));
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE_BPS);
+        feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE_BPS})));
         AdapterWalletHarness wallet = new AdapterWalletHarness(asset, feeTracker);
         YieldSeekerAaveV3Adapter adapter = new YieldSeekerAaveV3Adapter();
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);

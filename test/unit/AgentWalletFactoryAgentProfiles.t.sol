@@ -26,6 +26,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
     YieldSeekerAdapterRegistry private registryVault;
     YieldSeekerAdapterRegistry private registryBorrow;
     YieldSeekerFeeTracker private feeVault;
+    YieldSeekerYieldFeeModule private feeYield;
     YieldSeekerBorrowFeeModule private feeBorrow;
     YieldSeekerAgentWalletFactory private factory;
 
@@ -36,11 +37,11 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         feeVault = new YieldSeekerFeeTracker(address(this), FEE_COLLECTOR_A);
         feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, new MockSwapAdapterPriceOracle(), 500);
         feeVault.setFeeModule(BORROW_FEE, feeBorrow);
-        feeVault.createPlan(BORROW_FEE, 500);
-        feeVault.createPlan(BORROW_FEE, 250);
-        YieldSeekerYieldFeeModule feeYield = new YieldSeekerYieldFeeModule(feeVault, 1_000);
+        feeVault.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500})));
+        feeVault.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 250})));
+        feeYield = new YieldSeekerYieldFeeModule(feeVault, 1_000);
         feeVault.setFeeModule(YIELD_FEE, feeYield);
-        feeVault.createPlan(YIELD_FEE, 750);
+        feeVault.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 750})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
 
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
@@ -82,10 +83,10 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         vm.prank(OPERATOR);
         YieldSeekerAgentWalletV3 wallet = factory.createAgentWallet(walletOwner, 1, address(baseAsset), VAULT_AGENT_PROFILE, plans);
 
-        assertEq(feeVault.feeRateBps(BORROW_FEE, address(wallet)), 250);
-        assertEq(feeVault.feeRateBps(YIELD_FEE, address(wallet)), 750);
-        assertEq(feeVault.walletPlan(address(wallet), BORROW_FEE), 1);
-        assertEq(feeVault.walletPlan(address(wallet), YIELD_FEE), 0);
+        assertEq(feeBorrow.walletPlan(address(wallet)).rateBps, 250);
+        assertEq(feeYield.walletPlan(address(wallet)).rateBps, 750);
+        assertEq(feeVault.walletPlanId(address(wallet), BORROW_FEE), 1);
+        assertEq(feeVault.walletPlanId(address(wallet), YIELD_FEE), 0);
     }
 
     function test_CreateAgentWalletRejectsUnknownFeePlan() public {

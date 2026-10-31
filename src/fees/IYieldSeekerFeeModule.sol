@@ -16,17 +16,21 @@
 //
 pragma solidity 0.8.28;
 
+error InvalidFeeRate();
+
 /**
  * @title IYieldSeekerFeeModule
  * @notice A fee type plugged into the YieldSeekerFeeTracker (e.g. the yield fee, the borrow fee)
  * @dev After every action, the adapter running in a wallet reports it to every module (see FeeActions). Each module
  *      decides what the action costs and returns what the wallet pays now, which the adapter sends to the fee
  *      collector before calling the next module. Everything is keyed on msg.sender (the wallet), so callers can only
- *      affect their own accounting. Rates come from the wallet's plans in the tracker.
+ *      affect their own accounting.
+ *      Each module defines its own plan struct (its rates); the tracker stores plans ABI-encoded and every wallet's
+ *      plan choice, and asks the module to validate each plan.
  */
 interface IYieldSeekerFeeModule {
-    /// @notice The highest plan rate the tracker accepts for this fee type
-    function MAX_FEE_RATE_BPS() external view returns (uint256);
+    /// @notice Whether `plan` is an ABI-encoded plan this module can charge with (within its fixed maximums)
+    function isValidPlan(bytes calldata plan) external view returns (bool);
 
     /**
      * @notice Record an action of the calling wallet and settle its fees

@@ -19,8 +19,8 @@ pragma solidity 0.8.28;
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./FeeActions.sol";
-import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
-import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
+import {YieldSeekerFeeTracker} from "./FeeTracker.sol";
+import {IYieldSeekerFeeModule, InvalidFeeRate} from "./IYieldSeekerFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -35,11 +35,15 @@ bytes32 constant YIELD_FEE = keccak256("yield");
  *      have no cost basis, so they are charged when withdrawn. Rewards claimed in the base asset, and the base asset
  *      received for selling any other token, are yield when they arrive.
  *      Fees are paid from the base asset as soon as the wallet holds it; what can't be paid stays owed.
- *      The rate comes from the wallet's YIELD_FEE plan in the fee tracker.
+ *      The rate comes from the wallet's YIELD_FEE plan in the fee tracker (a Plan, at most MAX_FEE_RATE_BPS).
  */
 contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
     YieldSeekerFeeTracker public immutable FEE_TRACKER;
     uint256 public immutable MAX_FEE_RATE_BPS;
+
+    struct Plan {
+        uint256 rateBps;
+    }
 
     mapping(address wallet => mapping(address target => uint256)) public costBasis;
     mapping(address wallet => uint256) public feesOwed;
@@ -73,7 +77,7 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         }
         uint256 owed = feesOwed[msg.sender];
         if (yield > 0) {
-            uint256 fee = (yield * FEE_TRACKER.feeRateBps(YIELD_FEE, msg.sender)) / 1e4;
+            uint256 fee = (yield * walletPlan(msg.sender).rateBps) / 1e4;
             owed += fee;
             emit YieldRecorded(msg.sender, yield, fee);
         }
@@ -82,6 +86,16 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         payment = Math.min(owed, IERC20(baseAsset).balanceOf(msg.sender));
         feesOwed[msg.sender] = owed - payment;
         if (payment > 0) emit FeePaid(msg.sender, payment);
+    }
+
+    function isValidPlan(bytes calldata plan) external view returns (bool) {
+        return plan.length == 32 && abi.decode(plan, (Plan)).rateBps <= MAX_FEE_RATE_BPS;
+    }
+
+    /// @notice The wallet's yield fee plan (rate 0 until YIELD_FEE has plans)
+    function walletPlan(address wallet) public view returns (Plan memory plan) {
+        bytes memory data = FEE_TRACKER.walletPlan(wallet, YIELD_FEE);
+        if (data.length > 0) plan = abi.decode(data, (Plan));
     }
 
     /// @notice The base asset is tracked by the fee tracker itself; this module accounts for no other token

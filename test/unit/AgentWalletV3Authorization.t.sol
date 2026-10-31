@@ -713,8 +713,9 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
+        bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
-        feeTracker.createPlan(YIELD_FEE, 1_000);
+        feeTracker.createPlan(YIELD_FEE, plan);
 
         _recordFeeAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: 1_000e6})));
         _recordFeeAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(vault), spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_100e6})));
@@ -732,8 +733,9 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
+        bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
-        feeTracker.createPlan(YIELD_FEE, 1_000);
+        feeTracker.createPlan(YIELD_FEE, plan);
 
         _recordFeeAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: 1_000e6})));
         _recordFeeAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(vault), spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_100e6})));
@@ -793,8 +795,9 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
+        bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
-        feeTracker.createPlan(YIELD_FEE, 1_000);
+        feeTracker.createPlan(YIELD_FEE, plan);
         _recordFeeAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 20_000e6})));
 
         uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));

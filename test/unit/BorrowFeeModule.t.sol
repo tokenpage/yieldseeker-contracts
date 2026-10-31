@@ -60,11 +60,13 @@ contract BorrowFeeModuleTest is Test {
         oracle.setQuoteMultiplier(address(debtToken), 1);
         module = new YieldSeekerBorrowFeeModule(tracker, oracle, 1_000);
         vaultModule = new YieldSeekerYieldFeeModule(tracker, 5_000);
+        bytes memory initialBorrowPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000}));
+        bytes memory initialYieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.startPrank(admin);
         tracker.setFeeModule(BORROW_FEE, module);
         tracker.setFeeModule(YIELD_FEE, vaultModule);
-        tracker.createPlan(BORROW_FEE, 1_000);
-        tracker.createPlan(YIELD_FEE, 1_000);
+        tracker.createPlan(BORROW_FEE, initialBorrowPlan);
+        tracker.createPlan(YIELD_FEE, initialYieldPlan);
         tracker.grantRole(tracker.WALLET_FACTORY_ROLE(), address(this));
         vm.stopPrank();
     }
@@ -76,7 +78,7 @@ contract BorrowFeeModuleTest is Test {
 
         assertEq(module.pendingFee(address(wallet), MARKET_A), 50);
         _checkpoint(MARKET_B, 0);
-        (uint128 principalA,,,) = module.debtPositions(address(wallet), MARKET_A);
+        (uint128 principalA,,) = module.debtPositions(address(wallet), MARKET_A);
         assertEq(principalA, 1_000);
         assertEq(module.pendingFee(address(wallet), MARKET_A), 50);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
@@ -96,7 +98,7 @@ contract BorrowFeeModuleTest is Test {
         _recordRepay(MARKET_A, 1_000, 1_000);
 
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 100);
-        (uint128 principal,,,) = module.debtPositions(address(wallet), MARKET_A);
+        (uint128 principal,,) = module.debtPositions(address(wallet), MARKET_A);
         assertEq(principal, 0);
     }
 
@@ -106,7 +108,7 @@ contract BorrowFeeModuleTest is Test {
 
         vm.warp(start + YEAR);
         _checkpoint(MARKET_A, 400);
-        (uint128 principal,,,) = module.debtPositions(address(wallet), MARKET_A);
+        (uint128 principal,,) = module.debtPositions(address(wallet), MARKET_A);
         assertEq(principal, 400);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 100);
 
@@ -118,17 +120,18 @@ contract BorrowFeeModuleTest is Test {
     function testRepaymentPaysInterestBeforePrincipalAndFullRepayClearsPrincipal() public {
         _recordBorrow(MARKET_A, 100, 0);
         _recordRepay(MARKET_A, 50, 110);
-        (uint128 principal,,,) = module.debtPositions(address(wallet), MARKET_A);
+        (uint128 principal,,) = module.debtPositions(address(wallet), MARKET_A);
         assertEq(principal, 60);
 
         _recordRepay(MARKET_A, 60, 60);
-        (principal,,,) = module.debtPositions(address(wallet), MARKET_A);
+        (principal,,) = module.debtPositions(address(wallet), MARKET_A);
         assertEq(principal, 0);
     }
 
     function testAssignedPlanRateAppliesToBorrowAccrual() public {
+        bytes memory planData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
-        uint256 planId = tracker.createPlan(BORROW_FEE, 500);
+        uint256 planId = tracker.createPlan(BORROW_FEE, planData);
         FeePlan[] memory plans = new FeePlan[](1);
         plans[0] = FeePlan({feeType: BORROW_FEE, planId: planId});
         tracker.setWalletPlans(address(wallet), plans);
@@ -139,8 +142,6 @@ contract BorrowFeeModuleTest is Test {
         assertEq(module.pendingFee(address(wallet), MARKET_A), 50);
         _checkpoint(MARKET_A, 1_000);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 50);
-        (,,, uint16 savedRate) = module.debtPositions(address(wallet), MARKET_A);
-        assertEq(savedRate, 500);
 
         vm.warp(start + 2 * YEAR);
         assertEq(module.pendingFee(address(wallet), MARKET_A), 50);

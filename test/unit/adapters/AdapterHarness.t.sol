@@ -16,7 +16,7 @@ library AdapterFeeSetup {
     function addYieldModule(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerYieldFeeModule yieldFees) {
         yieldFees = new YieldSeekerYieldFeeModule(feeTracker, maxFeeRateBps);
         feeTracker.setFeeModule(YIELD_FEE, yieldFees);
-        feeTracker.createPlan(YIELD_FEE, rateBps);
+        feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: rateBps})));
     }
 }
 

@@ -53,6 +53,7 @@ contract AdapterIntegrationTest is Test {
         vault2 = new MockERC4626(address(usdc), "Vault 2", "V2");
         vault3 = new MockERC4626(address(usdc), "Vault 3", "V3");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
 
         // Deploy infrastructure
@@ -60,7 +61,7 @@ contract AdapterIntegrationTest is Test {
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);

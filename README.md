@@ -103,7 +103,7 @@ Adapters never decide fees. After every action they report what the wallet did (
 
 1. **On Deposit**: the module adds the base asset deposited to the target's cost basis
 2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults); the same share of the cost basis is released, and anything received above it is yield
-   - Fee = `yield * feeRate / 10000`, where `feeRate` is the wallet's `YIELD_FEE` plan rate
+   - Fee = `yield * rateBps / 10000`, where `rateBps` comes from the wallet's `YIELD_FEE` plan
    - If loss: No fee, cost basis reduced for the remaining position
 3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling any other token is yield. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
 
@@ -300,11 +300,11 @@ The central registry that manages authorized adapters and their targets.
 
 The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans and the fee collector. After every action, the adapter reports it to every module with `onAction(action, data)`. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset and returns that amount; the adapter sends it to the fee collector before calling the next module. Modules are keyed on `msg.sender`, so a caller can only affect its own accounting.
 
-**Plans:** a plan is a rate for one fee type. Plans are numbered per fee type from 0, created by the timelock (`createPlan`, capped by the module's `MAX_FEE_RATE_BPS`) and never change. The factory sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
+**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
 
 | Contract | Role |
 |----------|------|
-| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), plans (`createPlan`, `planRateBps`), wallet plans (`setWalletPlans`, factory only), `feeCollector`, `feeRateBps(feeType, wallet)`; `tracksToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), plans (`createPlan`, `plan`), wallet plans (`setWalletPlans`, factory only; `walletPlanId`, `walletPlan`), `feeCollector`; `tracksToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
 | `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change; fees paid in the base asset at the oracle price; tracks borrowed tokens |
 
@@ -962,9 +962,9 @@ We have comprehensive tests in `test/`:
 
 Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
 
-- **New fee types:** write a module that implements `IYieldSeekerFeeModule` and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, rate)` for plan 0 (existing wallets use it). No adapter changes.
+- **New fee types:** write a module that implements `IYieldSeekerFeeModule`, defines its `Plan` struct and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, abi.encode(Module.Plan(...)))` for plan 0 (existing wallets use it). No adapter changes.
 - **New actions:** add an ID and a struct to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled. Never change an existing struct.
-- **New plans:** `createPlan(feeType, rate)`; only new wallets can be put on it. Plans never change, so a different rate for existing users means moving their agents to new wallets.
+- **New plans:** `createPlan(feeType, plan)`; only new wallets can be put on it. Plans never change, so a different rate for existing users means moving their agents to new wallets. A replacement module can read old plans and accept new ones in a richer format (e.g. decode by length), so it can add rates without touching existing plans.
 - **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
 
 ---

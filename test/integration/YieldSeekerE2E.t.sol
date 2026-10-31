@@ -45,13 +45,14 @@ contract YieldSeekerE2ETest is Test {
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Vault", "V");
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
 
         registry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);

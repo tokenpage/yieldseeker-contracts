@@ -20,8 +20,8 @@ import {IAgentWallet} from "../IAgentWallet.sol";
 import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./FeeActions.sol";
-import {InvalidFeeRate, YieldSeekerFeeTracker} from "./FeeTracker.sol";
-import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
+import {YieldSeekerFeeTracker} from "./FeeTracker.sol";
+import {IYieldSeekerFeeModule, InvalidFeeRate} from "./IYieldSeekerFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -32,7 +32,8 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  * @title YieldSeekerBorrowFeeModule
  * @notice Borrow fee: a yearly fee on borrowed principal, counted in the borrowed token and paid in the wallet's base
  *         asset (its collateral) at the oracle price
- * @dev Plugged into the fee tracker as BORROW_FEE; the rate comes from the owner's plan in the tracker.
+ * @dev Plugged into the fee tracker as BORROW_FEE; the yearly rate comes from the wallet's plan in the tracker (a Plan,
+ *      at most MAX_FEE_RATE_BPS).
  *      Lending adapters report every borrow, repay and collateral withdrawal per market with the protocol's real debt
  *      (FeeActions.DEBT_CHANGE). Each period between two reports is charged on min(principal, debt at the start of the
  *      period), so repaying directly on the protocol cannot erase the fee, and a liquidation over-charges at most the
@@ -49,11 +50,14 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
+    struct Plan {
+        uint256 rateBps;
+    }
+
     struct DebtPosition {
         uint128 principal;
         uint128 lastDebt;
         uint64 lastAccrual;
-        uint16 rateBps;
     }
 
     mapping(address wallet => mapping(bytes32 market => DebtPosition)) public debtPositions;
@@ -98,7 +102,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     function _accrue(address wallet, bytes32 market, address token, uint256 currentDebt) internal {
         DebtPosition storage position = debtPositions[wallet][market];
-        uint256 fee = _pendingFee(position);
+        uint256 fee = _pendingFee(wallet, position);
         if (fee > 0) {
             feesOwed[wallet][token] += fee;
             emit BorrowFeeCharged(wallet, market, token, fee);
@@ -106,13 +110,12 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         if (currentDebt < position.principal) position.principal = currentDebt.toUint128();
         position.lastDebt = currentDebt.toUint128();
         position.lastAccrual = uint64(block.timestamp);
-        position.rateBps = FEE_TRACKER.feeRateBps(BORROW_FEE, wallet).toUint16();
     }
 
-    function _pendingFee(DebtPosition memory position) internal view returns (uint256) {
+    function _pendingFee(address wallet, DebtPosition memory position) internal view returns (uint256) {
         if (position.lastAccrual == 0) return 0;
         uint256 accruingPrincipal = position.principal < position.lastDebt ? position.principal : position.lastDebt;
-        return (accruingPrincipal * position.rateBps * (block.timestamp - position.lastAccrual)) / (SECONDS_PER_YEAR * 1e4);
+        return (accruingPrincipal * walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual)) / (SECONDS_PER_YEAR * 1e4);
     }
 
     /// @dev Pays the calling wallet's fees, token by token, from its base asset at the oracle price
@@ -140,7 +143,17 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     /// @notice The fee a market has accrued since its last report (charged at the next report)
     function pendingFee(address wallet, bytes32 market) external view returns (uint256) {
-        return _pendingFee(debtPositions[wallet][market]);
+        return _pendingFee(wallet, debtPositions[wallet][market]);
+    }
+
+    function isValidPlan(bytes calldata plan) external view returns (bool) {
+        return plan.length == 32 && abi.decode(plan, (Plan)).rateBps <= MAX_FEE_RATE_BPS;
+    }
+
+    /// @notice The wallet's borrow fee plan (rate 0 until BORROW_FEE has plans)
+    function walletPlan(address wallet) public view returns (Plan memory plan) {
+        bytes memory data = FEE_TRACKER.walletPlan(wallet, BORROW_FEE);
+        if (data.length > 0) plan = abi.decode(data, (Plan));
     }
 
     function borrowedTokens(address wallet) external view returns (address[] memory) {

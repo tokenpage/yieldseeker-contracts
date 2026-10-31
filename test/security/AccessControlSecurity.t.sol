@@ -36,12 +36,13 @@ contract AccessControlSecurityTest is Test {
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
         entryPoint = new MockEntryPoint();
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
@@ -119,11 +120,12 @@ contract AccessControlSecurityTest is Test {
 
     function test_AdminCanCreateFeePlan() public {
         bytes32 vaultFeeType = YIELD_FEE;
+        bytes memory newPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 2000}));
         vm.prank(admin);
-        uint256 planId = feeTracker.createPlan(vaultFeeType, 2000);
+        uint256 planId = feeTracker.createPlan(vaultFeeType, newPlan);
         assertEq(planId, 1);
-        assertEq(feeTracker.planRateBps(vaultFeeType, 0), FEE_RATE);
-        assertEq(feeTracker.planRateBps(vaultFeeType, planId), 2000);
+        assertEq(abi.decode(feeTracker.plan(vaultFeeType, 0), (YieldSeekerYieldFeeModule.Plan)).rateBps, FEE_RATE);
+        assertEq(abi.decode(feeTracker.plan(vaultFeeType, planId), (YieldSeekerYieldFeeModule.Plan)).rateBps, 2000);
         assertEq(feeTracker.feeCollector(), feeCollector);
     }
 

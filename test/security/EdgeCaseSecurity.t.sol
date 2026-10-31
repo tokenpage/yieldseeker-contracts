@@ -37,12 +37,13 @@ contract EdgeCaseSecurityTest is Test {
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
         entryPoint = new MockEntryPoint();
 
+        bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, emergencyAdmin);
         feeTracker = new FeeTracker(admin, feeCollector);
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        feeTracker.createPlan(YIELD_FEE, FEE_RATE);
+        feeTracker.createPlan(YIELD_FEE, feePlan);
 
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
@@ -131,8 +132,9 @@ contract EdgeCaseSecurityTest is Test {
     }
 
     function test_FeeRateAboveMaxReverts() public {
+        bytes memory invalidPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 6000}));
         vm.prank(admin);
         vm.expectRevert();
-        feeTracker.createPlan(YIELD_FEE, 6000);
+        feeTracker.createPlan(YIELD_FEE, invalidPlan);
     }
 }
