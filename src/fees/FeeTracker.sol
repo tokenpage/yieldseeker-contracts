@@ -117,7 +117,12 @@ contract YieldSeekerFeeTracker is AccessControl {
         return _plans[feeType][planId];
     }
 
-    /// @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
+    /**
+     * @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
+     * @dev Plans being fixed for a wallet's life relies on WALLET_FACTORY_ROLE only ever being granted to wallet
+     *      factories, which call this only for the wallet they are creating. It is not enforced here: a wallet created
+     *      on plan 0 for every fee type never calls it, so a per-wallet flag would not cover it.
+     */
     function setWalletPlans(address wallet, FeePlan[] calldata plans) external onlyRole(WALLET_FACTORY_ROLE) {
         for (uint256 i = 0; i < plans.length; i++) {
             FeePlan calldata feePlan = plans[i];

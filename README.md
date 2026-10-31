@@ -965,6 +965,7 @@ Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basi
 - **New fee types:** write a module that implements `IYieldSeekerFeeModule`, defines its `Plan` struct and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, abi.encode(Module.Plan(...)))` for plan 0 (existing wallets use it). No adapter changes.
 - **New actions:** add an ID and a struct to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled. Never change an existing struct.
 - **New plans:** `createPlan(feeType, plan)`; only new wallets can be put on it. Plans never change, so a different rate for existing users means moving their agents to new wallets. A replacement module can read old plans and accept new ones in a richer format (e.g. decode by length), so it can add rates without touching existing plans.
+- **`WALLET_FACTORY_ROLE` only goes to wallet factories.** Factories call `setWalletPlans` only for the wallet they are creating; that is what keeps a wallet's plans fixed for life. Any other holder of the role could change a live wallet's plans.
 - **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
 
 ---
