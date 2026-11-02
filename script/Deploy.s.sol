@@ -272,7 +272,7 @@ contract DeployScript is Script {
         }
 
         // Deploy or reuse AgentWallet V3 implementation
-        if (deployments.agentWalletImplementation == address(0)) {
+        if (deployments.agentWalletImplementation == address(0) || address(AgentWallet(payable(deployments.agentWalletImplementation)).FACTORY()) != deployments.agentWalletFactory) {
             deployments.agentWalletImplementation = deployCreate2(abi.encodePacked(type(AgentWallet).creationCode, abi.encode(deployments.agentWalletFactory)));
             console2.log("-> AgentWallet Implementation deployed at:", deployments.agentWalletImplementation);
         } else {
@@ -344,14 +344,17 @@ contract DeployScript is Script {
             console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
         }
 
-        if (deployments.vaultSwapPolicy == address(0)) {
+        if (deployments.vaultSwapPolicy == address(0) || address(VaultSwapPolicy(deployments.vaultSwapPolicy).SELL_POLICY()) != deployments.swapSellPolicy) {
             deployments.vaultSwapPolicy = deployCreate2(abi.encodePacked(type(VaultSwapPolicy).creationCode, abi.encode(deployments.swapSellPolicy)));
             console2.log("-> VaultSwapPolicy deployed at:", deployments.vaultSwapPolicy);
         } else {
             console2.log("-> Using existing vaultSwapPolicy:", deployments.vaultSwapPolicy);
         }
 
-        if (deployments.borrowSwapPolicy == address(0)) {
+        if (
+            deployments.borrowSwapPolicy == address(0) || address(BorrowSwapPolicy(deployments.borrowSwapPolicy).SELL_POLICY()) != deployments.swapSellPolicy
+                || address(BorrowSwapPolicy(deployments.borrowSwapPolicy).PRICE_ORACLE()) != deployments.priceOracle
+        ) {
             deployments.borrowSwapPolicy = deployCreate2(abi.encodePacked(type(BorrowSwapPolicy).creationCode, abi.encode(deployments.swapSellPolicy, deployments.priceOracle, BORROW_SWAP_MAX_SLIPPAGE_BPS)));
             console2.log("-> BorrowSwapPolicy deployed at:", deployments.borrowSwapPolicy);
         } else {
@@ -453,7 +456,7 @@ contract DeployScript is Script {
             console2.log("-> Using existing morphoBlueLendingAdapter:", deployments.morphoBlueLendingAdapter);
         }
 
-        if (deployments.agentTransferAdapter == address(0)) {
+        if (deployments.agentTransferAdapter == address(0) || address(AgentTransferAdapter(deployments.agentTransferAdapter).LINK_REGISTRY()) != deployments.walletLinkRegistry) {
             deployments.agentTransferAdapter = deployCreate2(abi.encodePacked(type(AgentTransferAdapter).creationCode, abi.encode(deployments.walletLinkRegistry)));
             console2.log("-> AgentTransferAdapter deployed at:", deployments.agentTransferAdapter);
         } else {

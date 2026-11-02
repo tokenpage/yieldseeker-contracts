@@ -122,9 +122,10 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         if (address(newTracker) == address(0)) revert InvalidFeeTracker();
         if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
         ys.feeTracker = newTracker;
-        ys.swapPolicy = factory.swapPolicy(profile);
+        IYieldSeekerSwapPolicy newSwapPolicy = factory.swapPolicy(profile);
+        ys.swapPolicy = newSwapPolicy;
 
-        emit SyncedFromFactory(address(adapterRegistry()), address(newTracker), address(ys.swapPolicy));
+        emit SyncedFromFactory(address(adapterRegistry()), address(newTracker), address(newSwapPolicy));
     }
 
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
@@ -135,9 +136,8 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      */
     function withdrawableBalance(address asset) public view returns (uint256) {
         FeeTracker tracker = feeTracker();
-        if (!tracker.isAccountedToken(address(this), asset)) return 0;
         uint256 balance = IERC20(asset).balanceOf(address(this));
-        if (asset != address(baseAsset())) return balance;
+        if (asset != address(baseAsset())) return tracker.isAccountedToken(address(this), asset) ? balance : 0;
         uint256 feesOwed = tracker.feesOwedInBaseAsset(address(this));
         return balance > feesOwed ? balance - feesOwed : 0;
     }
@@ -167,7 +167,9 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         _withdrawAsset(recipient, asset, IERC20(asset).balanceOf(address(this)));
     }
 
+    /// @dev The base asset is always withdrawable without asking the tracker, so a broken tracker can't block its exit
     function _requireAccountedToken(address asset) internal view {
+        if (asset == address(baseAsset())) return;
         if (!feeTracker().isAccountedToken(address(this), asset)) revert InvalidAsset();
     }
 

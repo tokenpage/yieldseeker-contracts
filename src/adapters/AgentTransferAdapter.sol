@@ -63,7 +63,7 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         YieldSeekerAgentWalletV3 wallet = YieldSeekerAgentWalletV3(payable(address(this)));
         AWKAgentWalletFactory factory = AWKAgentWalletFactory(address(wallet.FACTORY()));
         address owner = wallet.owner();
-        if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotLinkedWallet(to);
+        if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotLinkedWallet(address(this));
         if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);
         if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();

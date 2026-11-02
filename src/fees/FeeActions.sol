@@ -87,6 +87,7 @@ library FeeActions {
 
     /// @notice Tokens about to leave the wallet (an owner withdrawal or a transfer to a linked wallet); reported first
     ///         so every module settles what it is owed before the funds go
+    /// @param amount The amount requested; for an owner's withdraw-all, the whole balance before fees are paid
     struct TransferOut {
         address token;
         address to;

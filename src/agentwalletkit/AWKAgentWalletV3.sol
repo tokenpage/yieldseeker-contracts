@@ -142,13 +142,9 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /// @dev The agent profile is set once, before the first sync, and never changes
     function _initializeV3(address _owner, uint256 _ownerAgentIndex, bytes32 _agentProfile) internal virtual onlyInitializing {
-        AgentWalletStorageV3.layout().agentProfile = _agentProfile;
-        _initializeV1(_owner, _ownerAgentIndex);
-    }
-
-    function _initializeV1(address _owner, uint256 _ownerAgentIndex) internal virtual {
         if (_owner == address(0)) revert AWKErrors.ZeroAddress();
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.layout();
+        $.agentProfile = _agentProfile;
         $.owner = _owner;
         $.ownerAgentIndex = _ownerAgentIndex;
         _syncFromFactory();

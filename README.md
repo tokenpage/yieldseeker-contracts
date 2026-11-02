@@ -52,10 +52,10 @@ This system enforces **parameter-level validation** through protocol-specific ad
 - A Factory role change does not push new authorization state into already deployed wallets
 
 **Operator Revocation Procedure:**
-1. **Pause first**: Call `AdapterRegistry.pause()` to stop adapter execution across all wallets immediately.
-2. **Revoke globally**: Remove the operator's `AGENT_OPERATOR_ROLE` from the Factory.
+1. **Pause first**: Call `pause()` (`EMERGENCY_ROLE`) on **every** adapter registry in `deployments.json` (the V2 vault registry `agentWalletV2AdapterRegistry`, `vaultAdapterRegistry` and `borrowAdapterRegistry`); each pauses on its own, and together they stop adapter execution across all wallets immediately.
+2. **Revoke globally**: Remove the operator's `AGENT_OPERATOR_ROLE` from every Factory (V2 and V3).
 3. **Synchronize every wallet**: Call `syncFromFactory()` on every existing wallet and verify that the revoked operator is no longer cached. This is a per-wallet operation; revoking the Factory role alone does not update deployed wallets. Calls may be submitted individually or through a batch process, but every wallet must complete synchronization.
-4. **Resume**: Call `AdapterRegistry.unpause()` only after all wallets have synchronized.
+4. **Resume**: Call `unpause()` on every registry only after all wallets have synchronized.
 
 Without the registry pause, unsynchronized wallets remain able to accept the revoked operator's adapter UserOperations until their local cache is refreshed.
 
@@ -1016,7 +1016,7 @@ function _validateSignature(PackedUserOperation calldata userOp, bytes32 userOpH
 1. **No wallet-specific config**: Server doesn't need to be added to each wallet
 2. **Cached for gas**: `isAgentOperator` mapping avoids external calls during validation
 3. **Factory is source of truth**: `syncFromFactory()` refreshes the cache
-4. **Instant revocation via pause**: Even with stale cache, pausing registry stops all operations
+4. **Instant revocation via pause**: Even with stale cache, pausing every adapter registry stops all operations
 
 ---
 

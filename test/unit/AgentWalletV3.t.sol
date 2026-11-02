@@ -218,6 +218,27 @@ contract AgentWalletV3Test is Test {
         assertEq(syncedOperators[0], nextOperator);
     }
 
+    function test_BrokenFeeTrackerCannotBlockBaseAssetWithdrawal() public {
+        YieldSeekerFeeTracker brokenTracker = YieldSeekerFeeTracker(address(new MockERC20("Not a tracker", "NAT")));
+        uint256 amount = usdc.balanceOf(address(vaultWallet));
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, brokenTracker);
+        vm.prank(owner);
+        vaultWallet.syncFromFactory();
+
+        vm.prank(owner);
+        vm.expectEmit(address(vaultWallet));
+        emit YieldSeekerAgentWalletV3.FeeSettlementFailed(address(usdc), amount);
+        vaultWallet.withdrawAssetToUser(recipient, address(usdc), amount);
+
+        assertEq(usdc.balanceOf(recipient), amount);
+        assertEq(usdc.balanceOf(address(vaultWallet)), 0);
+
+        unrelated.mint(address(vaultWallet), 1e6);
+        vm.prank(owner);
+        vm.expectRevert();
+        vaultWallet.withdrawAssetToUser(recipient, address(unrelated), 1e6);
+    }
+
     function test_UpgradeToLatestUsesOnlyTheFactoryApprovedImplementation() public {
         MockV3YieldSeekerWalletV2 nextImplementation = new MockV3YieldSeekerWalletV2(address(factory));
         MockV3YieldSeekerWalletV2 unapprovedImplementation = new MockV3YieldSeekerWalletV2(address(factory));
