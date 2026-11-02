@@ -189,7 +189,8 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `ownerAgentIndex` | `uint256` | Index of this agent for the owner |
 | `baseAsset` | `IERC20` | The primary asset this agent manages (e.g. USDC) |
 | `adapterRegistry` | `AdapterRegistry` | Cached reference to AdapterRegistry from Factory |
-| `feeTracker` | `FeeTracker` | Cached reference to FeeTracker from Factory |
+| `feeTracker` | `FeeTracker` | Cached reference to its agent profile's FeeTracker from Factory |
+| `swapPolicy` | `IYieldSeekerSwapPolicy` | Cached reference to its agent profile's swap policy from Factory (appended in V3) |
 | `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
 | `isAgentOperator` | `mapping(address => bool)` | Fast lookup for operator status |
 | `blockedAdapters` | `mapping(address => bool)` | User-level adapter blocklist |
@@ -262,8 +263,9 @@ Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 | `createAgentWallet(owner, index, asset, agentProfile, feePlans)` | Operator | Deploys new wallet via CREATE2; sets its fee plan per fee type (`FeePlanChoice[]`), fixed for life |
 | `getAddress(owner, index)` | View | Predicts address before deployment |
 | `setAgentWalletImplementation(newImpl)` | Admin | Updates implementation for NEW wallets |
-| `setAdapterRegistry(newRegistry)` | Admin | Updates registry for NEW wallets |
-| `setFeeTracker(newTracker)` | Admin | Updates fee tracker for NEW wallets |
+| `setAdapterRegistry(agentProfile, newRegistry)` | Admin | Updates an agent profile's registry (existing wallets pick it up at sync) |
+| `setFeeTracker(agentProfile, newTracker)` | Admin | Updates an agent profile's fee tracker (existing wallets pick it up at sync) |
+| `setSwapPolicy(agentProfile, newPolicy)` | Admin | Updates an agent profile's swap policy (existing wallets pick it up at sync) |
 
 **Features:**
 - **Deterministic Addresses**: Same owner + index = same address across chains (Asset-agnostic)
@@ -298,9 +300,9 @@ The central registry that manages authorized adapters and their targets.
 
 #### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans, the wallet factory and the fee collector. After every action, the adapter reports it to the tracker with `reportAction(action, data)`; the tracker passes it to every module (`onAction(wallet, action, data, maxPayment)`, callable only by the tracker), in the order the modules were added. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `REWARD_SALE`/`Swap`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset left by the modules before it; the tracker returns the total and the collector, and the adapter makes one transfer. `msg.sender` of `reportAction` is the wallet, so a caller can only affect its own accounting.
+Each agent profile has its own fee tracker (`factory.feeTracker(agentProfile)`), holding only the fee modules that apply to that agent type: the vault tracker has `YIELD_FEE`, the borrow tracker `YIELD_FEE` and `BORROW_FEE`. A wallet copies its profile's tracker at sync, so its actions only go through its own type's modules. The tracker holds the fee modules (one per fee type), their plans, each wallet's plans, the wallet factory and the fee collector. After every action, the adapter reports it to the tracker with `reportAction(action, data)`; the tracker passes it to every module (`onAction(wallet, action, data, maxPayment)`, callable only by the tracker), in the order the modules were added. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `REWARD_SALE`/`Swap`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset left by the modules before it; the tracker returns the total and the collector, and the adapter makes one transfer. `msg.sender` of `reportAction` is the wallet, so a caller can only affect its own accounting. A module is bound to one tracker (`FEE_TRACKER`), so the yield fee is deployed once per tracker.
 
-**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory (`walletFactory`, set by the timelock) sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)` → `initWalletPlans`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
+**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). Each tracker stores its plans ABI-encoded, numbered per fee type from 0 (so plan IDs are per agent type); the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory (`walletFactory`, set by the timelock) sets a wallet's plans in its profile's tracker when it creates the wallet (`createAgentWallet(..., feePlans)` → `initWalletPlans`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
 
 | Contract | Role |
 |----------|------|
@@ -312,7 +314,7 @@ Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for
 
 ### Swap policies
 
-The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: each agent profile's adapter registry holds one (`YieldSeekerAdapterRegistry.swapPolicy()`, set by the timelock with `setSwapPolicy`), and the adapter reads it from the wallet's registry at every swap, so a policy can be replaced on its own and applies to existing wallets at their next swap, with no sync. A registry without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts with `FeesOwed` if fees owed are not fully paid afterwards.
+The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: the factory holds one per agent profile (`swapPolicy(agentProfile)`, set by the timelock with `setSwapPolicy`), the wallet copies it at sync (`swapPolicy()`), and the adapter reads it from the wallet at every swap, so a policy can be replaced on its own (then `syncFromFactory` on the profile's wallets). A wallet without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts with `FeesOwed` if fees owed are not fully paid afterwards.
 
 | Policy | Agent profile | Rules |
 |---|---|---|
@@ -481,7 +483,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 | `createAgentWallet()` | ✅ | ✅ | ❌ |
 | `setAgentWalletImplementation()` | ✅ | ❌ | ❌ |
 | `setAdapterRegistry()` | ✅ | ❌ | ❌ |
-| `setFeeTracker()` | ✅ | ❌ | ❌ |
+| `setFeeTracker()` / `setSwapPolicy()` | ✅ | ❌ | ❌ |
 | `grantRole()` | ✅ | ❌ | ❌ |
 | `getAddress()` | ✅ | ✅ | ✅ |
 
@@ -964,10 +966,10 @@ We have comprehensive tests in `test/`:
 
 ### Upgrading Factory Configuration
 
-1. Admin calls `factory.setAdapterRegistry(newRegistry)` or `factory.setFeeTracker(newTracker)`
-2. This affects **NEW wallets only**
-3. Existing wallets must call `syncFromFactory()` to get updated references
-4. A registry's contents (adapters, targets, pause, `swapPolicy`) are read live, so changing them needs no sync; only replacing the registry contract itself does
+1. Admin calls `factory.setAdapterRegistry(agentProfile, newRegistry)`, `factory.setFeeTracker(agentProfile, newTracker)` or `factory.setSwapPolicy(agentProfile, newPolicy)`
+2. This affects **NEW wallets** of that profile
+3. Existing wallets must call `syncFromFactory()` to get updated references (operators can call it for every wallet)
+4. A registry's contents (adapters, targets, pause) are read live, so changing them needs no sync; only replacing the registry contract itself does
 
 ---
 

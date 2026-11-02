@@ -65,7 +65,7 @@ contract FeeGasBenchmarkTest is Test {
         comptroller.setRewardPerMarket(1e18);
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(wellToken));
-        wallet.adapterRegistry().setSwapPolicy(new YieldSeekerVaultSwapPolicy(sellPolicy));
+        wallet.setSwapPolicy(new YieldSeekerVaultSwapPolicy(sellPolicy));
         router = new MockUniswapV3Router();
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router));
         baseAsset.mint(address(router), 1_000_000 * USDC);

@@ -69,7 +69,7 @@ contract SystemIntegrationTest is Test {
 
         // Configure factory components
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
 
         // Create wallet implementation with correct factory reference
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
@@ -573,15 +573,17 @@ contract SystemIntegrationTest is Test {
         // Update factory configuration
         vm.startPrank(admin);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
-        factory.setFeeTracker(newFeeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, newFeeTracker);
         vm.stopPrank();
 
+        assertEq(address(wallet.feeTracker()), address(feeTracker));
+        assertEq(address(factory.feeTracker(VAULT_AGENT_PROFILE)), address(newFeeTracker));
         vm.prank(operator);
         wallet.syncFromFactory();
 
         assertEq(address(wallet.adapterRegistry()), address(newRegistry));
         assertEq(address(wallet.feeTracker()), address(newFeeTracker));
         assertTrue(address(factory.adapterRegistry(VAULT_AGENT_PROFILE)) == address(newRegistry));
-        assertEq(address(factory.feeTracker()), address(newFeeTracker));
+        assertEq(address(factory.feeTracker(VAULT_AGENT_PROFILE)), address(newFeeTracker));
     }
 }

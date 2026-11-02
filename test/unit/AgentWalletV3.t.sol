@@ -148,6 +148,8 @@ contract AgentWalletV3Test is Test {
     YieldSeekerAdapterRegistry private borrowRegistry;
     YieldSeekerFeeTracker private vaultFees;
     YieldSeekerYieldFeeModule private vaultFeeModule;
+    YieldSeekerFeeTracker private borrowFeeTracker;
+    YieldSeekerYieldFeeModule private borrowYieldFeeModule;
     YieldSeekerBorrowFeeModule private borrowFees;
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerAgentWalletV3 private vaultWallet;
@@ -166,16 +168,21 @@ contract AgentWalletV3Test is Test {
         vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
         vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
         vaultFees.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
-        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
-        vaultFees.setFeeModule(BORROW_FEE, borrowFees);
-        vaultFees.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
+        borrowFeeTracker = new YieldSeekerFeeTracker(admin, feeCollector);
+        borrowYieldFeeModule = new YieldSeekerYieldFeeModule(borrowFeeTracker, 10_000);
+        borrowFeeTracker.setFeeModule(YIELD_FEE, borrowYieldFeeModule);
+        borrowFeeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
+        borrowFees = new YieldSeekerBorrowFeeModule(borrowFeeTracker, 1_000);
+        borrowFeeTracker.setFeeModule(BORROW_FEE, borrowFees);
+        borrowFeeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
         factory = new YieldSeekerAgentWalletFactory(admin, operator);
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
-        factory.setFeeTracker(vaultFees);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, vaultFees);
+        factory.setFeeTracker(BORROW_AGENT_PROFILE, borrowFeeTracker);
 
         FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.startPrank(operator);
@@ -195,7 +202,7 @@ contract AgentWalletV3Test is Test {
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
 
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
-        factory.setFeeTracker(nextFees);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, nextFees);
         factory.grantRole(operatorRole, nextOperator);
         factory.revokeRole(operatorRole, operator);
 
@@ -316,23 +323,23 @@ contract AgentWalletV3Test is Test {
         _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0, debtPriceInBaseAsset: 1e36})));
 
         uint256 rewardAmount = 200e6;
-        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: rewardAmount})));
+        _recordFeeAction(borrowYieldFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: rewardAmount})));
 
         uint256 borrowFeesOwed = borrowFees.feesOwed(address(borrowWallet));
-        uint256 vaultFeesOwed = vaultFeeModule.feesOwed(address(borrowWallet));
+        uint256 vaultFeesOwed = borrowYieldFeeModule.feesOwed(address(borrowWallet));
         uint256 borrowedBalance = usdc.balanceOf(address(borrowWallet));
         assertEq(borrowFeesOwed, 10e6);
         assertEq(vaultFeesOwed, 20e6);
-        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(usdc)));
-        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(weth)));
-        assertEq(vaultFees.feesOwedInBaseAsset(address(borrowWallet)), borrowFeesOwed + vaultFeesOwed);
+        assertTrue(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(usdc)));
+        assertTrue(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(weth)));
+        assertEq(borrowFeeTracker.feesOwedInBaseAsset(address(borrowWallet)), borrowFeesOwed + vaultFeesOwed);
 
         vm.prank(owner);
         borrowWallet.withdrawAssetToUser(recipient, address(usdc), borrowedBalance);
         assertEq(usdc.balanceOf(recipient), borrowedBalance);
         assertEq(usdc.balanceOf(address(borrowWallet)), 0);
         assertEq(borrowFees.feesOwed(address(borrowWallet)), 0);
-        assertEq(vaultFeeModule.feesOwed(address(borrowWallet)), 0);
+        assertEq(borrowYieldFeeModule.feesOwed(address(borrowWallet)), 0);
         assertEq(weth.balanceOf(feeCollector), borrowFeesOwed + vaultFeesOwed);
         assertEq(weth.balanceOf(address(borrowWallet)), 400e6 - borrowFeesOwed - vaultFeesOwed);
     }
@@ -354,24 +361,25 @@ contract AgentWalletV3Test is Test {
         assertEq(vaultWallet.withdrawableBalance(address(usdc)), 990e6);
         assertEq(borrowWallet.withdrawableBalance(address(usdc)), usdc.balanceOf(address(borrowWallet)));
         assertEq(borrowWallet.withdrawableBalance(address(usdc)), 1_000e6);
+        assertTrue(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(usdc)));
         assertEq(vaultWallet.withdrawableBalance(address(unrelated)), 0);
     }
 
     function test_FailingFeeQueriesDoNotBlockBaseWithdrawalsOrAllowOtherTokens() public {
         bytes32 revertingFeeType = keccak256("reverting-fee-queries");
         bytes32 gasBurningFeeType = keccak256("gas-burning-fee-queries");
-        RevertingFeeQueriesModule revertingFeeModule = new RevertingFeeQueriesModule(address(vaultFees), revertingFeeType);
-        GasBurningFeeQueriesModule gasBurningFeeModule = new GasBurningFeeQueriesModule(address(vaultFees), gasBurningFeeType);
-        vaultFees.setFeeModule(revertingFeeType, revertingFeeModule);
-        vaultFees.setFeeModule(gasBurningFeeType, gasBurningFeeModule);
+        RevertingFeeQueriesModule revertingFeeModule = new RevertingFeeQueriesModule(address(borrowFeeTracker), revertingFeeType);
+        GasBurningFeeQueriesModule gasBurningFeeModule = new GasBurningFeeQueriesModule(address(borrowFeeTracker), gasBurningFeeType);
+        borrowFeeTracker.setFeeModule(revertingFeeType, revertingFeeModule);
+        borrowFeeTracker.setFeeModule(gasBurningFeeType, gasBurningFeeModule);
 
-        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: 100e6})));
-        uint256 reserve = vaultFeeModule.feesOwed(address(borrowWallet));
+        _recordFeeAction(borrowYieldFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: 100e6})));
+        uint256 reserve = borrowYieldFeeModule.feesOwed(address(borrowWallet));
         uint256 baseBalance = weth.balanceOf(address(borrowWallet));
         uint256 withdrawable = baseBalance - reserve;
 
-        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(weth)));
-        assertEq(vaultFees.feesOwedInBaseAsset(address(borrowWallet)), reserve);
+        assertTrue(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(weth)));
+        assertEq(borrowFeeTracker.feesOwedInBaseAsset(address(borrowWallet)), reserve);
         assertEq(borrowWallet.withdrawableBalance(address(weth)), withdrawable);
 
         vm.prank(owner);
@@ -379,10 +387,10 @@ contract AgentWalletV3Test is Test {
         assertEq(weth.balanceOf(recipient), withdrawable);
         assertEq(weth.balanceOf(address(borrowWallet)), 0);
         assertEq(weth.balanceOf(feeCollector), reserve);
-        assertEq(vaultFeeModule.feesOwed(address(borrowWallet)), 0);
+        assertEq(borrowYieldFeeModule.feesOwed(address(borrowWallet)), 0);
 
         unrelated.mint(address(borrowWallet), 3e6);
-        assertFalse(vaultFees.isAccountedToken(address(borrowWallet), address(unrelated)));
+        assertFalse(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(unrelated)));
         assertEq(borrowWallet.withdrawableBalance(address(unrelated)), 0);
         vm.expectRevert(InvalidAsset.selector);
         vm.prank(owner);
@@ -447,7 +455,7 @@ contract AgentWalletV3Test is Test {
     }
 
     function _recordFeeAction(IYieldSeekerFeeModule module, address wallet, bytes32 action, bytes memory data) private {
-        vm.prank(address(vaultFees));
+        vm.prank(module.FEE_TRACKER());
         module.onAction(wallet, action, data, 0);
     }
 

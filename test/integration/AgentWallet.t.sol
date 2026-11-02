@@ -150,7 +150,7 @@ abstract contract AgentWalletIntegrationBase is Test {
 
         // Configure factory components
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
 
         // Deploy real adapters

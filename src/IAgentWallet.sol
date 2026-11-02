@@ -18,6 +18,7 @@ pragma solidity 0.8.28;
 
 import {IAWKAgentWallet} from "./agentwalletkit/IAWKAgentWallet.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
+import {IYieldSeekerSwapPolicy} from "./swaps/IYieldSeekerSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -31,4 +32,7 @@ interface IAgentWallet is IAWKAgentWallet {
 
     /// @notice Get the fee tracker contract
     function feeTracker() external view returns (FeeTracker);
+
+    /// @notice Get the swap policy contract (address(0): the wallet can't swap)
+    function swapPolicy() external view returns (IYieldSeekerSwapPolicy);
 }

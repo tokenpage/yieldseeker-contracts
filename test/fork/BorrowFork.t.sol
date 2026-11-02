@@ -45,6 +45,7 @@ contract BorrowForkTest is Test {
     AgentWalletFactory internal factory;
     AdapterRegistry internal borrowRegistry;
     FeeTracker internal feeTracker;
+    FeeTracker internal vaultFeeTracker;
     YieldSeekerBorrowFeeModule internal borrowFeeModule;
     YieldSeekerPriceOracle internal oracle;
     YieldSeekerWalletLinkRegistry internal linkRegistry;
@@ -61,9 +62,13 @@ contract BorrowForkTest is Test {
         oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(SEQUENCER_UPTIME_FEED));
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
+        vaultFeeTracker = new FeeTracker(address(this), feeCollector);
+        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(vaultFeeTracker, 5000);
+        vaultFeeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        vaultFeeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000})));
         feeTracker = new FeeTracker(address(this), feeCollector);
-        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
-        feeTracker.setFeeModule(YIELD_FEE, vaultFees);
+        YieldSeekerYieldFeeModule borrowYieldFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
+        feeTracker.setFeeModule(YIELD_FEE, borrowYieldFees);
         feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000})));
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
@@ -74,11 +79,12 @@ contract BorrowForkTest is Test {
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(BORROW_AGENT_PROFILE, feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, vaultFeeTracker);
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter();
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter();
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        borrowRegistry.setSwapPolicy(new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);

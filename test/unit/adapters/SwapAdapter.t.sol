@@ -79,11 +79,11 @@ contract SwapAdapterTest is Test {
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
         factory.setAdapterRegistry(AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(AGENT_PROFILE, feeTracker);
 
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(reward));
-        registry.setSwapPolicy(new YieldSeekerBorrowSwapPolicy(sellPolicy, oracle, SLIPPAGE_BPS));
+        factory.setSwapPolicy(AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(sellPolicy, oracle, SLIPPAGE_BPS));
         router = new MockLendingSwapRouter();
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router));
         registry.registerAdapter(address(swapAdapter));

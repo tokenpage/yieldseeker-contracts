@@ -97,7 +97,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
         factory.setAgentWalletImplementation(AWKAgentWalletV3(payable(address(implementation))));
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));
@@ -305,7 +305,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         vm.prank(admin);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
         vm.prank(admin);
-        factory.setFeeTracker(nextTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, nextTracker);
 
         assertEq(address(wallet.adapterRegistry()), address(registry));
         assertEq(address(wallet.feeTracker()), address(feeTracker));

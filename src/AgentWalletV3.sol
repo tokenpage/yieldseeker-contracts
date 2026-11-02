@@ -22,6 +22,7 @@ import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./fees/FeeActions.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
+import {IYieldSeekerSwapPolicy} from "./swaps/IYieldSeekerSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -30,8 +31,8 @@ error InvalidFeeTracker();
 
 /**
  * @title YieldSeekerStorageV1
- * @notice YieldSeeker-specific storage for base asset and fee tracking
- * @dev Uses a different namespace than AWK to avoid collisions
+ * @notice YieldSeeker-specific storage for base asset, fee tracking and swap rules
+ * @dev Uses a different namespace than AWK to avoid collisions; V3 appends swapPolicy
  */
 library YieldSeekerStorageV1 {
     /// @custom:storage-location erc7201:yieldseeker.agentwallet.extensions.v1
@@ -40,6 +41,7 @@ library YieldSeekerStorageV1 {
     struct Layout {
         IERC20 baseAsset;
         FeeTracker feeTracker;
+        IYieldSeekerSwapPolicy swapPolicy;
     }
 
     function layout() internal pure returns (Layout storage l) {
@@ -62,7 +64,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
 
     uint256 public constant FEE_SETTLEMENT_GAS_LIMIT = 500_000;
 
-    event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
+    event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker, address indexed swapPolicy);
     event FeeSettlementFailed(address indexed asset, uint256 amount);
 
     constructor(address factory) AWKAgentWalletV3(factory) {}
@@ -95,11 +97,16 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     }
 
     /**
-     * @notice Get the fee tracker
+     * @notice Get the fee tracker (its agent profile's, copied from the factory at sync)
      * @return FeeTracker instance
      */
     function feeTracker() public view virtual returns (FeeTracker) {
         return YieldSeekerStorageV1.layout().feeTracker;
+    }
+
+    /// @notice Get the swap policy (its agent profile's, copied from the factory at sync; address(0): it can't swap)
+    function swapPolicy() public view virtual returns (IYieldSeekerSwapPolicy) {
+        return YieldSeekerStorageV1.layout().swapPolicy;
     }
 
     // ============ Synchronization ============
@@ -108,13 +115,16 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         super._syncFromFactory();
 
         YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+        IAgentWalletFactory factory = IAgentWalletFactory(address(FACTORY));
+        bytes32 profile = agentProfile();
 
-        FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
+        FeeTracker newTracker = factory.feeTracker(profile);
         if (address(newTracker) == address(0)) revert InvalidFeeTracker();
         if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
         ys.feeTracker = newTracker;
+        ys.swapPolicy = factory.swapPolicy(profile);
 
-        emit SyncedFromFactory(address(adapterRegistry()), address(newTracker));
+        emit SyncedFromFactory(address(adapterRegistry()), address(newTracker), address(ys.swapPolicy));
     }
 
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============

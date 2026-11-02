@@ -65,7 +65,7 @@ contract AdapterIntegrationTest is Test {
 
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
 
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));

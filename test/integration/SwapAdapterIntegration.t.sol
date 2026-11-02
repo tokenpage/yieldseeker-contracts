@@ -133,7 +133,9 @@ contract SwapAdapterIntegrationTest is Test {
     AdapterRegistry borrowRegistry;
     AdapterRegistry noPolicyRegistry;
     FeeTracker feeTracker;
+    FeeTracker borrowFeeTracker;
     YieldSeekerYieldFeeModule vaultFeeModule;
+    YieldSeekerYieldFeeModule borrowYieldFeeModule;
     YieldSeekerPriceOracle oracle;
     YieldSeekerSwapSellPolicy sellPolicy;
     UniswapV3SwapAdapter uniswapAdapter;
@@ -219,11 +221,17 @@ contract SwapAdapterIntegrationTest is Test {
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
         feeTracker.createPlan(YIELD_FEE, feePlan);
+        borrowFeeTracker = new FeeTracker(admin, feeCollector);
+        borrowYieldFeeModule = new YieldSeekerYieldFeeModule(borrowFeeTracker, 5000);
+        borrowFeeTracker.setFeeModule(YIELD_FEE, borrowYieldFeeModule);
+        borrowFeeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setAdapterRegistry(NO_POLICY_AGENT_PROFILE, noPolicyRegistry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
+        factory.setFeeTracker(BORROW_AGENT_PROFILE, borrowFeeTracker);
+        factory.setFeeTracker(NO_POLICY_AGENT_PROFILE, feeTracker);
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
         oracle = new YieldSeekerPriceOracle(admin, admin, IPriceFeed(address(sequencerFeed)));
@@ -233,10 +241,12 @@ contract SwapAdapterIntegrationTest is Test {
         sellPolicy = new YieldSeekerSwapSellPolicy(admin, admin, false);
         sellPolicy.addSellableToken(address(sellToken));
         YieldSeekerVaultSwapPolicy vaultPolicy = new YieldSeekerVaultSwapPolicy(sellPolicy);
-        SwapIntegrationFeeModule borrowFeeModule = new SwapIntegrationFeeModule(address(feeTracker), BORROW_FEE, address(otherToken), 0);
-        feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
-        registry.setSwapPolicy(vaultPolicy);
-        borrowRegistry.setSwapPolicy(new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), MAX_SLIPPAGE_BPS));
+        SwapIntegrationFeeModule borrowFeeModule = new SwapIntegrationFeeModule(address(borrowFeeTracker), BORROW_FEE, address(otherToken), 0);
+        borrowFeeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
+        factory.setSwapPolicy(VAULT_AGENT_PROFILE, vaultPolicy);
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), MAX_SLIPPAGE_BPS));
+        feeTracker.setWalletFactory(address(factory));
+        borrowFeeTracker.setWalletFactory(address(factory));
         uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter));
         aerodromeV2Adapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
         aerodromeClAdapter = new AerodromeCLSwapAdapter(address(aerodromeClRouter));
@@ -466,28 +476,37 @@ contract SwapAdapterIntegrationTest is Test {
         assertEq(otherToken.balanceOf(address(borrowWallet)), 100e6);
     }
 
-    function test_ReplacingBorrowPolicyChangesRulesForAnExistingWallet() public {
+    function test_ReplacingBorrowPolicyRequiresExistingWalletSync() public {
         AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
         uint256 amountIn = 100e6;
         uint256 quote = oracle.quote(address(baseAsset), address(otherToken), amountIn);
         uint256 oldMinimum = quote * (10_000 - MAX_SLIPPAGE_BPS) / 10_000;
-        baseAsset.mint(address(wallet), 2 * amountIn);
+        baseAsset.mint(address(wallet), 3 * amountIn);
         uniswapRouter.setBuyAmount(oldMinimum);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, amountIn, uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
         vm.prank(user);
         bytes memory result = wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
         assertEq(_decodeUint(result), oldMinimum);
 
         address adapterBefore = address(uniswapAdapter);
+        address oldPolicy = address(wallet.swapPolicy());
         YieldSeekerBorrowSwapPolicy strictPolicy = new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), 0);
         vm.prank(admin);
-        borrowRegistry.setSwapPolicy(strictPolicy);
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, strictPolicy);
 
-        assertEq(address(borrowRegistry.swapPolicy()), address(strictPolicy));
+        assertEq(address(wallet.swapPolicy()), oldPolicy);
+        assertEq(address(factory.swapPolicy(BORROW_AGENT_PROFILE)), address(strictPolicy));
         assertEq(address(uniswapAdapter), adapterBefore);
-        bytes memory innerError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
-        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+        vm.prank(user);
+        result = wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+        assertEq(_decodeUint(result), oldMinimum);
+
+        vm.prank(user);
+        wallet.syncFromFactory();
+
         vm.expectRevert(expectedError);
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
@@ -499,11 +518,11 @@ contract SwapAdapterIntegrationTest is Test {
         sellToken.mint(address(wallet), 100e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(1)));
-        address noPolicyAdapterRegistry = address(noPolicyRegistry);
-        bytes memory innerError = abi.encodeWithSelector(NoSwapPolicy.selector, noPolicyAdapterRegistry);
+        bytes memory innerError = abi.encodeWithSelector(NoSwapPolicy.selector);
         bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
 
-        assertEq(address(noPolicyRegistry.swapPolicy()), address(0));
+        assertEq(address(factory.swapPolicy(NO_POLICY_AGENT_PROFILE)), address(0));
+        assertEq(address(wallet.swapPolicy()), address(0));
         vm.expectRevert(expectedError);
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
@@ -536,9 +555,9 @@ contract SwapAdapterIntegrationTest is Test {
     function test_BaseAssetSaleRevertsWhenFeesRemainOwed() public {
         AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
         bytes32 feeType = keccak256("swap-integration-fees");
-        SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(feeTracker), feeType, address(otherToken), 1);
+        SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(borrowFeeTracker), feeType, address(otherToken), 1);
         vm.prank(admin);
-        feeTracker.setFeeModule(feeType, feeModule);
+        borrowFeeTracker.setFeeModule(feeType, feeModule);
         baseAsset.mint(address(wallet), 500e6);
         uniswapRouter.setBuyAmount(100e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));

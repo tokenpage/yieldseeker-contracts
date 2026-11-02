@@ -33,6 +33,8 @@ contract WalletLinkTransferTest is Test {
     YieldSeekerAdapterRegistry private borrowRegistry;
     YieldSeekerFeeTracker private vaultFees;
     YieldSeekerYieldFeeModule private vaultFeeModule;
+    YieldSeekerFeeTracker private borrowFeeTracker;
+    YieldSeekerYieldFeeModule private borrowYieldFeeModule;
     YieldSeekerBorrowFeeModule private borrowFees;
     YieldSeekerAgentWalletFactory private factory;
     YieldSeekerWalletLinkRegistry private linkRegistry;
@@ -53,9 +55,13 @@ contract WalletLinkTransferTest is Test {
         vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
         vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
         vaultFees.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
-        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
-        vaultFees.setFeeModule(BORROW_FEE, borrowFees);
-        vaultFees.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
+        borrowFeeTracker = new YieldSeekerFeeTracker(address(this), feeCollector);
+        borrowYieldFeeModule = new YieldSeekerYieldFeeModule(borrowFeeTracker, 10_000);
+        borrowFeeTracker.setFeeModule(YIELD_FEE, borrowYieldFeeModule);
+        borrowFeeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
+        borrowFees = new YieldSeekerBorrowFeeModule(borrowFeeTracker, 1_000);
+        borrowFeeTracker.setFeeModule(BORROW_FEE, borrowFees);
+        borrowFeeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
@@ -65,7 +71,8 @@ contract WalletLinkTransferTest is Test {
         factory.setAgentWalletImplementation(implementation);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
-        factory.setFeeTracker(vaultFees);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, vaultFees);
+        factory.setFeeTracker(BORROW_AGENT_PROFILE, borrowFeeTracker);
 
         vaultRegistry.registerAdapter(address(transferAdapter));
         vaultRegistry.setTargetAdapter(address(linkRegistry), address(transferAdapter));
@@ -133,6 +140,40 @@ contract WalletLinkTransferTest is Test {
         assertEq(usdc.balanceOf(address(vaultWallet)), 0);
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, feesOwed);
         assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 0);
+    }
+
+    function test_TransferSettlesVaultAndBorrowFeesThroughTheirOwnTrackers() public {
+        _linkWallets();
+        uint256 startTime = vm.getBlockTimestamp();
+        if (startTime == 0) {
+            vm.warp(1);
+            startTime = vm.getBlockTimestamp();
+        }
+        uint256 rateBps = borrowFees.walletPlan(address(borrowWallet)).rateBps;
+        uint256 elapsed = 365 days;
+        uint256 expectedBorrowFee = (100e6 * rateBps * elapsed) / (365 days * 10_000);
+        bytes32 market = keccak256("borrowed-usdc-market");
+        bytes memory debtReport = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0, debtPriceInBaseAsset: 1e36}));
+
+        _recordBorrowedUsdc();
+        vm.warp(startTime + elapsed);
+        vm.prank(address(borrowFeeTracker));
+        borrowFees.onAction(address(borrowWallet), FeeActions.DEBT_CHANGE, debtReport, 0);
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
+
+        uint256 expectedVaultFee = vaultFeeModule.feesOwed(address(vaultWallet));
+        assertEq(borrowFees.feesOwed(address(borrowWallet)), expectedBorrowFee);
+        uint256 fromVault = 300e6 - expectedVaultFee;
+        uint256 fromBorrow = 100e6;
+        _transfer(vaultWallet, address(usdc), address(borrowWallet), fromVault, address(linkRegistry));
+        _transfer(borrowWallet, address(usdc), address(vaultWallet), fromBorrow, address(linkRegistry));
+
+        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 0);
+        assertEq(borrowFees.feesOwed(address(borrowWallet)), 0);
+        assertEq(usdc.balanceOf(feeCollector), expectedVaultFee);
+        assertEq(weth.balanceOf(feeCollector), expectedBorrowFee);
+        assertEq(usdc.balanceOf(address(vaultWallet)), fromBorrow);
+        assertEq(usdc.balanceOf(address(borrowWallet)), fromVault - fromBorrow);
     }
 
     function test_TransferRejectsTokenTheReceiverCannotWithdraw() public {

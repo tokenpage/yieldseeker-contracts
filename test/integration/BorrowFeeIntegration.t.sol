@@ -8,6 +8,7 @@ import {YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingA
 import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool} from "../mocks/MockLendingMarkets.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -26,6 +27,7 @@ contract BorrowFeeIntegrationTest is Test {
 
     FeeTracker private feeTracker;
     YieldSeekerBorrowFeeModule private feeModule;
+    YieldSeekerYieldFeeModule private yieldFeeModule;
     AgentWallet private wallet;
     AdapterRegistry private registry;
     YieldSeekerAaveV3LendingAdapter private lendingAdapter;
@@ -50,6 +52,9 @@ contract BorrowFeeIntegrationTest is Test {
         aavePool.setAssetPrice(address(usdc), 1e8);
 
         feeTracker = new FeeTracker(address(this), feeCollector);
+        yieldFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 10_000);
+        feeTracker.setFeeModule(YIELD_FEE, yieldFeeModule);
+        feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: FEE_RATE_BPS})));
@@ -58,7 +63,7 @@ contract BorrowFeeIntegrationTest is Test {
         registry = new AdapterRegistry(address(this), address(this));
         lendingAdapter = new YieldSeekerAaveV3LendingAdapter();
         factory.setAdapterRegistry(AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(AGENT_PROFILE, feeTracker);
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
         registry.registerAdapter(address(lendingAdapter));
 

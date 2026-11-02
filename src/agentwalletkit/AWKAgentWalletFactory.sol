@@ -62,7 +62,6 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex);
     event RegistryUpdated(bytes32 indexed agentProfile, address indexed oldRegistry, address indexed newAdapterRegistry);
-    event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)

@@ -68,8 +68,10 @@ contract DeployScript is Script {
         address adminTimelock;
         address agentWalletFactory;
         address agentWalletImplementation;
-        address feeTracker;
-        address yieldFeeModule;
+        address vaultFeeTracker;
+        address borrowFeeTracker;
+        address vaultYieldFeeModule;
+        address borrowYieldFeeModule;
         address borrowFeeModule;
         address priceOracle;
         address swapSellPolicy;
@@ -218,8 +220,10 @@ contract DeployScript is Script {
             adminTimelock: safeReadAddress(deployJson, ".adminTimelock"),
             agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
             agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
-            feeTracker: safeReadAddress(deployJson, ".feeTracker"),
-            yieldFeeModule: safeReadAddress(deployJson, ".yieldFeeModule"),
+            vaultFeeTracker: safeReadAddress(deployJson, ".vaultFeeTracker"),
+            borrowFeeTracker: safeReadAddress(deployJson, ".borrowFeeTracker"),
+            vaultYieldFeeModule: safeReadAddress(deployJson, ".vaultYieldFeeModule"),
+            borrowYieldFeeModule: safeReadAddress(deployJson, ".borrowYieldFeeModule"),
             borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
             priceOracle: safeReadAddress(deployJson, ".priceOracle"),
             swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
@@ -290,12 +294,19 @@ contract DeployScript is Script {
             console2.log("-> Using existing borrowAdapterRegistry:", deployments.borrowAdapterRegistry);
         }
 
-        // Fee tracker and fee modules
-        if (deployments.feeTracker == address(0)) {
-            deployments.feeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, feeCollectorAddress)));
-            console2.log("-> FeeTracker deployed at:", deployments.feeTracker);
+        // Fee trackers (one per agent profile, own salts: same init code) and their fee modules
+        if (deployments.vaultFeeTracker == address(0)) {
+            deployments.vaultFeeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, feeCollectorAddress)), keccak256(abi.encode(SALT, "vaultFeeTracker")));
+            console2.log("-> Vault FeeTracker deployed at:", deployments.vaultFeeTracker);
         } else {
-            console2.log("-> Using existing feeTracker:", deployments.feeTracker);
+            console2.log("-> Using existing vaultFeeTracker:", deployments.vaultFeeTracker);
+        }
+
+        if (deployments.borrowFeeTracker == address(0)) {
+            deployments.borrowFeeTracker = deployCreate2(abi.encodePacked(type(FeeTracker).creationCode, abi.encode(deployments.adminTimelock, feeCollectorAddress)), keccak256(abi.encode(SALT, "borrowFeeTracker")));
+            console2.log("-> Borrow FeeTracker deployed at:", deployments.borrowFeeTracker);
+        } else {
+            console2.log("-> Using existing borrowFeeTracker:", deployments.borrowFeeTracker);
         }
 
         if (deployments.priceOracle == address(0)) {
@@ -305,15 +316,22 @@ contract DeployScript is Script {
             console2.log("-> Using existing priceOracle:", deployments.priceOracle);
         }
 
-        if (deployments.yieldFeeModule == address(0) || YieldFeeModule(deployments.yieldFeeModule).FEE_TRACKER() != deployments.feeTracker) {
-            deployments.yieldFeeModule = deployCreate2(abi.encodePacked(type(YieldFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), YIELD_MAX_FEE_BPS)));
-            console2.log("-> YieldFeeModule deployed at:", deployments.yieldFeeModule);
+        if (deployments.vaultYieldFeeModule == address(0) || YieldFeeModule(deployments.vaultYieldFeeModule).FEE_TRACKER() != deployments.vaultFeeTracker) {
+            deployments.vaultYieldFeeModule = deployCreate2(abi.encodePacked(type(YieldFeeModule).creationCode, abi.encode(FeeTracker(deployments.vaultFeeTracker), YIELD_MAX_FEE_BPS)));
+            console2.log("-> Vault YieldFeeModule deployed at:", deployments.vaultYieldFeeModule);
         } else {
-            console2.log("-> Using existing yieldFeeModule:", deployments.yieldFeeModule);
+            console2.log("-> Using existing vaultYieldFeeModule:", deployments.vaultYieldFeeModule);
         }
 
-        if (deployments.borrowFeeModule == address(0) || BorrowFeeModule(deployments.borrowFeeModule).FEE_TRACKER() != deployments.feeTracker) {
-            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), BORROW_MAX_FEE_BPS)));
+        if (deployments.borrowYieldFeeModule == address(0) || YieldFeeModule(deployments.borrowYieldFeeModule).FEE_TRACKER() != deployments.borrowFeeTracker) {
+            deployments.borrowYieldFeeModule = deployCreate2(abi.encodePacked(type(YieldFeeModule).creationCode, abi.encode(FeeTracker(deployments.borrowFeeTracker), YIELD_MAX_FEE_BPS)));
+            console2.log("-> Borrow YieldFeeModule deployed at:", deployments.borrowYieldFeeModule);
+        } else {
+            console2.log("-> Using existing borrowYieldFeeModule:", deployments.borrowYieldFeeModule);
+        }
+
+        if (deployments.borrowFeeModule == address(0) || BorrowFeeModule(deployments.borrowFeeModule).FEE_TRACKER() != deployments.borrowFeeTracker) {
+            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.borrowFeeTracker), BORROW_MAX_FEE_BPS)));
             console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
         } else {
             console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);
@@ -451,8 +469,10 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "adminTimelock", deployments.adminTimelock);
         vm.serializeAddress(json, "agentWalletFactory", deployments.agentWalletFactory);
         vm.serializeAddress(json, "agentWalletImplementation", deployments.agentWalletImplementation);
-        vm.serializeAddress(json, "feeTracker", deployments.feeTracker);
-        vm.serializeAddress(json, "yieldFeeModule", deployments.yieldFeeModule);
+        vm.serializeAddress(json, "vaultFeeTracker", deployments.vaultFeeTracker);
+        vm.serializeAddress(json, "borrowFeeTracker", deployments.borrowFeeTracker);
+        vm.serializeAddress(json, "vaultYieldFeeModule", deployments.vaultYieldFeeModule);
+        vm.serializeAddress(json, "borrowYieldFeeModule", deployments.borrowYieldFeeModule);
         vm.serializeAddress(json, "borrowFeeModule", deployments.borrowFeeModule);
         vm.serializeAddress(json, "priceOracle", deployments.priceOracle);
         vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
@@ -485,17 +505,15 @@ contract DeployScript is Script {
         AdapterRegistry vaultAdapterRegistry = AdapterRegistry(deployments.vaultAdapterRegistry);
         AdapterRegistry borrowAdapterRegistry = AdapterRegistry(deployments.borrowAdapterRegistry);
         AgentWalletFactory agentWalletFactory = AgentWalletFactory(deployments.agentWalletFactory);
-        FeeTracker feeTracker = FeeTracker(deployments.feeTracker);
+        FeeTracker vaultFeeTracker = FeeTracker(deployments.vaultFeeTracker);
+        FeeTracker borrowFeeTracker = FeeTracker(deployments.borrowFeeTracker);
         AdminTimelock adminTimelock = AdminTimelock(payable(deployments.adminTimelock));
         uint256 timelockDelay = adminTimelock.getMinDelay();
 
-        // 1. Configure Factory and FeeTracker
+        // 1. Configure Factory and FeeTrackers
         console2.log("-> Preparing agentWalletFactory configuration...");
         if (address(agentWalletFactory.agentWalletImplementation()) != deployments.agentWalletImplementation) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))));
-        }
-        if (address(agentWalletFactory.feeTracker()) != deployments.feeTracker) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (feeTracker)));
         }
         if (agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE) != vaultAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, vaultAdapterRegistry)));
@@ -503,26 +521,25 @@ contract DeployScript is Script {
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
-        if (address(vaultAdapterRegistry.swapPolicy()) != deployments.vaultSwapPolicy) {
-            _op(deployments.vaultAdapterRegistry, abi.encodeCall(vaultAdapterRegistry.setSwapPolicy, (VaultSwapPolicy(deployments.vaultSwapPolicy))));
+        if (agentWalletFactory.feeTracker(VAULT_AGENT_PROFILE) != vaultFeeTracker) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (VAULT_AGENT_PROFILE, vaultFeeTracker)));
         }
-        if (address(borrowAdapterRegistry.swapPolicy()) != deployments.borrowSwapPolicy) {
-            _op(deployments.borrowAdapterRegistry, abi.encodeCall(borrowAdapterRegistry.setSwapPolicy, (BorrowSwapPolicy(deployments.borrowSwapPolicy))));
+        if (agentWalletFactory.feeTracker(BORROW_AGENT_PROFILE) != borrowFeeTracker) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (BORROW_AGENT_PROFILE, borrowFeeTracker)));
         }
-        if (feeTracker.walletFactory() != deployments.agentWalletFactory) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setWalletFactory, (deployments.agentWalletFactory)));
+        if (address(agentWalletFactory.swapPolicy(VAULT_AGENT_PROFILE)) != deployments.vaultSwapPolicy) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (VAULT_AGENT_PROFILE, VaultSwapPolicy(deployments.vaultSwapPolicy))));
         }
-        if (address(feeTracker.feeModules(YIELD_FEE)) != deployments.yieldFeeModule) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (YIELD_FEE, YieldFeeModule(deployments.yieldFeeModule))));
+        if (address(agentWalletFactory.swapPolicy(BORROW_AGENT_PROFILE)) != deployments.borrowSwapPolicy) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (BORROW_AGENT_PROFILE, BorrowSwapPolicy(deployments.borrowSwapPolicy))));
         }
-        if (feeTracker.planCount(YIELD_FEE) == 0) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (YIELD_FEE, abi.encode(YieldFeeModule.Plan({rateBps: YIELD_DEFAULT_FEE_BPS})))));
+        _configureFeeTracker(vaultFeeTracker, deployments.agentWalletFactory, deployments.vaultYieldFeeModule);
+        _configureFeeTracker(borrowFeeTracker, deployments.agentWalletFactory, deployments.borrowYieldFeeModule);
+        if (address(borrowFeeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
+            _op(deployments.borrowFeeTracker, abi.encodeCall(borrowFeeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
         }
-        if (address(feeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
-        }
-        if (feeTracker.planCount(BORROW_FEE) == 0) {
-            _op(deployments.feeTracker, abi.encodeCall(feeTracker.createPlan, (BORROW_FEE, abi.encode(BorrowFeeModule.Plan({rateBps: BORROW_DEFAULT_FEE_BPS})))));
+        if (borrowFeeTracker.planCount(BORROW_FEE) == 0) {
+            _op(deployments.borrowFeeTracker, abi.encodeCall(borrowFeeTracker.createPlan, (BORROW_FEE, abi.encode(BorrowFeeModule.Plan({rateBps: BORROW_DEFAULT_FEE_BPS})))));
         }
         // 2. Register Adapters
         console2.log("-> Preparing adapter registration...");
@@ -616,6 +633,13 @@ contract DeployScript is Script {
     function _op(address target, bytes memory data) internal {
         _targets.push(target);
         _datas.push(data);
+    }
+
+    /// @dev The settings every agent profile's tracker shares: the wallet factory and the yield fee with its plan 0
+    function _configureFeeTracker(FeeTracker tracker, address agentWalletFactory, address yieldFeeModule) internal {
+        if (tracker.walletFactory() != agentWalletFactory) _op(address(tracker), abi.encodeCall(tracker.setWalletFactory, (agentWalletFactory)));
+        if (address(tracker.feeModules(YIELD_FEE)) != yieldFeeModule) _op(address(tracker), abi.encodeCall(tracker.setFeeModule, (YIELD_FEE, YieldFeeModule(yieldFeeModule))));
+        if (tracker.planCount(YIELD_FEE) == 0) _op(address(tracker), abi.encodeCall(tracker.createPlan, (YIELD_FEE, abi.encode(YieldFeeModule.Plan({rateBps: YIELD_DEFAULT_FEE_BPS})))));
     }
 
     function _registerAdapter(AdapterRegistry registry, address adapter) internal {

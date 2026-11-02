@@ -108,7 +108,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
         factory = new AgentWalletFactory(admin, operatorAddr);
         AgentWalletV3 implementation = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
         factory.setAgentWalletImplementation(implementation);
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));

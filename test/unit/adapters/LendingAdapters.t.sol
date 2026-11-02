@@ -78,7 +78,7 @@ contract LendingAdaptersTest is Test {
         factory.setAgentWalletImplementation(implementation);
         registry = new YieldSeekerAdapterRegistry(address(this), address(this));
         factory.setAdapterRegistry(AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(AGENT_PROFILE, feeTracker);
 
         aavePool = new MockLendingAaveV3Pool();
         aavePool.setAssetPrice(address(weth), 2_000e8);

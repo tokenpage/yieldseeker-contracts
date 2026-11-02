@@ -6,6 +6,7 @@ import {IAgentWallet} from "../../../src/IAgentWallet.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
+import {IYieldSeekerSwapPolicy} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 library AdapterFeeSetup {
@@ -28,6 +29,7 @@ contract AdapterWalletHarness is IAgentWallet {
     YieldSeekerFeeTracker private immutable _FEE_TRACKER;
     address public immutable owner;
     YieldSeekerAdapterRegistry public immutable adapterRegistry;
+    IYieldSeekerSwapPolicy public override swapPolicy;
 
     constructor(IERC20 baseAsset_, YieldSeekerFeeTracker feeTracker_) {
         owner = msg.sender;
@@ -42,6 +44,10 @@ contract AdapterWalletHarness is IAgentWallet {
 
     function feeTracker() external view override returns (YieldSeekerFeeTracker) {
         return _FEE_TRACKER;
+    }
+
+    function setSwapPolicy(IYieldSeekerSwapPolicy swapPolicy_) external {
+        swapPolicy = swapPolicy_;
     }
 
     function yieldFeeModule() external view returns (YieldSeekerYieldFeeModule) {

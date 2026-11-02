@@ -46,7 +46,7 @@ contract AccessControlSecurityTest is Test {
         factory = new AgentWalletFactory(admin, operator);
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setFeeTracker(feeTracker);
+        factory.setFeeTracker(VAULT_AGENT_PROFILE, feeTracker);
         factory.setAgentWalletImplementation(impl);
         vaultAdapter = new ERC4626Adapter();
         registry.registerAdapter(address(vaultAdapter));

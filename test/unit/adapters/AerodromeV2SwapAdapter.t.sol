@@ -76,7 +76,7 @@ contract AerodromeV2SwapAdapterTest is Test {
         router = new MockAerodromeV2Router();
         adapter = new YieldSeekerAerodromeV2SwapAdapter(address(router), address(0xFACADE));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
-        wallet.adapterRegistry().setSwapPolicy(new YieldSeekerVaultSwapPolicy(sellPolicy));
+        wallet.setSwapPolicy(new YieldSeekerVaultSwapPolicy(sellPolicy));
         baseAsset.mint(address(router), 1_000_000e6);
         otherToken.mint(address(router), 1_000_000e18);
         sellToken.mint(address(wallet), 1_000e18);
