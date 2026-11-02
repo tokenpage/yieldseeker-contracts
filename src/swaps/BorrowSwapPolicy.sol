@@ -33,8 +33,10 @@ error SwapBelowOraclePrice(uint256 received, uint256 minimum);
  * @title YieldSeekerBorrowSwapPolicy
  * @notice Borrow agents sell reward tokens for the base asset, and sell the base asset (their collateral) for a token
  *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle
- * @dev Borrowed tokens can never be sold, so each unit of collateral can be swapped at most once (a compromised
- *      operator can't drain it with round trips). Selling the base asset is a trade (FeeActions.SWAP), not yield.
+ * @dev Borrowed tokens can never be sold, so within one wallet each unit of collateral can be swapped at most once (a
+ *      compromised operator can't drain it with round trips). Across linked wallets the bound holds only while no
+ *      chain of registered markets leads back to a collateral (README "Register borrow markets": no cycles). Selling
+ *      the base asset is a trade (FeeActions.SWAP), not yield.
  */
 contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;

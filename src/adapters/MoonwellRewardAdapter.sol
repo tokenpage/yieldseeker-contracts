@@ -24,7 +24,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title YieldSeekerMoonwellRewardAdapter
- * @notice Claims Moonwell rewards (WELL) into the wallet and reports the claim to the fee modules
+ * @notice Claims Moonwell rewards into the wallet and reports what arrived to the fee modules: WELL, and the base
+ *         asset when a market also pays rewards in it
+ * @dev Both amounts are measured before the first report, since a report can pay fees from the base asset.
  */
 contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeekerAdapter {
     IERC20 public immutable WELL_TOKEN;
@@ -35,9 +37,13 @@ contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeek
     }
 
     function _claimInternal(address comptroller, address holder, address[] memory mTokens) internal override {
+        IERC20 baseAsset = _baseAsset();
         uint256 wellBalanceBefore = WELL_TOKEN.balanceOf(address(this));
+        uint256 baseBalanceBefore = baseAsset.balanceOf(address(this));
         super._claimInternal(comptroller, holder, mTokens);
-        uint256 claimed = WELL_TOKEN.balanceOf(address(this)) - wellBalanceBefore;
-        if (claimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(WELL_TOKEN), amount: claimed})));
+        uint256 wellClaimed = WELL_TOKEN.balanceOf(address(this)) - wellBalanceBefore;
+        uint256 baseClaimed = address(baseAsset) == address(WELL_TOKEN) ? 0 : baseAsset.balanceOf(address(this)) - baseBalanceBefore;
+        if (wellClaimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(WELL_TOKEN), amount: wellClaimed})));
+        if (baseClaimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: baseClaimed})));
     }
 }

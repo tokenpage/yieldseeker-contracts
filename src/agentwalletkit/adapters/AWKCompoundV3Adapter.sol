@@ -70,13 +70,16 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
     /**
      * @notice Internal withdraw implementation for Compound V3
      * @dev Runs in wallet context via delegatecall. The shares parameter represents the amount to withdraw
-     *      (in Compound V3, balance and assets are equivalent due to rebasing).
+     *      (in Compound V3, balance and assets are equivalent due to rebasing). Capped at the wallet's balance: a
+     *      Comet withdraw above it would borrow against any collateral the account holds.
      */
     function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
-        if (shares == 0) revert AWKErrors.ZeroAmount();
+        uint256 held = ICompoundV3Comet(vault).balanceOf(address(this));
+        uint256 amount = shares > held ? held : shares;
+        if (amount == 0) revert AWKErrors.ZeroAmount();
         address asset = ICompoundV3Comet(vault).baseToken();
         uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
-        ICompoundV3Comet(vault).withdraw({asset: asset, amount: shares});
+        ICompoundV3Comet(vault).withdraw({asset: asset, amount: amount});
         uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
         assets = balanceAfter - balanceBefore;
         emit Withdrawn(address(this), vault, shares, assets);

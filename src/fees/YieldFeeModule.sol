@@ -106,8 +106,9 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         return feesOwed[wallet];
     }
 
+    /// @dev Base asset out of a position the wallet held nothing in can't be principal, so all of it is yield
     function _releaseCostBasis(address wallet, FeeActions.Withdraw memory withdrawal) internal returns (uint256 yield) {
-        if (withdrawal.spent == 0 || withdrawal.heldBefore == 0) return 0;
+        if (withdrawal.spent == 0 || withdrawal.heldBefore == 0) return withdrawal.assetsOut;
         uint256 basis = costBasis[wallet][withdrawal.target];
         uint256 releasedBasis = withdrawal.spent >= withdrawal.heldBefore ? basis : Math.mulDiv(basis, withdrawal.spent, withdrawal.heldBefore);
         costBasis[wallet][withdrawal.target] = basis - releasedBasis;

@@ -877,7 +877,7 @@ The script validates the Base protocol addresses, requires collateral and debt t
 Configuration rules:
 - Register at most one borrow market per `(pool or spoke, collateral)` pair (collateral is one yield-fee position per market). Aave V3 markets must use eMode 0; the YieldSeeker Aave V3 lending adapter reverts `EModeNotAllowed` otherwise.
 - Do not register a base-asset Aave V3 vault in the borrow registry.
-- Do not register opposite borrow pairs: if X is collateral and Y is debt, do not also register Y as collateral and X as debt.
+- Do not register borrow markets whose collateral → debt pairs form a cycle (the simplest being opposite pairs: X collateral / Y debt and Y collateral / X debt; also longer loops such as USDC → WETH, WETH → cbBTC, cbBTC → USDC). With a cycle, linked borrow wallets let a compromised operator swap and transfer around the loop at up to 1% loss per hop, without limit. Launch markets all borrow USDC against non-USDC collateral, so there is no cycle.
 
 ```bash
 WETH=0x4200000000000000000000000000000000000006
