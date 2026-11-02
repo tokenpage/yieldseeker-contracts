@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
@@ -18,14 +17,12 @@ import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeMo
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
+import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Test} from "forge-std/Test.sol";
 
-/// @notice End-to-end borrow flows against live Base protocols. Run with:
-///   forge test --fork-url http://127.0.0.1:8545 --match-path test/fork/BorrowFork.t.sol -vv
-contract BorrowForkTest is Test {
+contract BorrowForkTest is ForkBase {
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant AAVE_POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
@@ -36,16 +33,9 @@ contract BorrowForkTest is Test {
     address internal constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
     bytes32 internal constant MORPHO_WETH_USDC_MARKET_ID = 0x8793cf302b8ffd655ab97bd1c695dbd967807e8367a65cb2f4edaf1380ba1bda;
     bytes32 internal constant BORROW_AGENT_PROFILE = keccak256("borrow");
-    bytes32 internal constant VAULT_AGENT_PROFILE = keccak256("vault");
 
-    address internal operator = makeAddr("operator");
-    address internal owner = makeAddr("owner");
-    address internal feeCollector = makeAddr("feeCollector");
-
-    AgentWalletFactory internal factory;
     AdapterRegistry internal borrowRegistry;
     FeeTracker internal feeTracker;
-    FeeTracker internal vaultFeeTracker;
     YieldSeekerBorrowFeeModule internal borrowFeeModule;
     YieldSeekerPriceOracle internal oracle;
     YieldSeekerWalletLinkRegistry internal linkRegistry;
@@ -55,17 +45,11 @@ contract BorrowForkTest is Test {
     YieldSeekerAgentTransferAdapter internal transferAdapter;
     AgentWallet internal wallet;
 
-    function setUp() public {
-        if (block.chainid != 8453) vm.skip(true);
-        vm.deal(operator, 1 ether);
-        vm.deal(owner, 1 ether);
+    function setUp() public override {
+        super.setUp();
         oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(SEQUENCER_UPTIME_FEED));
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
-        vaultFeeTracker = new FeeTracker(address(this), feeCollector);
-        YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(vaultFeeTracker, 5000);
-        vaultFeeTracker.setFeeModule(YIELD_FEE, vaultFees);
-        vaultFeeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000})));
         feeTracker = new FeeTracker(address(this), feeCollector);
         YieldSeekerYieldFeeModule borrowYieldFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, borrowYieldFees);
@@ -73,14 +57,10 @@ contract BorrowForkTest is Test {
         borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
+        feeTracker.setWalletFactory(address(factory));
         borrowRegistry = new AdapterRegistry(address(this), address(this));
-        AdapterRegistry vaultRegistry = new AdapterRegistry(address(this), address(this));
-        factory = new AgentWalletFactory(address(this), operator);
-        factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
-        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setFeeTracker(BORROW_AGENT_PROFILE, feeTracker);
-        factory.setFeeTracker(VAULT_AGENT_PROFILE, vaultFeeTracker);
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter();
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter();
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);

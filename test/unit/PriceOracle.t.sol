@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {IPriceFeed, InvalidPrice, NoPriceSource, SequencerDown, StalePrice, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract PriceOracleTest is Test {
@@ -18,7 +19,8 @@ contract PriceOracleTest is Test {
     MockFeePriceFeed internal sequencerFeed;
 
     function setUp() public {
-        vm.warp(2 hours);
+        uint256 initialTimestamp = vm.getBlockTimestamp();
+        vm.warp(initialTimestamp + 2 hours);
         uint256 now_ = vm.getBlockTimestamp();
         sequencerFeed = new MockFeePriceFeed(0, 0, now_ - 1 hours - 1);
         oracle = new YieldSeekerPriceOracle(admin, emergencyAdmin, IPriceFeed(address(sequencerFeed)));
@@ -91,7 +93,8 @@ contract PriceOracleTest is Test {
     }
 
     function testOnlyAdminSetsSourcesAndEmergencyRoleRemovesThem() public {
-        vm.expectRevert();
+        bytes memory unauthorizedAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, bytes32(0));
+        vm.expectRevert(unauthorizedAdmin);
         vm.prank(stranger);
         oracle.setSource(address(weth), IPriceFeed(address(feed)), 1 days);
 
@@ -99,7 +102,8 @@ contract PriceOracleTest is Test {
         oracle.setSource(address(weth), IPriceFeed(address(feed)), 1 days);
         assertEq(oracle.getPrice(address(weth)), 1_234_567_890_000_000_000);
 
-        vm.expectRevert();
+        bytes memory unauthorizedEmergencyAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, oracle.EMERGENCY_ROLE());
+        vm.expectRevert(unauthorizedEmergencyAdmin);
         vm.prank(stranger);
         oracle.removeSource(address(weth));
 

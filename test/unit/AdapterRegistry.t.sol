@@ -4,6 +4,8 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {TargetNotRegistered} from "../../src/agentwalletkit/AWKAdapterRegistry.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @title AdapterRegistry Unit Tests
@@ -39,9 +41,10 @@ contract AdapterRegistryTest is Test {
 
     function test_RegisterAdapter_OnlyAdmin() public {
         address adapter = address(new MockAdapter());
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.DEFAULT_ADMIN_ROLE());
 
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.registerAdapter(adapter);
     }
 
@@ -98,8 +101,9 @@ contract AdapterRegistryTest is Test {
         vm.prank(admin);
         registry.registerAdapter(adapter);
 
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.DEFAULT_ADMIN_ROLE());
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.setTargetAdapter(target, adapter);
     }
 
@@ -126,8 +130,9 @@ contract AdapterRegistryTest is Test {
     // ============ Emergency Controls ============
 
     function test_Pause_OnlyEmergencyRole() public {
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.EMERGENCY_ROLE());
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.pause();
     }
 
@@ -146,16 +151,17 @@ contract AdapterRegistryTest is Test {
         registry.pause();
 
         // Queries should revert when paused (OpenZeppelin Pausable behavior)
-        vm.expectRevert();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
         registry.getTargetAdapter(target);
     }
 
     function test_Unpause_OnlyAdminRole() public {
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.DEFAULT_ADMIN_ROLE());
         vm.prank(emergencyAdmin);
         registry.pause();
 
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.unpause();
     }
 
@@ -189,8 +195,9 @@ contract AdapterRegistryTest is Test {
         vm.prank(admin);
         registry.registerAdapter(adapter);
 
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.EMERGENCY_ROLE());
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.unregisterAdapter(adapter);
     }
 
@@ -250,8 +257,9 @@ contract AdapterRegistryTest is Test {
         registry.setTargetAdapter(target, adapter);
         vm.stopPrank();
 
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.EMERGENCY_ROLE());
+        vm.expectRevert(unauthorizedError);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         registry.removeTarget(target);
     }
 
@@ -368,21 +376,18 @@ contract AdapterRegistryTest is Test {
     }
 
     function test_RenounceRole_Success() public {
-        // First verify admin has the role
         assertTrue(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), admin));
 
-        // Admin can renounce their own role - must be called with same address as msg.sender
         vm.startPrank(admin);
         registry.renounceRole(registry.DEFAULT_ADMIN_ROLE(), admin);
         vm.stopPrank();
 
-        // Should no longer have admin role
         assertFalse(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), admin));
 
-        // Should no longer be able to register adapters
         address adapter = address(new MockAdapter());
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, admin, registry.DEFAULT_ADMIN_ROLE());
+        vm.expectRevert(unauthorizedError);
         vm.prank(admin);
-        vm.expectRevert(); // Generic expectRevert since address varies
         registry.registerAdapter(adapter);
     }
 

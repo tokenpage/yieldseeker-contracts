@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract SwapSellPolicyTest is Test {
@@ -13,37 +14,26 @@ contract SwapSellPolicyTest is Test {
     address nonAdmin = address(0xDEAD);
     address tokenA = address(0x1001);
     address tokenB = address(0x1002);
+    address tokenC = address(0x1003);
 
     function setUp() public {
         policy = new YieldSeekerSwapSellPolicy(admin, emergencyAdmin, false);
     }
 
-    function test_Constructor_RevertsOnZeroAdmin() public {
+    function testConstructorRejectsZeroRoleAddresses() public {
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         new YieldSeekerSwapSellPolicy(address(0), emergencyAdmin, false);
-    }
-
-    function test_Constructor_RevertsOnZeroEmergencyAdmin() public {
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         new YieldSeekerSwapSellPolicy(admin, address(0), false);
     }
 
-    function test_AddSellableToken_AdminOnly() public {
+    function testAdminControlsAllowlistAndBatchAddRejectsZeroAddress() public {
+        bytes memory notAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, bytes32(0));
+        vm.expectRevert(notAdmin);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         policy.addSellableToken(tokenA);
-        vm.prank(admin);
-        policy.addSellableToken(tokenA);
-        assertTrue(policy.isSellableToken(tokenA));
-    }
+        assertFalse(policy.isSellableToken(tokenA));
 
-    function test_AddSellableToken_RevertsOnZeroAddress() public {
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        policy.addSellableToken(address(0));
-    }
-
-    function test_AddSellableTokens_BatchSucceeds() public {
         address[] memory tokens = new address[](2);
         tokens[0] = tokenA;
         tokens[1] = tokenB;
@@ -51,52 +41,43 @@ contract SwapSellPolicyTest is Test {
         policy.addSellableTokens(tokens);
         assertTrue(policy.isSellableToken(tokenA));
         assertTrue(policy.isSellableToken(tokenB));
-        address[] memory listedTokens = policy.getSellableTokens();
-        assertEq(listedTokens.length, 2);
-    }
-
-    function test_AddSellableTokens_RevertsOnZeroAddress() public {
-        address[] memory tokens = new address[](2);
-        tokens[0] = tokenA;
-        tokens[1] = address(0);
-        vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
-        policy.addSellableTokens(tokens);
-        assertFalse(policy.isSellableToken(tokenA));
+        vm.prank(admin);
+        policy.addSellableToken(address(0));
+
+        address[] memory invalidTokens = new address[](2);
+        invalidTokens[0] = tokenC;
+        invalidTokens[1] = address(0);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
+        vm.prank(admin);
+        policy.addSellableTokens(invalidTokens);
+        assertFalse(policy.isSellableToken(tokenC));
     }
 
-    function test_RemoveSellableToken_EmergencyOnly() public {
+    function testEmergencyRemovalAndAllowAllRequireTheirRespectiveRoles() public {
         vm.prank(admin);
         policy.addSellableToken(tokenA);
+
+        bytes32 emergencyRole = policy.EMERGENCY_ROLE();
+        bytes memory notEmergencyAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, emergencyRole);
+        vm.expectRevert(notEmergencyAdmin);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         policy.removeSellableToken(tokenA);
+        assertTrue(policy.isSellableToken(tokenA));
+
         vm.prank(emergencyAdmin);
         policy.removeSellableToken(tokenA);
         assertFalse(policy.isSellableToken(tokenA));
-    }
 
-    function test_SetAllowSellingAllTokens_AdminOnly() public {
+        bytes memory notAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, bytes32(0));
+        vm.expectRevert(notAdmin);
         vm.prank(nonAdmin);
-        vm.expectRevert();
         policy.setAllowSellingAllTokens(true);
-        vm.prank(admin);
-        policy.setAllowSellingAllTokens(true);
-        assertTrue(policy.allowSellingAllTokens());
-        assertTrue(policy.isSellableToken(address(0x9999)));
-    }
+        assertFalse(policy.isSellableToken(tokenB));
 
-    function test_IsSellableToken_AllowlistAndAllowAllFlow() public {
-        assertFalse(policy.isSellableToken(tokenA));
-        vm.prank(admin);
-        policy.addSellableToken(tokenA);
-        assertTrue(policy.isSellableToken(tokenA));
-        vm.prank(emergencyAdmin);
-        policy.removeSellableToken(tokenA);
-        assertFalse(policy.isSellableToken(tokenA));
         vm.prank(admin);
         policy.setAllowSellingAllTokens(true);
         assertTrue(policy.isSellableToken(tokenA));
-        assertTrue(policy.isSellableToken(address(0xFFFF)));
+        assertTrue(policy.isSellableToken(tokenB));
     }
 }

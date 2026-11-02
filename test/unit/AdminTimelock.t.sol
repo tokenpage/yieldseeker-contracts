@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdminTimelock} from "../../src/AdminTimelock.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract DummyTarget {
@@ -58,7 +60,8 @@ contract YieldSeekerAdminTimelockTest is Test {
     function test_Schedule_OnlyProposer() public {
         bytes memory data = abi.encodeWithSelector(DummyTarget.setValue.selector, 1);
         bytes32 salt = keccak256("only_proposer");
-        vm.expectRevert();
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), timelock.PROPOSER_ROLE());
+        vm.expectRevert(unauthorizedError);
         timelock.schedule(address(target), 0, data, bytes32(0), salt, 0);
     }
 
@@ -67,18 +70,22 @@ contract YieldSeekerAdminTimelockTest is Test {
         bytes32 salt = keccak256("only_executor");
         vm.prank(proposer);
         timelock.schedule(address(target), 0, data, bytes32(0), salt, 0);
-        vm.expectRevert();
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), timelock.EXECUTOR_ROLE());
+        vm.expectRevert(unauthorizedError);
         timelock.execute(address(target), 0, data, bytes32(0), salt);
     }
 
     function test_Execute_EnforcesDelay() public {
         bytes memory data = abi.encodeWithSelector(DummyTarget.setValue.selector, 3);
         bytes32 salt = keccak256("delay_enforced");
+        bytes32 id = delayedTimelock.hashOperation(address(target), 0, data, bytes32(0), salt);
+        bytes memory notReadyError = abi.encodeWithSelector(TimelockController.TimelockUnexpectedOperationState.selector, id, bytes32(uint256(4)));
         vm.prank(proposer);
         delayedTimelock.schedule(address(target), 0, data, bytes32(0), salt, 1 days);
-        vm.expectRevert();
+        vm.expectRevert(notReadyError);
+        vm.prank(executor);
         delayedTimelock.execute(address(target), 0, data, bytes32(0), salt);
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(vm.getBlockTimestamp() + 1 days + 1);
         vm.prank(executor);
         delayedTimelock.execute(address(target), 0, data, bytes32(0), salt);
         assertEq(target.stored(), 3);
@@ -87,15 +94,17 @@ contract YieldSeekerAdminTimelockTest is Test {
     function test_Cancel_Succeeds() public {
         bytes memory data = abi.encodeWithSelector(DummyTarget.setValue.selector, 4);
         bytes32 salt = keccak256("cancel");
+        bytes32 id = timelock.hashOperation(address(target), 0, data, bytes32(0), salt);
+        bytes memory notReadyError = abi.encodeWithSelector(TimelockController.TimelockUnexpectedOperationState.selector, id, bytes32(uint256(4)));
         vm.prank(proposer);
         timelock.schedule(address(target), 0, data, bytes32(0), salt, 0);
-        bytes32 id = timelock.hashOperation(address(target), 0, data, bytes32(0), salt);
         uint256 scheduled = timelock.getTimestamp(id);
         assertGt(scheduled, 0);
         assertTrue(timelock.isOperationPending(id));
         vm.prank(proposer);
         timelock.cancel(id);
-        vm.expectRevert();
+        vm.expectRevert(notReadyError);
+        vm.prank(executor);
         timelock.execute(address(target), 0, data, bytes32(0), salt);
     }
 }

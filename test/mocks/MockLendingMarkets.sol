@@ -177,6 +177,12 @@ contract MockLendingMorpho is IMorphoBlue {
         _positions[keccak256(abi.encode(marketParams))][onBehalf].collateral += uint128(assets);
     }
 
+    function accrueCollateral(MarketParams memory marketParams, address onBehalf, uint256 assets) external {
+        bytes32 marketId = keccak256(abi.encode(marketParams));
+        _positions[marketId][onBehalf].collateral += uint128(assets);
+        MockERC20(marketParams.collateralToken).mint(address(this), assets);
+    }
+
     function withdrawCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, address receiver) external override {
         Position storage position_ = _positions[keccak256(abi.encode(marketParams))][onBehalf];
         uint256 withdrawn = assets > position_.collateral ? position_.collateral : assets;
