@@ -2,8 +2,12 @@
 pragma solidity 0.8.28;
 
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
+import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {TargetNotRegistered} from "../../src/agentwalletkit/AWKAdapterRegistry.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IYieldSeekerSwapPolicy} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
+import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @title AdapterRegistry Unit Tests
@@ -24,6 +28,27 @@ contract AdapterRegistryTest is Test {
 
     function setUp() public {
         registry = new YieldSeekerAdapterRegistry(admin, emergencyAdmin);
+    }
+
+    function test_SetSwapPolicyIsAdminOnlyAndRequiresContract() public {
+        YieldSeekerSwapSellPolicy sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
+        IYieldSeekerSwapPolicy policy = new YieldSeekerVaultSwapPolicy(sellPolicy);
+        bytes32 adminRole = registry.DEFAULT_ADMIN_ROLE();
+        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, adminRole);
+
+        vm.expectRevert(unauthorizedError);
+        vm.prank(nonAdmin);
+        registry.setSwapPolicy(policy);
+
+        address notAContract = address(0x1234);
+        bytes memory contractError = abi.encodeWithSelector(AWKErrors.NotAContract.selector, notAContract);
+        vm.expectRevert(contractError);
+        vm.prank(admin);
+        registry.setSwapPolicy(IYieldSeekerSwapPolicy(notAContract));
+
+        vm.prank(admin);
+        registry.setSwapPolicy(policy);
+        assertEq(address(registry.swapPolicy()), address(policy));
     }
 
     // ============ Core Registration Logic ============

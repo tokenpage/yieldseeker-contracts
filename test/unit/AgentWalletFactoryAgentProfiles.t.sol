@@ -4,14 +4,11 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
-import {IYieldSeekerSwapPolicy} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
-import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
@@ -157,24 +154,5 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
 
         vm.expectRevert(InvalidImplementationFactory.selector);
         factory.setAgentWalletImplementation(foreignImplementation);
-    }
-
-    function test_SetSwapPolicyIsAdminOnlyAndRequiresContract() public {
-        YieldSeekerSwapSellPolicy sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        IYieldSeekerSwapPolicy policy = new YieldSeekerVaultSwapPolicy(sellPolicy);
-        bytes32 adminRole = factory.DEFAULT_ADMIN_ROLE();
-        bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, STRANGER, adminRole);
-
-        vm.prank(STRANGER);
-        vm.expectRevert(unauthorizedError);
-        factory.setSwapPolicy(VAULT_AGENT_PROFILE, policy);
-
-        address notAContract = address(0x1234);
-        bytes memory contractError = abi.encodeWithSelector(AWKErrors.NotAContract.selector, notAContract);
-        vm.expectRevert(contractError);
-        factory.setSwapPolicy(VAULT_AGENT_PROFILE, IYieldSeekerSwapPolicy(notAContract));
-
-        factory.setSwapPolicy(VAULT_AGENT_PROFILE, policy);
-        assertEq(address(factory.swapPolicy(VAULT_AGENT_PROFILE)), address(policy));
     }
 }

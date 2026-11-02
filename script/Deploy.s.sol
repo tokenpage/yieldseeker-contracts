@@ -275,7 +275,7 @@ contract DeployScript is Script {
             console2.log("-> Using existing agentWalletImplementation:", deployments.agentWalletImplementation);
         }
 
-        // Adapter registries (own salts: same init code as the V2 vault registry)
+        // Adapter registries (own salts, one per agent profile)
         if (deployments.vaultAdapterRegistry == address(0)) {
             deployments.vaultAdapterRegistry = deployCreate2(abi.encodePacked(type(AdapterRegistry).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress)), keccak256(abi.encode(SALT, "vaultAdapterRegistry")));
             console2.log("-> Vault AdapterRegistry deployed at:", deployments.vaultAdapterRegistry);
@@ -503,11 +503,11 @@ contract DeployScript is Script {
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
-        if (address(agentWalletFactory.swapPolicy(VAULT_AGENT_PROFILE)) != deployments.vaultSwapPolicy) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (VAULT_AGENT_PROFILE, VaultSwapPolicy(deployments.vaultSwapPolicy))));
+        if (address(vaultAdapterRegistry.swapPolicy()) != deployments.vaultSwapPolicy) {
+            _op(deployments.vaultAdapterRegistry, abi.encodeCall(vaultAdapterRegistry.setSwapPolicy, (VaultSwapPolicy(deployments.vaultSwapPolicy))));
         }
-        if (address(agentWalletFactory.swapPolicy(BORROW_AGENT_PROFILE)) != deployments.borrowSwapPolicy) {
-            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (BORROW_AGENT_PROFILE, BorrowSwapPolicy(deployments.borrowSwapPolicy))));
+        if (address(borrowAdapterRegistry.swapPolicy()) != deployments.borrowSwapPolicy) {
+            _op(deployments.borrowAdapterRegistry, abi.encodeCall(borrowAdapterRegistry.setSwapPolicy, (BorrowSwapPolicy(deployments.borrowSwapPolicy))));
         }
         if (feeTracker.walletFactory() != deployments.agentWalletFactory) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setWalletFactory, (deployments.agentWalletFactory)));

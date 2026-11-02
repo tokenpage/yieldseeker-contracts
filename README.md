@@ -312,7 +312,7 @@ Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for
 
 ### Swap policies
 
-The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: the factory holds one per agent profile (`swapPolicy(agentProfile)`, set by the timelock with `setSwapPolicy`), and the adapter reads it from the wallet's factory at every swap, so a policy can be replaced on its own and applies to existing wallets at their next swap. A profile without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts if fees owed are not fully paid afterwards.
+The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: each agent profile's adapter registry holds one (`YieldSeekerAdapterRegistry.swapPolicy()`, set by the timelock with `setSwapPolicy`), and the adapter reads it from the wallet's registry at every swap, so a policy can be replaced on its own and applies to existing wallets at their next swap, with no sync. A registry without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts with `FeesOwed` if fees owed are not fully paid afterwards.
 
 | Policy | Agent profile | Rules |
 |---|---|---|
@@ -967,7 +967,7 @@ We have comprehensive tests in `test/`:
 1. Admin calls `factory.setAdapterRegistry(newRegistry)` or `factory.setFeeTracker(newTracker)`
 2. This affects **NEW wallets only**
 3. Existing wallets must call `syncFromFactory()` to get updated references
-4. `factory.setSwapPolicy(agentProfile, newPolicy)` is the exception: adapters read it at every swap, so it applies to existing wallets at their next swap
+4. A registry's contents (adapters, targets, pause, `swapPolicy`) are read live, so changing them needs no sync; only replacing the registry contract itself does
 
 ---
 

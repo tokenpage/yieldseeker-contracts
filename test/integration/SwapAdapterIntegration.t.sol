@@ -130,6 +130,8 @@ contract SwapAdapterIntegrationTest is Test {
     uint256 constant MAX_SLIPPAGE_BPS = 500;
     AgentWalletFactory factory;
     AdapterRegistry registry;
+    AdapterRegistry borrowRegistry;
+    AdapterRegistry noPolicyRegistry;
     FeeTracker feeTracker;
     YieldSeekerYieldFeeModule vaultFeeModule;
     YieldSeekerPriceOracle oracle;
@@ -187,6 +189,15 @@ contract SwapAdapterIntegrationTest is Test {
         route.tickSpacings[0] = 100;
     }
 
+    function _registerAdapters(AdapterRegistry registry_) internal {
+        registry_.registerAdapter(address(uniswapAdapter));
+        registry_.registerAdapter(address(aerodromeV2Adapter));
+        registry_.registerAdapter(address(aerodromeClAdapter));
+        registry_.setTargetAdapter(address(uniswapRouter), address(uniswapAdapter));
+        registry_.setTargetAdapter(address(aerodromeV2Router), address(aerodromeV2Adapter));
+        registry_.setTargetAdapter(address(aerodromeClRouter), address(aerodromeClAdapter));
+    }
+
     function setUp() public {
         baseAsset = new MockERC20("Mock USDC", "mUSDC");
         sellToken = new MockERC20("Mock Yield", "mYLD");
@@ -202,14 +213,16 @@ contract SwapAdapterIntegrationTest is Test {
         bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000}));
         vm.startPrank(admin);
         registry = new AdapterRegistry(admin, admin);
+        borrowRegistry = new AdapterRegistry(admin, admin);
+        noPolicyRegistry = new AdapterRegistry(admin, admin);
         feeTracker = new FeeTracker(admin, feeCollector);
         vaultFeeModule = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFeeModule);
         feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
-        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, registry);
-        factory.setAdapterRegistry(NO_POLICY_AGENT_PROFILE, registry);
+        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
+        factory.setAdapterRegistry(NO_POLICY_AGENT_PROFILE, noPolicyRegistry);
         factory.setFeeTracker(feeTracker);
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
@@ -222,17 +235,14 @@ contract SwapAdapterIntegrationTest is Test {
         YieldSeekerVaultSwapPolicy vaultPolicy = new YieldSeekerVaultSwapPolicy(sellPolicy);
         SwapIntegrationFeeModule borrowFeeModule = new SwapIntegrationFeeModule(address(feeTracker), BORROW_FEE, address(otherToken), 0);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
-        factory.setSwapPolicy(VAULT_AGENT_PROFILE, vaultPolicy);
-        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), MAX_SLIPPAGE_BPS));
+        registry.setSwapPolicy(vaultPolicy);
+        borrowRegistry.setSwapPolicy(new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), MAX_SLIPPAGE_BPS));
         uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter));
         aerodromeV2Adapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
         aerodromeClAdapter = new AerodromeCLSwapAdapter(address(aerodromeClRouter));
-        registry.registerAdapter(address(uniswapAdapter));
-        registry.registerAdapter(address(aerodromeV2Adapter));
-        registry.registerAdapter(address(aerodromeClAdapter));
-        registry.setTargetAdapter(address(uniswapRouter), address(uniswapAdapter));
-        registry.setTargetAdapter(address(aerodromeV2Router), address(aerodromeV2Adapter));
-        registry.setTargetAdapter(address(aerodromeClRouter), address(aerodromeClAdapter));
+        _registerAdapters(registry);
+        _registerAdapters(borrowRegistry);
+        _registerAdapters(noPolicyRegistry);
         vm.stopPrank();
         baseAsset.mint(address(uniswapRouter), 2_000_000e6);
         baseAsset.mint(address(aerodromeV2Router), 2_000_000e6);
@@ -472,9 +482,9 @@ contract SwapAdapterIntegrationTest is Test {
         address adapterBefore = address(uniswapAdapter);
         YieldSeekerBorrowSwapPolicy strictPolicy = new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), 0);
         vm.prank(admin);
-        factory.setSwapPolicy(BORROW_AGENT_PROFILE, strictPolicy);
+        borrowRegistry.setSwapPolicy(strictPolicy);
 
-        assertEq(address(factory.swapPolicy(BORROW_AGENT_PROFILE)), address(strictPolicy));
+        assertEq(address(borrowRegistry.swapPolicy()), address(strictPolicy));
         assertEq(address(uniswapAdapter), adapterBefore);
         bytes memory innerError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
         bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
@@ -489,10 +499,11 @@ contract SwapAdapterIntegrationTest is Test {
         sellToken.mint(address(wallet), 100e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(1)));
-        bytes memory innerError = abi.encodeWithSelector(NoSwapPolicy.selector, NO_POLICY_AGENT_PROFILE);
+        address noPolicyAdapterRegistry = address(noPolicyRegistry);
+        bytes memory innerError = abi.encodeWithSelector(NoSwapPolicy.selector, noPolicyAdapterRegistry);
         bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
 
-        assertEq(address(factory.swapPolicy(NO_POLICY_AGENT_PROFILE)), address(0));
+        assertEq(address(noPolicyRegistry.swapPolicy()), address(0));
         vm.expectRevert(expectedError);
         vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);

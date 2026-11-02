@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {YieldSeekerAdapterRegistry} from "../../../src/AdapterRegistry.sol";
 import {IAgentWallet} from "../../../src/IAgentWallet.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import {IYieldSeekerSwapPolicy} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 
 library AdapterFeeSetup {
     function deploy(address feeCollector, uint256 maxFeeRateBps, uint256 rateBps) internal returns (YieldSeekerFeeTracker feeTracker, YieldSeekerYieldFeeModule yieldFees) {
@@ -22,33 +21,19 @@ library AdapterFeeSetup {
     }
 }
 
-contract AdapterHarnessFactory {
-    mapping(bytes32 agentProfile => IYieldSeekerSwapPolicy) private _swapPolicies;
-
-    function setSwapPolicy(bytes32 agentProfile, IYieldSeekerSwapPolicy policy) external {
-        _swapPolicies[agentProfile] = policy;
-    }
-
-    function swapPolicy(bytes32 agentProfile) external view returns (IYieldSeekerSwapPolicy) {
-        return _swapPolicies[agentProfile];
-    }
-}
-
 /// @title AdapterWalletHarness
 /// @notice Minimal wallet harness to execute adapters via delegatecall in tests
 contract AdapterWalletHarness is IAgentWallet {
     IERC20 private immutable _BASE_ASSET;
     YieldSeekerFeeTracker private immutable _FEE_TRACKER;
     address public immutable owner;
-    AdapterHarnessFactory public immutable FACTORY;
-    bytes32 public immutable agentProfile;
+    YieldSeekerAdapterRegistry public immutable adapterRegistry;
 
     constructor(IERC20 baseAsset_, YieldSeekerFeeTracker feeTracker_) {
         owner = msg.sender;
         _BASE_ASSET = baseAsset_;
         _FEE_TRACKER = feeTracker_;
-        FACTORY = new AdapterHarnessFactory();
-        agentProfile = keccak256("adapter-harness");
+        adapterRegistry = new YieldSeekerAdapterRegistry(msg.sender, msg.sender);
     }
 
     function baseAsset() external view override returns (IERC20) {

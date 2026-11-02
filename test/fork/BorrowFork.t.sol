@@ -78,7 +78,7 @@ contract BorrowForkTest is Test {
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter();
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter();
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
+        borrowRegistry.setSwapPolicy(new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
