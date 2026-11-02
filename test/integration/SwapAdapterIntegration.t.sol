@@ -24,27 +24,31 @@ import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract SwapIntegrationFeeModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
     address private immutable _accountedToken;
     uint256 private immutable _feesOwed;
 
-    constructor(address accountedToken_, uint256 feesOwed_) {
+    constructor(address feeTracker_, bytes32 feeType_, address accountedToken_, uint256 feesOwed_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
         _accountedToken = accountedToken_;
         _feesOwed = feesOwed_;
     }
 
-    function isValidPlan(bytes calldata) external pure returns (bool) {
+    function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
 
-    function onAction(address, bytes32, bytes calldata, uint256) external pure returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function isAccountedToken(address, address token) external view returns (bool) {
+    function isAccountedToken(address, address token) external view override returns (bool) {
         return token == _accountedToken;
     }
 
-    function feesOwedInBaseAsset(address) external view returns (uint256) {
+    function feesOwedInBaseAsset(address) external view override returns (uint256) {
         return _feesOwed;
     }
 }
@@ -351,9 +355,10 @@ contract SwapAdapterIntegrationTest is Test {
 
     function test_BaseAssetSaleRevertsWhenFeesRemainOwed() public {
         AgentWalletV3 wallet = _createWallet();
-        SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(otherToken), 1);
+        bytes32 feeType = keccak256("swap-integration-fees");
+        SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(feeTracker), feeType, address(otherToken), 1);
         vm.prank(admin);
-        feeTracker.setFeeModule(keccak256("swap-integration-fees"), feeModule);
+        feeTracker.setFeeModule(feeType, feeModule);
         baseAsset.mint(address(wallet), 500e6);
         uniswapRouter.setBuyAmount(100e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));

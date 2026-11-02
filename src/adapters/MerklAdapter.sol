@@ -25,6 +25,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title YieldSeekerMerklAdapter
  * @notice YieldSeeker-specific Merkl adapter
  * @dev Reports every token the claim paid out (once per token, even if the claim lists it twice) to the fee modules.
+ *      All amounts are measured before the first report, since a report can pay fees from the base asset.
  */
 contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
     function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal override {
@@ -33,10 +34,12 @@ contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
             balancesBefore[i] = IERC20(tokens[i]).balanceOf(address(this));
         }
         super._claimInternal(distributor, users, tokens, amounts, proofs);
+        uint256[] memory claimed = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (_listedEarlier(tokens, i)) continue;
-            uint256 claimed = IERC20(tokens[i]).balanceOf(address(this)) - balancesBefore[i];
-            if (claimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: tokens[i], amount: claimed})));
+            if (!_listedEarlier(tokens, i)) claimed[i] = IERC20(tokens[i]).balanceOf(address(this)) - balancesBefore[i];
+        }
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (claimed[i] > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: tokens[i], amount: claimed[i]})));
         }
     }
 

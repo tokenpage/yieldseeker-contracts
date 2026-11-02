@@ -28,6 +28,12 @@ error InvalidFeeRate();
  *      plan choice, and asks the module to validate each plan.
  */
 interface IYieldSeekerFeeModule {
+    /// @notice The fee tracker this module serves (the only caller of onAction)
+    function FEE_TRACKER() external view returns (address);
+
+    /// @notice The fee type this module is plugged in as (its plans are read under this type)
+    function FEE_TYPE() external view returns (bytes32);
+
     /// @notice Whether `plan` is an ABI-encoded plan this module can charge with (within its fixed maximums)
     function isValidPlan(bytes calldata plan) external view returns (bool);
 

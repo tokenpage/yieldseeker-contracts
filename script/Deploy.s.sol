@@ -298,14 +298,14 @@ contract DeployScript is Script {
             console2.log("-> Using existing priceOracle:", deployments.priceOracle);
         }
 
-        if (deployments.yieldFeeModule == address(0)) {
+        if (deployments.yieldFeeModule == address(0) || YieldFeeModule(deployments.yieldFeeModule).FEE_TRACKER() != deployments.feeTracker) {
             deployments.yieldFeeModule = deployCreate2(abi.encodePacked(type(YieldFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), YIELD_MAX_FEE_BPS)));
             console2.log("-> YieldFeeModule deployed at:", deployments.yieldFeeModule);
         } else {
             console2.log("-> Using existing yieldFeeModule:", deployments.yieldFeeModule);
         }
 
-        if (deployments.borrowFeeModule == address(0)) {
+        if (deployments.borrowFeeModule == address(0) || BorrowFeeModule(deployments.borrowFeeModule).FEE_TRACKER() != deployments.feeTracker) {
             deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), deployments.priceOracle, BORROW_MAX_FEE_BPS)));
             console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
         } else {

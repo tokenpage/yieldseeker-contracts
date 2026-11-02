@@ -64,7 +64,8 @@ library FeeActions {
 
     bytes32 internal constant DEBT_CHANGE = keccak256("debtChange");
 
-    /// @notice A borrow (`borrowed` > 0), a repay (`repaid` > 0) or a checkpoint (both 0) on a lending market
+    /// @notice A borrow (`borrowed` > 0), a repay (`repaid` > 0), or a collateral withdrawal or checkpoint (both 0) on a
+    ///         lending market
     /// @param market The market ID (hash of the market bytes)
     /// @param debtBefore The market's real debt before the action
     struct DebtChange {

@@ -35,30 +35,34 @@ contract MockMerklDistributor {
 }
 
 contract IntegrationFeeModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
     address private immutable _accountedToken;
     uint256 private immutable _feesOwed;
     bool private immutable _revertsOnAction;
 
-    constructor(address accountedToken_, uint256 feesOwed_, bool revertsOnAction_) {
+    constructor(address feeTracker_, bytes32 feeType_, address accountedToken_, uint256 feesOwed_, bool revertsOnAction_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
         _accountedToken = accountedToken_;
         _feesOwed = feesOwed_;
         _revertsOnAction = revertsOnAction_;
     }
 
-    function isValidPlan(bytes calldata) external pure returns (bool) {
+    function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
 
-    function onAction(address, bytes32, bytes calldata, uint256) external view returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external view override returns (uint256) {
         if (_revertsOnAction) revert();
         return 0;
     }
 
-    function isAccountedToken(address, address token) external view returns (bool) {
+    function isAccountedToken(address, address token) external view override returns (bool) {
         return token == _accountedToken;
     }
 
-    function feesOwedInBaseAsset(address) external view returns (uint256) {
+    function feesOwedInBaseAsset(address) external view override returns (uint256) {
         return _feesOwed;
     }
 }
@@ -112,6 +116,7 @@ abstract contract AgentWalletIntegrationBase is Test {
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
     event AdapterRegistered(address indexed adapter, bool indexed registered);
     event TargetAdapterSet(address indexed target, address indexed adapter);
+    event FeeSettlementFailed(address indexed asset, uint256 amount);
 
     function setUp() public {
         // Deploy test tokens
@@ -1026,6 +1031,51 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
 contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
     // ============ Vault Share Reward Tests ============
 
+    function test_MerklClaimMeasuresFullBaseAmountBeforeSettlingOwedYieldFees() public {
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        uint256 priorClaimAmount = 100e6;
+        uint256 priorFeeOwed = priorClaimAmount * FEE_RATE / 10_000;
+        uint256 existingBaseBalance = 2e6;
+        uint256 otherTokenAmount = 1e6;
+        uint256 baseClaimAmount = 1e6;
+        uint256 expectedPayment = existingBaseBalance + baseClaimAmount;
+        uint256 expectedNewYieldFee = baseClaimAmount * FEE_RATE / 10_000;
+        uint256 expectedFeesOwed = priorFeeOwed - expectedPayment + expectedNewYieldFee;
+        bytes memory priorClaimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: priorClaimAmount}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, priorClaimData);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), priorFeeOwed);
+
+        MockERC20 otherToken = new MockERC20("Other Reward", "OTHER");
+        otherToken.mint(address(merklDistributor), otherTokenAmount);
+        usdc.mint(address(merklDistributor), baseClaimAmount);
+        usdc.mint(walletAddr, existingBaseBalance);
+
+        address[] memory users = new address[](2);
+        users[0] = walletAddr;
+        users[1] = walletAddr;
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(otherToken);
+        tokens[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = otherTokenAmount;
+        amounts[1] = baseClaimAmount;
+        bytes32[][] memory proofs = new bytes32[][](2);
+        proofs[0] = new bytes32[](0);
+        proofs[1] = new bytes32[](0);
+        bytes memory claimData = abi.encodeCall(merklAdapter.claim, (users, tokens, amounts, proofs));
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+
+        vm.prank(user);
+        wallet.executeViaAdapter(address(merklAdapter), address(merklDistributor), claimData);
+
+        assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, expectedPayment);
+        assertEq(usdc.balanceOf(walletAddr), 0);
+        assertEq(otherToken.balanceOf(walletAddr), otherTokenAmount);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), expectedFeesOwed);
+    }
+
     function test_VaultShareReward_FeesTrackedCorrectly() public {
         // Create second vault for reward scenario (VAULT B for rewards)
         MockERC4626 vaultB = new MockERC4626(address(usdc), "Vault B", "vB");
@@ -1473,11 +1523,14 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         vm.prank(walletAddr);
         feeTracker.reportAction(FeeActions.CLAIM, claimData);
         usdc.mint(walletAddr, 100e6);
-        IntegrationFeeModule failingModule = new IntegrationFeeModule(address(0), 0, true);
-        vm.prank(admin);
-        feeTracker.setFeeModule(keccak256("integration-failing"), failingModule);
+        bytes32 feeType = keccak256("integration-failing");
+        IntegrationFeeModule failingModule = new IntegrationFeeModule(address(feeTracker), feeType, address(0), 0, true);
         uint256 userBalanceBefore = usdc.balanceOf(user);
         uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+        vm.prank(admin);
+        feeTracker.setFeeModule(feeType, failingModule);
+        vm.expectEmit(true, false, false, true, address(wallet));
+        emit FeeSettlementFailed(address(usdc), withdrawalAmount);
 
         vm.prank(user);
         wallet.withdrawAssetToUser(user, address(usdc), withdrawalAmount);
@@ -1524,9 +1577,10 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         bytes memory claimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: claimedYield}));
         vm.prank(walletAddr);
         feeTracker.reportAction(FeeActions.CLAIM, claimData);
-        IntegrationFeeModule accountingModule = new IntegrationFeeModule(address(accountedToken), 0, false);
+        bytes32 feeType = keccak256("integration-accounting");
+        IntegrationFeeModule accountingModule = new IntegrationFeeModule(address(feeTracker), feeType, address(accountedToken), 0, false);
         vm.prank(admin);
-        feeTracker.setFeeModule(keccak256("integration-accounting"), accountingModule);
+        feeTracker.setFeeModule(feeType, accountingModule);
         usdc.mint(walletAddr, 100e6);
         accountedToken.mint(walletAddr, 75e6);
         unaccountedToken.mint(walletAddr, 50e6);

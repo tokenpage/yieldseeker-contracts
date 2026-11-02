@@ -26,6 +26,8 @@ error InvalidPlan(bytes32 feeType, uint256 planId);
 error UnknownPlan(bytes32 feeType, uint256 planId);
 error UnknownFeeType(bytes32 feeType);
 error PaymentExceedsAvailable(address module, uint256 payment, uint256 available);
+error InvalidFeeModule(bytes32 feeType, address module);
+error InsufficientGasForModules();
 
 /// @notice A wallet's choice of plan for one fee type
 struct FeePlanChoice {
@@ -81,9 +83,11 @@ contract YieldSeekerFeeTracker is AccessControl {
         emit WalletFactoryUpdated(newWalletFactory);
     }
 
-    /// @notice Plug in or replace a fee type's module; a replacement must accept every existing plan of the fee type
+    /// @notice Plug in or replace a fee type's module; it must be built for this tracker and fee type, and a
+    ///         replacement must accept every existing plan of the fee type
     function setFeeModule(bytes32 feeType, IYieldSeekerFeeModule module) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(module).code.length == 0) revert AWKErrors.NotAContract(address(module));
+        if (module.FEE_TRACKER() != address(this) || module.FEE_TYPE() != feeType) revert InvalidFeeModule(feeType, address(module));
         bytes[] storage plans = _plans[feeType];
         for (uint256 i = 0; i < plans.length; i++) {
             if (!module.isValidPlan(plans[i])) revert InvalidPlan(feeType, i);
@@ -167,6 +171,7 @@ contract YieldSeekerFeeTracker is AccessControl {
     function isAccountedToken(address wallet, address token) external view returns (bool) {
         if (token == address(IAgentWallet(wallet).baseAsset())) return true;
         for (uint256 i = 0; i < _modules.length; i++) {
+            _requireModuleGas();
             try _modules[i].isAccountedToken{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool accounted) {
                 if (accounted) return true;
             } catch {}
@@ -175,14 +180,21 @@ contract YieldSeekerFeeTracker is AccessControl {
     }
 
     /**
-     * @notice Fees `wallet` owes and has not paid yet, valued in its base asset, across every module (for display)
+     * @notice Fees `wallet` owes and has not paid yet, valued in its base asset, across every module
      * @dev Each module is called with a gas limit and a module that fails counts as 0.
      */
     function feesOwedInBaseAsset(address wallet) external view returns (uint256 owed) {
         for (uint256 i = 0; i < _modules.length; i++) {
+            _requireModuleGas();
             try _modules[i].feesOwedInBaseAsset{gas: MODULE_GAS_LIMIT}(wallet) returns (uint256 moduleOwed) {
                 owed += moduleOwed;
             } catch {}
         }
+    }
+
+    /// @dev A module call that fails counts as "nothing"; make sure it can't fail just because the caller sent too
+    ///      little gas for it
+    function _requireModuleGas() private view {
+        if (gasleft() < (MODULE_GAS_LIMIT * 64) / 63 + 5_000) revert InsufficientGasForModules();
     }
 }

@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlanChoice, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InsufficientGasForModules, InvalidFeeModule, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -14,11 +14,15 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
     address internal immutable _wallet;
     address internal immutable _trackedToken;
     uint256 internal immutable _owedAmount;
 
-    constructor(address wallet_, address trackedToken_, uint256 owedAmount_) {
+    constructor(address feeTracker_, bytes32 feeType_, address wallet_, address trackedToken_, uint256 owedAmount_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
         _wallet = wallet_;
         _trackedToken = trackedToken_;
         _owedAmount = owedAmount_;
@@ -42,9 +46,13 @@ contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
 }
 
 contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
     bool internal immutable _burnsGas;
 
-    constructor(bool burnsGas_) {
+    constructor(address feeTracker_, bytes32 feeType_, bool burnsGas_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
         _burnsGas = burnsGas_;
     }
 
@@ -73,6 +81,14 @@ contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
 }
 
 contract FeeTrackerOverpayingModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
+
+    constructor(address feeTracker_, bytes32 feeType_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
+    }
+
     function isValidPlan(bytes calldata plan) external pure override returns (bool) {
         return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
     }
@@ -330,24 +346,45 @@ contract FeeTrackerTest is Test {
         assertEq(newPlan.rateBps, 600);
     }
 
+    function testSetFeeModuleRejectsModuleBuiltForAnotherTracker() public {
+        bytes32 feeType = PROBE_FEE;
+        YieldSeekerFeeTracker otherTracker = new YieldSeekerFeeTracker(admin, collector);
+        FeeTrackerProbeModule module = new FeeTrackerProbeModule(address(otherTracker), feeType, address(wallet), PROBE_TOKEN, 0);
+        bytes memory expectedError = abi.encodeWithSelector(InvalidFeeModule.selector, feeType, address(module));
+
+        vm.expectRevert(expectedError);
+        vm.prank(admin);
+        tracker.setFeeModule(feeType, module);
+    }
+
+    function testSetFeeModuleRejectsModuleBuiltForAnotherFeeType() public {
+        bytes32 feeType = PROBE_FEE;
+        FeeTrackerProbeModule module = new FeeTrackerProbeModule(address(tracker), REVERTING_FEE, address(wallet), PROBE_TOKEN, 0);
+        bytes memory expectedError = abi.encodeWithSelector(InvalidFeeModule.selector, feeType, address(module));
+
+        vm.expectRevert(expectedError);
+        vm.prank(admin);
+        tracker.setFeeModule(feeType, module);
+    }
+
     function testReportActionRevertsWhenModuleExceedsAvailable() public {
-        FeeTrackerOverpayingModule overpayingModule = new FeeTrackerOverpayingModule();
+        bytes32 feeType = keccak256("overpaying");
+        FeeTrackerOverpayingModule overpayingModule = new FeeTrackerOverpayingModule(address(tracker), feeType);
         uint256 available = baseAsset.balanceOf(address(wallet));
         uint256 payment = available + 1;
         bytes memory expectedError = abi.encodeWithSelector(PaymentExceedsAvailable.selector, address(overpayingModule), payment, available);
 
         vm.prank(admin);
-        tracker.setFeeModule(keccak256("overpaying"), overpayingModule);
-
-        vm.prank(address(wallet));
+        tracker.setFeeModule(feeType, overpayingModule);
         vm.expectRevert(expectedError);
+        vm.prank(address(wallet));
         tracker.reportAction(bytes32(0), bytes(""));
     }
 
     function testIsAccountedTokenAndFeesOwedInBaseAssetAggregateModulesAndIgnoreFailures() public {
-        FeeTrackerProbeModule probe = new FeeTrackerProbeModule(address(wallet), PROBE_TOKEN, 123);
-        FeeTrackerHostileModule revertingModule = new FeeTrackerHostileModule(false);
-        FeeTrackerHostileModule gasBurningModule = new FeeTrackerHostileModule(true);
+        FeeTrackerProbeModule probe = new FeeTrackerProbeModule(address(tracker), PROBE_FEE, address(wallet), PROBE_TOKEN, 123);
+        FeeTrackerHostileModule revertingModule = new FeeTrackerHostileModule(address(tracker), REVERTING_FEE, false);
+        FeeTrackerHostileModule gasBurningModule = new FeeTrackerHostileModule(address(tracker), GAS_BURNING_FEE, true);
 
         _recordYield(wallet, 100e6);
         _recordDebtChange(wallet, keccak256("market"), address(debtToken), 0, 1_000, 0);
@@ -363,6 +400,11 @@ contract FeeTrackerTest is Test {
         assertTrue(tracker.isAccountedToken(address(wallet), PROBE_TOKEN));
         assertFalse(tracker.isAccountedToken(address(wallet), UNTRACKED_TOKEN));
         assertEq(tracker.feesOwedInBaseAsset(address(wallet)), 10e6 + 123);
+    }
+
+    function testFeesOwedInBaseAssetRevertsWhenCallerCannotProvideModuleGas() public {
+        vm.expectRevert(InsufficientGasForModules.selector);
+        tracker.feesOwedInBaseAsset{gas: 50_000}(address(wallet));
     }
 
     function testFeeCollectorCanBeUpdatedByAdmin() public {

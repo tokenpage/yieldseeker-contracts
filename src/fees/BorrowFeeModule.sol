@@ -27,6 +27,8 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 bytes32 constant BORROW_FEE = keccak256("borrow");
 
+error InsufficientGasForQuote();
+
 /**
  * @title YieldSeekerBorrowFeeModule
  * @notice Borrow fee: a yearly fee on borrowed principal, counted in the borrowed token and paid in the wallet's base
@@ -45,8 +47,10 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
 
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
+    uint256 public constant ORACLE_QUOTE_GAS_LIMIT = 100_000;
 
-    YieldSeekerFeeTracker public immutable FEE_TRACKER;
+    bytes32 public constant FEE_TYPE = BORROW_FEE;
+    address public immutable FEE_TRACKER;
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
@@ -71,13 +75,13 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     constructor(YieldSeekerFeeTracker feeTracker, IYieldSeekerPriceOracle priceOracle, uint256 maxFeeRateBps) {
         if (address(feeTracker) == address(0) || address(priceOracle) == address(0)) revert AWKErrors.ZeroAddress();
         if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
-        FEE_TRACKER = feeTracker;
+        FEE_TRACKER = address(feeTracker);
         PRICE_ORACLE = priceOracle;
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
     function onAction(address wallet, bytes32 action, bytes calldata data, uint256 maxPayment) external returns (uint256 payment) {
-        if (msg.sender != address(FEE_TRACKER)) revert AWKErrors.Unauthorized(msg.sender);
+        if (msg.sender != FEE_TRACKER) revert AWKErrors.Unauthorized(msg.sender);
         if (action == FeeActions.DEBT_CHANGE) _recordDebtChange(wallet, abi.decode(data, (FeeActions.DebtChange)));
         return _payFees(wallet, maxPayment);
     }
@@ -128,10 +132,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
             address token = tokens[i];
             uint256 owed = feesOwed[wallet][token];
             if (owed == 0) continue;
-            uint256 owedInBaseAsset;
-            try PRICE_ORACLE.quote(token, baseAsset, owed) returns (uint256 quoted) {
-                owedInBaseAsset = quoted;
-            } catch {}
+            uint256 owedInBaseAsset = _quoteOrZero(token, baseAsset, owed);
             if (owedInBaseAsset == 0) continue;
             uint256 payment = Math.min(owedInBaseAsset, maxPayment - paid);
             uint256 covered = payment == owedInBaseAsset ? owed : Math.mulDiv(owed, payment, owedInBaseAsset);
@@ -152,7 +153,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     /// @notice The wallet's borrow fee plan (rate 0 until BORROW_FEE has plans)
     function walletPlan(address wallet) public view returns (Plan memory plan) {
-        bytes memory data = FEE_TRACKER.walletPlan(wallet, BORROW_FEE);
+        bytes memory data = YieldSeekerFeeTracker(FEE_TRACKER).walletPlan(wallet, BORROW_FEE);
         if (data.length > 0) plan = abi.decode(data, (Plan));
     }
 
@@ -173,9 +174,21 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         for (uint256 i = 0; i < tokens.length; i++) {
             uint256 tokenOwed = feesOwed[wallet][tokens[i]];
             if (tokenOwed == 0) continue;
-            try PRICE_ORACLE.quote(tokens[i], baseAsset, tokenOwed) returns (uint256 quoted) {
-                owed += quoted;
-            } catch {}
+            owed += _quoteOrZero(tokens[i], baseAsset, tokenOwed);
+        }
+    }
+
+    /**
+     * @dev The oracle value of `amount` of `token` in `baseAsset`, or 0 while the oracle has no fresh price. The quote
+     *      gets a fixed gas budget that the caller must leave room for, so nobody can make a fresh price look stale by
+     *      running the quote out of gas.
+     */
+    function _quoteOrZero(address token, address baseAsset, uint256 amount) internal view returns (uint256) {
+        if (gasleft() < (ORACLE_QUOTE_GAS_LIMIT * 64) / 63 + 5_000) revert InsufficientGasForQuote();
+        try PRICE_ORACLE.quote{gas: ORACLE_QUOTE_GAS_LIMIT}(token, baseAsset, amount) returns (uint256 quoted) {
+            return quoted;
+        } catch {
+            return 0;
         }
     }
 }

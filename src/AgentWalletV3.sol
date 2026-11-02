@@ -63,6 +63,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     uint256 public constant FEE_SETTLEMENT_GAS_LIMIT = 500_000;
 
     event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
+    event FeeSettlementFailed(address indexed asset, uint256 amount);
 
     constructor(address factory) AWKAgentWalletV3(factory) {}
 
@@ -173,8 +174,11 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     }
 
     /// @dev Gas-limited and failure-tolerant, so neither a fee module nor the fee collector can block the owner's exit;
-    ///      if settlement fails, nothing is recorded and the fees stay owed.
+    ///      if settlement fails, nothing is recorded, the fees stay owed and FeeSettlementFailed is emitted.
     function _settleFees(address asset, address recipient, uint256 amount) internal {
-        try this.settleFeesForWithdrawal{gas: FEE_SETTLEMENT_GAS_LIMIT}(asset, recipient, amount) {} catch {}
+        try this.settleFeesForWithdrawal{gas: FEE_SETTLEMENT_GAS_LIMIT}(asset, recipient, amount) {}
+        catch {
+            emit FeeSettlementFailed(asset, amount);
+        }
     }
 }

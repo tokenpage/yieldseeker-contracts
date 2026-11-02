@@ -38,7 +38,8 @@ bytes32 constant YIELD_FEE = keccak256("yield");
  *      The rate comes from the wallet's YIELD_FEE plan in the fee tracker (a Plan, at most MAX_FEE_RATE_BPS).
  */
 contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
-    YieldSeekerFeeTracker public immutable FEE_TRACKER;
+    bytes32 public constant FEE_TYPE = YIELD_FEE;
+    address public immutable FEE_TRACKER;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
     struct Plan {
@@ -54,12 +55,12 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
     constructor(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps) {
         if (address(feeTracker) == address(0)) revert AWKErrors.ZeroAddress();
         if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
-        FEE_TRACKER = feeTracker;
+        FEE_TRACKER = address(feeTracker);
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
     function onAction(address wallet, bytes32 action, bytes calldata data, uint256 maxPayment) external returns (uint256 payment) {
-        if (msg.sender != address(FEE_TRACKER)) revert AWKErrors.Unauthorized(msg.sender);
+        if (msg.sender != FEE_TRACKER) revert AWKErrors.Unauthorized(msg.sender);
         uint256 yield;
         if (action == FeeActions.DEPOSIT) {
             FeeActions.Deposit memory deposit = abi.decode(data, (FeeActions.Deposit));
@@ -92,7 +93,7 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
 
     /// @notice The wallet's yield fee plan (rate 0 until YIELD_FEE has plans)
     function walletPlan(address wallet) public view returns (Plan memory plan) {
-        bytes memory data = FEE_TRACKER.walletPlan(wallet, YIELD_FEE);
+        bytes memory data = YieldSeekerFeeTracker(FEE_TRACKER).walletPlan(wallet, YIELD_FEE);
         if (data.length > 0) plan = abi.decode(data, (Plan));
     }
 

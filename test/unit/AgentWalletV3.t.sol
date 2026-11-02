@@ -20,6 +20,14 @@ import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
+
+    constructor(address feeTracker_, bytes32 feeType_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
+    }
+
     function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
@@ -38,6 +46,14 @@ contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
 }
 
 contract GasBurningFeeQueriesModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
+
+    constructor(address feeTracker_, bytes32 feeType_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
+    }
+
     function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
@@ -58,6 +74,14 @@ contract GasBurningFeeQueriesModule is IYieldSeekerFeeModule {
 }
 
 contract RevertingFeeActionModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
+
+    constructor(address feeTracker_, bytes32 feeType_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
+    }
+
     function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
@@ -76,6 +100,14 @@ contract RevertingFeeActionModule is IYieldSeekerFeeModule {
 }
 
 contract GasBurningFeeActionModule is IYieldSeekerFeeModule {
+    address public immutable override FEE_TRACKER;
+    bytes32 public immutable override FEE_TYPE;
+
+    constructor(address feeTracker_, bytes32 feeType_) {
+        FEE_TRACKER = feeTracker_;
+        FEE_TYPE = feeType_;
+    }
+
     function isValidPlan(bytes calldata) external pure override returns (bool) {
         return true;
     }
@@ -327,8 +359,12 @@ contract AgentWalletV3Test is Test {
     }
 
     function test_FailingFeeQueriesDoNotBlockBaseWithdrawalsOrAllowOtherTokens() public {
-        vaultFees.setFeeModule(keccak256("reverting-fee-queries"), new RevertingFeeQueriesModule());
-        vaultFees.setFeeModule(keccak256("gas-burning-fee-queries"), new GasBurningFeeQueriesModule());
+        bytes32 revertingFeeType = keccak256("reverting-fee-queries");
+        bytes32 gasBurningFeeType = keccak256("gas-burning-fee-queries");
+        RevertingFeeQueriesModule revertingFeeModule = new RevertingFeeQueriesModule(address(vaultFees), revertingFeeType);
+        GasBurningFeeQueriesModule gasBurningFeeModule = new GasBurningFeeQueriesModule(address(vaultFees), gasBurningFeeType);
+        vaultFees.setFeeModule(revertingFeeType, revertingFeeModule);
+        vaultFees.setFeeModule(gasBurningFeeType, gasBurningFeeModule);
 
         _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: 100e6})));
         uint256 reserve = vaultFeeModule.feesOwed(address(borrowWallet));
@@ -359,7 +395,9 @@ contract AgentWalletV3Test is Test {
         _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
         uint256 amount = 990e6;
         uint256 feesOwed = vaultFeeModule.feesOwed(address(vaultWallet));
-        vaultFees.setFeeModule(keccak256("reverting-fee-action"), new RevertingFeeActionModule());
+        bytes32 feeType = keccak256("reverting-fee-action");
+        RevertingFeeActionModule feeModule = new RevertingFeeActionModule(address(vaultFees), feeType);
+        vaultFees.setFeeModule(feeType, feeModule);
 
         vm.prank(owner);
         vaultWallet.withdrawAssetToUser(recipient, address(usdc), amount);
@@ -374,7 +412,9 @@ contract AgentWalletV3Test is Test {
         _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
         uint256 amount = 990e6;
         uint256 feesOwed = vaultFeeModule.feesOwed(address(vaultWallet));
-        vaultFees.setFeeModule(keccak256("gas-burning-fee-action"), new GasBurningFeeActionModule());
+        bytes32 feeType = keccak256("gas-burning-fee-action");
+        GasBurningFeeActionModule feeModule = new GasBurningFeeActionModule(address(vaultFees), feeType);
+        vaultFees.setFeeModule(feeType, feeModule);
 
         vm.prank(owner);
         vaultWallet.withdrawAssetToUser(recipient, address(usdc), amount);
