@@ -22,6 +22,8 @@ import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 import {IYieldSeekerSwapPolicy} from "./swaps/IYieldSeekerSwapPolicy.sol";
 
+error NoFeeTracker();
+
 /**
  * @title YieldSeekerAgentWalletFactory
  * @notice Factory for deploying YieldSeeker agent wallets with fee tracking
@@ -42,7 +44,7 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
     constructor(address admin, address agentOperator) AWKAgentWalletFactory(admin, agentOperator) {}
 
     /**
-     * @notice Update the FeeTracker address for future wallet deployments
+     * @notice Update the FeeTracker of every wallet (wallets read it from the factory at every call)
      * @param newFeeTracker The new tracker contract
      */
     function setFeeTracker(FeeTracker newFeeTracker) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -77,6 +79,7 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
     function createAgentWallet(address owner, uint256 ownerAgentIndex, address baseAsset, bytes32 agentProfile, FeePlanChoice[] calldata feePlans) public onlyRole(AGENT_OPERATOR_ROLE) returns (AgentWallet ret) {
         if (baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (baseAsset.code.length == 0) revert AWKErrors.NotAContract(baseAsset);
+        if (address(feeTracker) == address(0)) revert NoFeeTracker();
         ret = AgentWallet(payable(address(_deployWallet(owner, ownerAgentIndex, agentProfile))));
         ret.initialize(owner, ownerAgentIndex, baseAsset, agentProfile);
         if (feePlans.length > 0) feeTracker.initWalletPlans(address(ret), feePlans);

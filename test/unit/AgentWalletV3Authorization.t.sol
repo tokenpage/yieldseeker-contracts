@@ -298,38 +298,25 @@ contract AgentWalletV3AuthorizationTest is Test {
         assertEq(address(wallet.adapterRegistry()), address(registry));
     }
 
-    function test_SyncFromFactory_UpdatesRegistryAndFeeTracker() public {
-        AdapterRegistry nextRegistry = new AdapterRegistry(admin, admin);
-        FeeTracker nextTracker = new FeeTracker(admin, admin);
-
-        vm.prank(admin);
-        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
-        vm.prank(admin);
-        factory.setFeeTracker(nextTracker);
-
-        assertEq(address(wallet.adapterRegistry()), address(registry));
-        assertEq(address(wallet.feeTracker()), address(feeTracker));
-
-        vm.prank(ownerAddr);
-        wallet.syncFromFactory();
-
-        assertEq(address(wallet.adapterRegistry()), address(nextRegistry));
-        assertEq(address(wallet.feeTracker()), address(nextTracker));
-    }
-
-    function test_SyncFromFactory_RemovesRevokedOperator() public {
-        assertTrue(wallet.isAgentOperator(operatorAddr));
-
+    function test_SyncFromFactory_RevokedOperatorStopsValidatingOnlyAfterSync() public {
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
+        bytes memory executeCall = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(vaultAdapter), address(vault), depositData);
+
+        assertEq(_validateWithSigner(executeCall, operatorKey), SIG_VALIDATION_SUCCESS);
+
         vm.prank(admin);
         factory.revokeRole(operatorRole, operatorAddr);
+
+        assertTrue(wallet.isAgentOperator(operatorAddr));
+        assertEq(_validateWithSigner(executeCall, operatorKey), SIG_VALIDATION_SUCCESS);
 
         vm.prank(operatorAddr);
         wallet.syncFromFactory();
 
         assertFalse(wallet.isAgentOperator(operatorAddr));
+        assertEq(_validateWithSigner(executeCall, operatorKey), SIG_VALIDATION_FAILED);
 
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (100e6));
         vm.prank(operatorAddr);
         vm.expectRevert();
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);

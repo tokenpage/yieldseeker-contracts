@@ -41,7 +41,7 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
  * @notice Abstract factory for deploying AgentWallet proxies using CREATE2
  * @dev Each agent wallet is tied to a specific base asset (e.g., USDC) and an agent profile (its agent type).
  *      Each agent profile has its own adapter registry. A wallet stores its agent profile at initialization and reads
- *      its registry from adapterRegistry(agentProfile) when it syncs.
+ *      its registry from adapterRegistry(agentProfile) at every adapter call.
  *      Users can create multiple agents with different ownerAgentIndex values
  *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
  *
@@ -128,7 +128,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
-     * @notice Update the AdapterRegistry of an agent profile (its existing wallets pick it up on their next sync)
+     * @notice Update the AdapterRegistry of an agent profile (applies to its existing wallets at once)
      * @param agentProfile The agent profile, e.g. keccak256("vault")
      * @param newAdapterRegistry The new registry contract
      */

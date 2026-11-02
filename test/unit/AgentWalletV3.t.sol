@@ -188,27 +188,28 @@ contract AgentWalletV3Test is Test {
         weth.mint(address(borrowWallet), 400e6);
     }
 
-    function test_SyncFollowsFactoryRegistryOperatorsAndFeeTracker() public {
-        YieldSeekerAdapterRegistry nextRegistry = new YieldSeekerAdapterRegistry(admin, admin);
-        YieldSeekerFeeTracker nextFees = new YieldSeekerFeeTracker(admin, feeCollector);
-        address nextOperator = makeAddr("next-operator");
+    function test_RevokedOperatorStopsValidatingOnlyAfterSync() public {
+        address nextOperator;
+        uint256 nextOperatorKey;
+        (nextOperator, nextOperatorKey) = makeAddrAndKey("next-operator");
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
+        bytes memory executeCall = abi.encodeWithSelector(vaultWallet.executeViaAdapter.selector, address(0xA11CE), address(usdc), hex"1234");
 
-        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextRegistry);
-        factory.setFeeTracker(nextFees);
         factory.grantRole(operatorRole, nextOperator);
         factory.revokeRole(operatorRole, operator);
+
+        assertTrue(vaultWallet.isAgentOperator(operator));
+        assertFalse(vaultWallet.isAgentOperator(nextOperator));
+        assertEq(_validateWithSigner(executeCall, operatorKey), 0);
+        assertEq(_validateWithSigner(executeCall, nextOperatorKey), 1);
 
         vm.prank(owner);
         vaultWallet.syncFromFactory();
 
-        assertEq(address(vaultWallet.feeTracker()), address(nextFees));
-        assertEq(address(vaultWallet.adapterRegistry()), address(nextRegistry));
         assertFalse(vaultWallet.isAgentOperator(operator));
         assertTrue(vaultWallet.isAgentOperator(nextOperator));
-        address[] memory syncedOperators = vaultWallet.listAgentOperators();
-        assertEq(syncedOperators.length, 1);
-        assertEq(syncedOperators[0], nextOperator);
+        assertEq(_validateWithSigner(executeCall, operatorKey), 1);
+        assertEq(_validateWithSigner(executeCall, nextOperatorKey), 0);
     }
 
     function test_UpgradeToLatestUsesOnlyTheFactoryApprovedImplementation() public {

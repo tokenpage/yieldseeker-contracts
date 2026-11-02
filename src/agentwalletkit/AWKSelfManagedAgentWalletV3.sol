@@ -33,6 +33,10 @@ abstract contract AWKSelfManagedAgentWalletV3 is AWKAgentWalletV3 {
 
     constructor() AWKAgentWalletV3(address(0)) {}
 
+    function adapterRegistry() public view virtual override returns (AdapterRegistry) {
+        return AgentWalletStorageV3.layout().adapterRegistry;
+    }
+
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external virtual onlyOwner {
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
         AgentWalletStorageV3.layout().adapterRegistry = newAdapterRegistry;
