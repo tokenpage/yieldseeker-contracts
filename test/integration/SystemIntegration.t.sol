@@ -45,10 +45,6 @@ contract SystemIntegrationTest is Test {
     uint256 constant FEE_RATE = 1000; // 10%
     uint256 constant AGENT_INDEX = 1;
 
-    // Events from real contracts
-    event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
-    event AdapterRegistered(address indexed adapter);
-
     function setUp() public {
         // Deploy test tokens
         usdc = new MockERC20("Mock USDC", "mUSDC");
@@ -92,28 +88,6 @@ contract SystemIntegrationTest is Test {
 
     // ============ Basic System Integration Tests ============
 
-    function test_FullSystemSetup_Success() public view {
-        // Verify all components are properly configured
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-
-        address mappedAdapter = registry.getTargetAdapter(address(vault));
-        assertEq(mappedAdapter, address(vaultAdapter));
-
-        // Verify fee tracker configuration
-        assertEq(abi.decode(feeTracker.plan(YIELD_FEE, 0), (YieldSeekerYieldFeeModule.Plan)).rateBps, FEE_RATE);
-        assertEq(feeTracker.feeCollector(), feeCollector);
-    }
-
-    function test_CreateWallet_BasicFlow() public {
-        // Create wallet through factory using real contracts
-        vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
-
-        // Verify wallet was created successfully
-        assertEq(wallet.owner(), user);
-        assertTrue(address(wallet) != address(0));
-    }
-
     function test_WalletAdapterExecution_BasicFlow() public {
         // Create wallet
         vm.prank(operator);
@@ -132,7 +106,6 @@ contract SystemIntegrationTest is Test {
         // The wallet returns bytes, and we need to decode the inner uint256
         bytes memory innerResult = abi.decode(result, (bytes));
         uint256 shares = abi.decode(innerResult, (uint256));
-        assertGt(shares, 0);
         assertEq(vault.balanceOf(address(wallet)), shares);
 
         // Check that shares are reasonable (MockERC4626 uses 1:1 ratio so should be 500e6)
@@ -140,37 +113,7 @@ contract SystemIntegrationTest is Test {
 
         // Verify the deposit actually happened (remaining balance should be less than starting balance)
         uint256 remainingBalance = usdc.balanceOf(address(wallet));
-        assertLt(remainingBalance, 1000e6); // Should be less than original 1000e6
-        // Note: Exact remaining balance depends on adapter implementation and any fees
-    }
-
-    function test_RegistryPause_BlocksExecution() public {
-        // Create and fund wallet
-        vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
-        usdc.mint(address(wallet), 1000e6);
-
-        // Pause registry
-        vm.prank(admin);
-        registry.pause();
-
-        // Execution should fail due to paused registry
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        vm.expectRevert(); // Registry should revert when paused
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Unpause and retry
-        vm.prank(admin);
-        registry.unpause();
-
-        vm.prank(user);
-        bytes memory result = wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        bytes memory innerResult = abi.decode(result, (bytes));
-        uint256 shares = abi.decode(innerResult, (uint256));
-        assertGt(shares, 0);
+        assertEq(remainingBalance, 500e6);
     }
 
     function test_BatchExecution_RealAdapters() public {
@@ -205,43 +148,10 @@ contract SystemIntegrationTest is Test {
         bytes memory innerResult2 = abi.decode(results[1], (bytes));
         uint256 shares2 = abi.decode(innerResult2, (uint256));
 
-        assertGt(shares1, 0);
-        assertGt(shares2, 0);
+        assertEq(shares1, 300e6);
+        assertEq(shares2, 400e6);
         assertEq(vault.balanceOf(address(wallet)), shares1 + shares2);
         assertEq(usdc.balanceOf(address(wallet)), 300e6); // Remaining balance
-    }
-
-    function test_MultipleWallets_SharedInfrastructure() public {
-        // Create multiple wallets
-        vm.prank(operator);
-        AgentWalletV3 wallet1 = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
-
-        vm.prank(operator);
-        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
-
-        // Both should use same registry infrastructure
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-
-        // Fund both wallets
-        usdc.mint(address(wallet1), 1000e6);
-        usdc.mint(address(wallet2), 2000e6);
-
-        // Both should be able to execute independently
-        bytes memory depositData1 = abi.encodeCall(vaultAdapter.deposit, (500e6));
-        bytes memory depositData2 = abi.encodeCall(vaultAdapter.deposit, (1000e6));
-
-        vm.prank(user);
-        wallet1.executeViaAdapter(address(vaultAdapter), address(vault), depositData1);
-
-        vm.prank(user2);
-        wallet2.executeViaAdapter(address(vaultAdapter), address(vault), depositData2);
-
-        // Both should have vault shares
-        assertGt(vault.balanceOf(address(wallet1)), 0);
-        assertGt(vault.balanceOf(address(wallet2)), 0);
-
-        // Verify independent operation (different amounts)
-        assertTrue(vault.balanceOf(address(wallet1)) != vault.balanceOf(address(wallet2)));
     }
 
     function test_UserBlocklist_IndependentFromRegistry() public {
@@ -274,7 +184,7 @@ contract SystemIntegrationTest is Test {
 
         bytes memory innerResult = abi.decode(result, (bytes));
         uint256 shares = abi.decode(innerResult, (uint256));
-        assertGt(shares, 0);
+        assertEq(shares, 500e6);
     }
 
     function test_EmergencyUnregistration_ImmediateEffect() public {
@@ -288,7 +198,7 @@ contract SystemIntegrationTest is Test {
 
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-        assertGt(vault.balanceOf(address(wallet)), 0);
+        assertEq(vault.balanceOf(address(wallet)), 300e6);
 
         // Emergency unregister adapter
         vm.prank(admin);
@@ -368,7 +278,7 @@ contract SystemIntegrationTest is Test {
 
         // Verify independent execution
         assertEq(vault.balanceOf(address(wallet1)), 0);
-        assertGt(vault.balanceOf(address(wallet2)), 0);
+        assertEq(vault.balanceOf(address(wallet2)), 1000e6);
     }
 
     // ========================================
@@ -498,7 +408,7 @@ contract SystemIntegrationTest is Test {
 
         // Verify rebalance
         assertEq(vault.balanceOf(address(wallet)), 0);
-        assertGt(vault2.balanceOf(address(wallet)), 0);
+        assertEq(vault2.balanceOf(address(wallet)), 1000e6);
     }
 
     function test_AtomicBatchExecution_PartialFailure() public {

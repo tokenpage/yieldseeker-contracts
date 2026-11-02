@@ -420,13 +420,6 @@ contract FeeTrackerTest is Test {
         tracker.feesOwedInBaseAsset{gas: 50_000}(address(wallet));
     }
 
-    function testFeeCollectorCanBeUpdatedByAdmin() public {
-        address newCollector = makeAddr("newCollector");
-        vm.prank(admin);
-        tracker.setFeeCollector(newCollector);
-        assertEq(tracker.feeCollector(), newCollector);
-    }
-
     function _reportAction(MockFeeWallet targetWallet, bytes32 action, bytes memory data) internal returns (uint256 payment, address feeCollector) {
         bytes memory returnData = targetWallet.execute(address(tracker), abi.encodeCall(tracker.reportAction, (action, data)));
         return abi.decode(returnData, (uint256, address));

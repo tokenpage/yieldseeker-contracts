@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AdapterIsBlocked} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Real contracts
@@ -132,34 +131,6 @@ contract AdapterIntegrationTest is Test {
         uint256 assets = abi.decode(innerResult3, (uint256));
         assertEq(assets, 2000e6);
         assertEq(vault1.balanceOf(address(wallet)), 3000e6);
-    }
-
-    function test_AdapterBlockingPreventsAllOperations() public {
-        vm.prank(operator);
-        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
-        usdc.mint(address(wallet), 5000e6);
-
-        // Initial deposit works
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
-
-        // Block adapter
-        vm.prank(user);
-        wallet.blockAdapter(address(vaultAdapter1));
-
-        // All operations on this adapter now fail
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(vaultAdapter1)));
-        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
-
-        // Unblock and try again
-        vm.prank(user);
-        wallet.unblockAdapter(address(vaultAdapter1));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter1), address(vault1), abi.encodeCall(vaultAdapter1.deposit, (1000e6)));
-
-        assertEq(vault1.balanceOf(address(wallet)), 2000e6);
     }
 
     // ========================================

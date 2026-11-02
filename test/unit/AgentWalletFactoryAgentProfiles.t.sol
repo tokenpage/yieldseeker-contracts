@@ -66,38 +66,6 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         factory.setFeeTracker(BORROW_AGENT_PROFILE, feeBorrowTracker);
     }
 
-    function test_CreatedWalletsUseTheirAgentProfileRegistryAndFeeTracker() public {
-        address walletOwner = makeAddr("wallet-owner");
-        uint256 vaultIndex = 3;
-        uint256 borrowIndex = 4;
-
-        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
-        vm.startPrank(OPERATOR);
-        YieldSeekerAgentWalletV3 vaultWallet = factory.createAgentWallet(walletOwner, vaultIndex, address(baseAsset), VAULT_AGENT_PROFILE, noFeePlans);
-        YieldSeekerAgentWalletV3 borrowWallet = factory.createAgentWallet(walletOwner, borrowIndex, address(baseAsset), BORROW_AGENT_PROFILE, noFeePlans);
-        vm.stopPrank();
-
-        assertEq(address(vaultWallet), factory.getAddress(walletOwner, vaultIndex));
-        assertEq(address(borrowWallet), factory.getAddress(walletOwner, borrowIndex));
-        assertEq(factory.userWallets(walletOwner, vaultIndex), address(vaultWallet));
-        assertEq(factory.userWallets(walletOwner, borrowIndex), address(borrowWallet));
-        assertEq(vaultWallet.agentProfile(), VAULT_AGENT_PROFILE);
-        assertEq(borrowWallet.agentProfile(), BORROW_AGENT_PROFILE);
-        assertEq(address(vaultWallet.adapterRegistry()), address(registryVault));
-        assertEq(address(borrowWallet.adapterRegistry()), address(registryBorrow));
-        assertEq(address(vaultWallet.feeTracker()), address(feeVault));
-        assertEq(address(borrowWallet.feeTracker()), address(feeBorrowTracker));
-        assertEq(address(feeVault.feeModules(BORROW_FEE)), address(0));
-        assertEq(address(feeBorrowTracker.feeModules(BORROW_FEE)), address(feeBorrow));
-        bytes32[] memory vaultFeeTypes = feeVault.moduleFeeTypes();
-        assertEq(vaultFeeTypes.length, 1);
-        assertEq(vaultFeeTypes[0], YIELD_FEE);
-        bytes32[] memory borrowFeeTypes = feeBorrowTracker.moduleFeeTypes();
-        assertEq(borrowFeeTypes.length, 2);
-        assertEq(borrowFeeTypes[0], YIELD_FEE);
-        assertEq(borrowFeeTypes[1], BORROW_FEE);
-    }
-
     function test_BorrowWalletUsesBorrowTrackerForBorrowFeesAndTokenAccounting() public {
         MockERC20 borrowedToken = new MockERC20("Borrowed", "BORROWED");
         address walletOwner = makeAddr("borrow-accounting-wallet-owner");

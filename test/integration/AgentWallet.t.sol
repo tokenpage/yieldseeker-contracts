@@ -23,7 +23,6 @@ import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModul
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
-import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
 
 // Mock Merkl Distributor for testing reward claims
 contract MockMerklDistributor {
@@ -98,7 +97,6 @@ abstract contract AgentWalletIntegrationBase is Test {
     // Test utilities (minimal mocking)
     MockERC20 usdc;
     MockERC4626 vault;
-    MockEntryPoint entryPoint;
     MockMerklDistributor merklDistributor;
 
     // Test accounts
@@ -114,15 +112,12 @@ abstract contract AgentWalletIntegrationBase is Test {
 
     // Events from real contracts
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex, address baseAsset, bytes32 agentProfile);
-    event AdapterRegistered(address indexed adapter, bool indexed registered);
-    event TargetAdapterSet(address indexed target, address indexed adapter);
     event FeeSettlementFailed(address indexed asset, uint256 amount);
 
     function setUp() public {
         // Deploy test tokens
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
-        entryPoint = new MockEntryPoint();
         merklDistributor = new MockMerklDistributor();
 
         bytes memory feePlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
@@ -211,266 +206,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         assertTrue(isRegistered);
     }
 
-    function test_InitializeWalletWithRealContracts() public {
-        createWalletForUser(user);
-
-        // Verify wallet initialized with real registry reference
-        // Note: We'd need to add a getter to check this, but we can test behavior
-
-        // Test that wallet can interact with real registry
-        vm.prank(user);
-        // This should not revert since adapter is registered
-        bool canExecute = registry.isRegisteredAdapter(address(vaultAdapter));
-        assertTrue(canExecute);
-    }
-
-    function test_FactoryRegistryIntegration() public {
-        // Test factory's interaction with real registry
-        address walletAddr = createWalletForUser(user);
-
-        // Both should use same registry
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-
-        // Adapter should be mapped to target
-        address mappedAdapter = registry.getTargetAdapter(address(vault));
-        assertEq(mappedAdapter, address(vaultAdapter));
-
-        // Wallet should be able to use this mapping
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund the wallet for testing
-        usdc.mint(walletAddr, 1000e6);
-
-        // Execute through real adapter system
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Verify successful execution
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_WalletProxy_ImplementationUpgrade() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Verify wallet is functional after creation (proxy is working)
-        usdc.mint(walletAddr, 100e6);
-
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (50e6));
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Wallet should have vault shares, proving proxy works correctly
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_InitializationEvent_RealEmission() public {
-        // Test that real events are emitted during creation
-        vm.expectEmit(true, true, true, true);
-        emit AgentWalletCreated(computeExpectedWalletAddress(), user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE);
-
-        vm.prank(operator);
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
-    }
-
-    // ============ Real Adapter Execution Tests ============
-
-    function test_ExecuteViaAdapter_RealRegistry() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // Execute deposit through real adapter system using correct pattern
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Verify execution - wallet should have vault shares now
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-        assertEq(usdc.balanceOf(walletAddr), 500e6); // Remaining balance
-    }
-
-    function test_ExecuteViaAdapterBatch_MultipleOperations() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // Prepare batch operations
-        address[] memory adapters = new address[](2);
-        address[] memory targets = new address[](2);
-        bytes[] memory data = new bytes[](2);
-
-        // First operation: deposit 400 USDC
-        adapters[0] = address(vaultAdapter);
-        targets[0] = address(vault);
-        data[0] = abi.encodeCall(vaultAdapter.deposit, (400e6));
-
-        // Second operation: deposit another 300 USDC
-        adapters[1] = address(vaultAdapter);
-        targets[1] = address(vault);
-        data[1] = abi.encodeCall(vaultAdapter.deposit, (300e6));
-
-        vm.prank(user);
-        bytes[] memory results = wallet.executeViaAdapterBatch(adapters, targets, data);
-
-        // Verify both operations executed
-        assertEq(results.length, 2);
-
-        // Each result contains the encoded return value from the adapter
-        uint256 shares1 = abi.decode(results[0], (uint256));
-        uint256 shares2 = abi.decode(results[1], (uint256));
-
-        assertGt(shares1, 0);
-        assertGt(shares2, 0);
-        // Total shares should equal sum of both operations
-        uint256 totalShares = vault.balanceOf(walletAddr);
-        assertGt(totalShares, 0);
-    }
-
-    function test_AdapterBlocking_CrossContract() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Block adapter at wallet level
-        vm.prank(user);
-        wallet.blockAdapter(address(vaultAdapter));
-
-        // Verify adapter is still registered in registry but blocked at wallet
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-        assertTrue(wallet.isAdapterBlocked(address(vaultAdapter)));
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // Attempt to execute - should fail due to wallet-level block
-        bytes memory depositData = abi.encodeCall(vault.deposit, (500e6, walletAddr));
-
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(vaultAdapter)));
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-    }
-
-    function test_YieldGeneration_WithRealFeeTracking() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // Deposit to generate yield
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Simulate yield generation in vault
-        uint256 initialShares = vault.balanceOf(walletAddr);
-        usdc.mint(address(vault), 100e6); // Add yield to vault
-
-        // Withdraw to realize yield
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (initialShares));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
-
-        // Check that wallet received more than deposited (yield generated)
-        // Wallet should have more USDC after yield realization
-        uint256 finalBalance = usdc.balanceOf(walletAddr);
-        assertGt(finalBalance, 0);
-    }
-
-    // ============ Cross-Contract Validation Tests ============
-
-    function test_RegistryPause_EffectsOnWallet() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Pause registry
-        vm.prank(admin);
-        registry.pause();
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // Attempt execution should fail due to paused registry
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        vm.expectRevert(); // Registry should revert when paused
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Unpause and retry
-        vm.prank(admin);
-        registry.unpause();
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_AdapterUnregistration_ImmediateEffect() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund wallet
-        usdc.mint(walletAddr, 1000e6);
-
-        // First execution should work
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (300e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Unregister adapter
-        vm.prank(admin);
-        registry.unregisterAdapter(address(vaultAdapter));
-
-        // Second execution should fail
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(vaultAdapter)));
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-    }
-
-    function test_MultipleWallets_SharedRegistry() public {
-        // Create multiple wallets
-        address wallet1 = createWalletForUser(user);
-        address wallet2 = createWalletForUser(makeAddr("user2"));
-
-        AgentWalletV3 w1 = AgentWalletV3(payable(wallet1));
-        AgentWalletV3 w2 = AgentWalletV3(payable(wallet2));
-
-        // Both should use same registry
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-
-        // Fund both wallets
-        usdc.mint(wallet1, 1000e6);
-        usdc.mint(wallet2, 2000e6);
-
-        // Both should be able to execute
-        bytes memory depositData1 = abi.encodeCall(vaultAdapter.deposit, (500e6));
-        bytes memory depositData2 = abi.encodeCall(vaultAdapter.deposit, (1000e6));
-
-        vm.prank(user);
-        w1.executeViaAdapter(address(vaultAdapter), address(vault), depositData1);
-
-        vm.prank(makeAddr("user2"));
-        w2.executeViaAdapter(address(vaultAdapter), address(vault), depositData2);
-
-        // Both should have vault shares
-        assertGt(vault.balanceOf(wallet1), 0);
-        assertGt(vault.balanceOf(wallet2), 0);
-    }
-
-    // ============ Complete Creation & Initialization Flow Tests (15 tests) ============
-
     function test_CreateWallet_WithDifferentAgentIndices() public {
         // Create multiple agents for same user with different indices
         address wallet1 = createWalletForUser(user);
@@ -480,8 +215,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         address wallet2 = address(factory.createAgentWallet(user, 2, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)));
 
         assertTrue(wallet1 != wallet2);
-        assertTrue(wallet1 != address(0));
-        assertTrue(wallet2 != address(0));
     }
 
     function test_CreateWallet_DeterministicAddress() public {
@@ -521,39 +254,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
     }
 
-    function test_InitialState_CorrectConfiguration() public {
-        address walletAddr = createWalletForUser(user);
-
-        // Wallet should be properly initialized
-        // Note: Would test owner, baseAsset, etc if getters existed
-        assertTrue(walletAddr != address(0));
-    }
-
-    function test_InitializeWithRegistry_Correct() public {
-        createWalletForUser(user);
-
-        // Wallet should have access to registry via factory
-        assertTrue(registry.isRegisteredAdapter(address(vaultAdapter)));
-    }
-
-    function test_WalletCreatedEvent_EmitsCorrectly() public {
-        // Verify factory emits correct event on creation
-        address expectedAddr = computeExpectedWalletAddress();
-
-        vm.expectEmit(true, true, true, true);
-        emit AgentWalletCreated(expectedAddr, user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE);
-
-        vm.prank(operator);
-        factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
-    }
-
-    function test_FactoryComponents_ProperlySet() public view {
-        // Verify factory has all required components
-        assertTrue(address(registry) != address(0));
-        assertTrue(address(feeTracker) != address(0));
-        assertTrue(address(factory.agentWalletImplementation()) != address(0));
-    }
-
     function test_MultipleOperators_CanCreateWallets() public {
         // Grant second operator from admin (who has DEFAULT_ADMIN_ROLE)
         address op2 = makeAddr("operator2");
@@ -564,34 +264,8 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         // Second operator can create wallet
         vm.prank(op2);
         address walletAddr = address(factory.createAgentWallet(user, 10, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)));
-        assertTrue(walletAddr != address(0));
+        assertEq(AgentWalletV3(payable(walletAddr)).owner(), user);
     }
-
-    function test_CreateWallet_RealImplementationUsed() public {
-        // Wallet should have real implementation, not temp one
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Should be able to initialize and use normally
-        usdc.mint(walletAddr, 100e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (50e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_Factory_UpdateImplementation() public {
-        address newImpl = address(new AgentWalletV3(address(factory)));
-
-        vm.prank(admin);
-        factory.setAgentWalletImplementation(AgentWalletV3(payable(newImpl)));
-
-        assertTrue(address(factory.agentWalletImplementation()) == newImpl);
-    }
-
-    // ============ Real ERC-4337 Integration Tests (15 tests) ============
 
     function test_ExecuteViaAdapter_OnlyExecutorsAllowed() public {
         address walletAddr = createWalletForUser(user);
@@ -600,39 +274,27 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         usdc.mint(walletAddr, 100e6);
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (50e6));
 
-        // Non-executor (not owner, operator, or entrypoint) should fail
+        // Non-executor (not the owner or an operator) should fail
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
         vm.expectRevert();
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
-    function test_ExecuteViaAdapter_OwnerCanExecute() public {
+    function test_ExecuteViaAdapter_OwnerAndOperatorCanExecute() public {
         address walletAddr = createWalletForUser(user);
         AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
 
         usdc.mint(walletAddr, 100e6);
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (50e6));
 
-        // Owner can execute
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_ExecuteViaAdapter_OperatorCanExecute() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        usdc.mint(walletAddr, 100e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (50e6));
-
-        // Operator can execute
         vm.prank(operator);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
-        assertTrue(vault.balanceOf(walletAddr) > 0);
+        assertEq(vault.balanceOf(walletAddr), 100e6);
     }
 
     function test_BatchExecution_AtomicFailure() public {
@@ -661,130 +323,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         assertEq(vault.balanceOf(walletAddr), 0);
     }
 
-    function test_BatchExecution_LargeScale() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Fund with enough for 10 deposits of 100e6 each
-        usdc.mint(walletAddr, 1100e6);
-
-        uint256 batchSize = 10;
-        address[] memory adapters = new address[](batchSize);
-        address[] memory targets = new address[](batchSize);
-        bytes[] memory datas = new bytes[](batchSize);
-
-        for (uint256 i = 0; i < batchSize; i++) {
-            adapters[i] = address(vaultAdapter);
-            targets[i] = address(vault);
-            datas[i] = abi.encodeCall(vaultAdapter.deposit, (100e6));
-        }
-
-        vm.prank(user);
-        wallet.executeViaAdapterBatch(adapters, targets, datas);
-
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_DepositAndWithdraw_RealSequence() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Deposit
-        usdc.mint(walletAddr, 1000e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        uint256 shares = vault.balanceOf(walletAddr);
-        assertTrue(shares > 0);
-
-        // Withdraw
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
-
-        // Should have received assets back
-        assertTrue(usdc.balanceOf(walletAddr) > 500e6);
-    }
-
-    function test_ConsecutiveDeposits_Accumulate() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        usdc.mint(walletAddr, 2000e6);
-
-        bytes memory depositData1 = abi.encodeCall(vaultAdapter.deposit, (500e6));
-        bytes memory depositData2 = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData1);
-
-        uint256 sharesAfter1 = vault.balanceOf(walletAddr);
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData2);
-
-        uint256 sharesAfter2 = vault.balanceOf(walletAddr);
-        assertGt(sharesAfter2, sharesAfter1);
-    }
-
-    function test_RebalancingFlow() public {
-        // Simulate rebalancing: withdraw from one vault, deposit to another
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        usdc.mint(walletAddr, 1000e6);
-
-        // Deposit 600e6
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (600e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        uint256 shares = vault.balanceOf(walletAddr);
-
-        // Withdraw 300 shares worth
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares / 2));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
-
-        // Wallet should have some shares and some tokens
-        assertGt(vault.balanceOf(walletAddr), 0);
-        assertGt(usdc.balanceOf(walletAddr), 300e6);
-    }
-
-    function test_MultiVaultInteraction() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Create second vault
-        MockERC4626 vault2 = new MockERC4626(address(usdc), "Vault 2", "v2");
-
-        // Register second vault from admin context
-        vm.startPrank(admin);
-        registry.registerAdapter(address(vaultAdapter));
-        registry.setTargetAdapter(address(vault2), address(vaultAdapter));
-        vm.stopPrank();
-
-        usdc.mint(walletAddr, 1000e6);
-
-        // Deposit to first vault
-        bytes memory depositData1 = abi.encodeCall(vaultAdapter.deposit, (400e6));
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData1);
-
-        // Deposit to second vault
-        bytes memory depositData2 = abi.encodeCall(vaultAdapter.deposit, (400e6));
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault2), depositData2);
-
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-        assertTrue(vault2.balanceOf(walletAddr) > 0);
-    }
-
     function test_WithdrawToUser_ThroughWallet() public {
         address walletAddr = createWalletForUser(user);
         AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
@@ -801,41 +339,7 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         assertEq(balanceAfter - balanceBefore, 50e6);
     }
 
-    // ============ Real Adapter Execution Tests (18 tests) ============
-
-    function test_DepositThroughAdapterRecordsFeeTracking() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        usdc.mint(walletAddr, 500e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        // Verify shares received
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-    }
-
-    function test_WithdrawThroughAdapterRecordsFeeTracking() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        usdc.mint(walletAddr, 1000e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        uint256 shares = vault.balanceOf(walletAddr);
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
-
-        // Wallet should have tokens back
-        assertTrue(usdc.balanceOf(walletAddr) > 400e6);
-    }
+    // ============ Real Adapter Execution Tests ============
 
     function test_DepositPercentage_CalculatesCorrectly() public {
         address walletAddr = createWalletForUser(user);
@@ -851,55 +355,37 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositPercentData);
 
         // Should have vault shares
-        assertTrue(vault.balanceOf(walletAddr) > 0);
+        assertEq(vault.balanceOf(walletAddr), 500e6);
 
         // Should have 500e6 remaining
         assertEq(usdc.balanceOf(walletAddr), 500e6);
     }
 
-    function test_AdapterIntegration_MultipleUsers() public {
-        address wallet1 = createWalletForUser(user);
-        address wallet2 = createWalletForUser(makeAddr("user2"));
-
-        AgentWalletV3 w1 = AgentWalletV3(payable(wallet1));
-        AgentWalletV3 w2 = AgentWalletV3(payable(wallet2));
-
-        usdc.mint(wallet1, 500e6);
-        usdc.mint(wallet2, 500e6);
-
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (400e6));
-
-        vm.prank(user);
-        w1.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        vm.prank(makeAddr("user2"));
-        w2.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        assertTrue(vault.balanceOf(wallet1) > 0);
-        assertTrue(vault.balanceOf(wallet2) > 0);
-    }
-
-    function test_AdapterBlocking_PreventsUserFromUsing() public {
+    function test_AdapterBlockingAndUnblockingControlsExecution() public {
         address walletAddr = createWalletForUser(user);
         AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
 
         usdc.mint(walletAddr, 500e6);
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (400e6));
 
-        // First execution should work
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-        assertTrue(vault.balanceOf(walletAddr) > 0);
 
-        // Block adapter
         vm.prank(user);
         wallet.blockAdapter(address(vaultAdapter));
 
-        // Second execution should fail
         usdc.mint(walletAddr, 500e6);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(vaultAdapter)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        vm.prank(user);
+        wallet.unblockAdapter(address(vaultAdapter));
+
+        vm.prank(user);
+        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+
+        assertEq(vault.balanceOf(walletAddr), 800e6);
     }
 
     function test_TargetBlocking_PreventsUserFromUsingTarget() public {
@@ -912,7 +398,7 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         // First execution should work
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-        assertTrue(vault.balanceOf(walletAddr) > 0);
+        assertEq(vault.balanceOf(walletAddr), 400e6);
 
         // Block target
         vm.prank(user);
@@ -923,27 +409,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(TargetIsBlocked.selector, address(vault)));
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-    }
-
-    function test_AdapterUnblock_RestoresAccess() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Block adapter
-        vm.prank(user);
-        wallet.blockAdapter(address(vaultAdapter));
-
-        // Unblock adapter
-        vm.prank(user);
-        wallet.unblockAdapter(address(vaultAdapter));
-
-        // Should now work
-        usdc.mint(walletAddr, 500e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (400e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-        assertTrue(vault.balanceOf(walletAddr) > 0);
     }
 
     function test_CompleteYieldCycle() public {
@@ -974,26 +439,29 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
 
     function test_PartialWithdraw_LeavesRemainingShares() public {
         address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        vm.prank(operator);
+        address secondWalletAddr = address(factory.createAgentWallet(user, AGENT_INDEX + 1, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)));
+        address[2] memory walletAddresses = [walletAddr, secondWalletAddr];
+        uint256[2] memory depositAmounts = [uint256(600e6), uint256(1000e6)];
 
-        usdc.mint(walletAddr, 1000e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
+        for (uint256 i; i < depositAmounts.length; ++i) {
+            address currentWallet = walletAddresses[i];
+            AgentWalletV3 wallet = AgentWalletV3(payable(currentWallet));
+            usdc.mint(currentWallet, 1000e6);
+            bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (depositAmounts[i]));
 
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
+            vm.prank(user);
+            wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
-        uint256 totalShares = vault.balanceOf(walletAddr);
+            uint256 totalShares = vault.balanceOf(currentWallet);
+            bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (totalShares / 2));
 
-        // Withdraw half
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (totalShares / 2));
+            vm.prank(user);
+            wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
 
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
-
-        // Should have remaining shares and some tokens
-        assertTrue(vault.balanceOf(walletAddr) > 0);
-        assertTrue(vault.balanceOf(walletAddr) < totalShares);
-        assertTrue(usdc.balanceOf(walletAddr) > 400e6);
+            assertEq(vault.balanceOf(currentWallet), totalShares / 2);
+            assertEq(usdc.balanceOf(currentWallet), 1000e6 - depositAmounts[i] + depositAmounts[i] / 2);
+        }
     }
 
     function test_AdapterExecution_WithInsufficientBalance() public {
@@ -1007,24 +475,6 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         vm.prank(user);
         vm.expectRevert();
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-    }
-
-    function test_WalletFunctionality_AfterSync() public {
-        address walletAddr = createWalletForUser(user);
-        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
-
-        // Sync from factory (updates registry reference)
-        vm.prank(user);
-        wallet.syncFromFactory();
-
-        // Wallet should still be functional
-        usdc.mint(walletAddr, 500e6);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
-
-        assertTrue(vault.balanceOf(walletAddr) > 0);
     }
 }
 

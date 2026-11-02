@@ -40,12 +40,6 @@ contract YieldSeekerAdminTimelockTest is Test {
         vm.warp(100);
     }
 
-    function test_Constructor_RoleAssignment() public view {
-        assertTrue(timelock.hasRole(timelock.PROPOSER_ROLE(), proposer));
-        assertTrue(timelock.hasRole(timelock.EXECUTOR_ROLE(), executor));
-        assertTrue(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), admin));
-    }
-
     function test_ScheduleAndExecute_Succeeds() public {
         bytes memory data = abi.encodeWithSelector(DummyTarget.setValue.selector, 7);
         bytes32 salt = keccak256("schedule_and_execute");

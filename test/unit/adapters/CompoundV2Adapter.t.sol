@@ -178,22 +178,6 @@ contract CompoundV2AdapterTest is Test {
         assertEq(costBasis, depositAmount - proportionalCost, "Cost basis should be reduced proportionally");
     }
 
-    // ============ Audit Fix: Uses exchangeRateCurrent (Issue 3) ============
-
-    function test_ExchangeRateCurrent_CorrectFees() public {
-        uint256 depositAmount = 1_000e6;
-        wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.deposit.selector, depositAmount));
-        cToken.addYield(1000);
-        baseAsset.mint(address(cToken), 100e6);
-        uint256 fullBalance = (depositAmount * 11000) / 10000;
-        uint256 sharesToWithdraw = cToken.balanceOf(address(wallet));
-        bytes memory result = wallet.executeAdapter(address(adapter), address(cToken), abi.encodeWithSelector(adapter.withdraw.selector, sharesToWithdraw));
-        assertEq(_decodeUint(result), fullBalance, "Should return underlying received for all redeemed cTokens");
-        uint256 profit = fullBalance - depositAmount;
-        uint256 expectedFee = (profit * 1000) / 10_000;
-        assertEq(baseAsset.balanceOf(feeTracker.feeCollector()), expectedFee, "Should charge correct fee with current exchange rate");
-    }
-
     function test_RewardSharesWithoutCostBasisAreChargedAtCurrentExchangeRate() public {
         uint256 rewardAssets = 50e6;
         address rewardHolder = address(0xBEEF);

@@ -10,7 +10,6 @@ import {FeePlanChoice, InvalidPlan, YieldSeekerFeeTracker as FeeTracker} from ".
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
-import {MockEntryPoint} from "../mocks/MockEntryPoint.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract FeeTrackerSecurityTest is Test {
@@ -22,7 +21,6 @@ contract FeeTrackerSecurityTest is Test {
 
     MockERC20 usdc;
     MockERC4626 vault;
-    MockEntryPoint entryPoint;
 
     address admin = makeAddr("admin");
     address emergencyAdmin = makeAddr("emergencyAdmin");
@@ -37,7 +35,6 @@ contract FeeTrackerSecurityTest is Test {
     function setUp() public {
         usdc = new MockERC20("Mock USDC", "mUSDC");
         vault = new MockERC4626(address(usdc), "Mock Vault", "mVault");
-        entryPoint = new MockEntryPoint();
 
         bytes memory initialPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
         vm.startPrank(admin);

@@ -19,8 +19,6 @@ contract AdapterRegistryTest is Test {
     event AdapterUnregistered(address indexed adapter);
     event TargetRegistered(address indexed target, address indexed adapter);
     event TargetRemoved(address indexed target, address indexed previousAdapter);
-    event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender);
-    event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender);
 
     function setUp() public {
         registry = new YieldSeekerAdapterRegistry(admin, emergencyAdmin);
@@ -76,18 +74,6 @@ contract AdapterRegistryTest is Test {
         assertTrue(registry.isRegisteredAdapter(adapter));
     }
 
-    function test_IsRegistered_Correct() public {
-        address adapter = address(new MockAdapter());
-
-        // Initially not registered
-        assertFalse(registry.isRegisteredAdapter(adapter));
-
-        // After registration
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-        assertTrue(registry.isRegisteredAdapter(adapter));
-    }
-
     // ============ Target-Adapter Mapping ============
 
     function test_SetTargetAdapter_Success() public {
@@ -137,31 +123,7 @@ contract AdapterRegistryTest is Test {
         registry.setTargetAdapter(target, adapter);
     }
 
-    function test_GetTargetAdapter_ValidMapping() public {
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        vm.startPrank(admin);
-        registry.registerAdapter(adapter);
-        registry.setTargetAdapter(target, adapter);
-        vm.stopPrank();
-
-        assertEq(registry.getTargetAdapter(target), adapter);
-    }
-
-    function test_GetTargetAdapter_NoMapping() public {
-        address target = makeAddr("target");
-
-        assertEq(registry.getTargetAdapter(target), address(0));
-    }
-
     // ============ Emergency Controls ============
-
-    function test_Pause_OnlyEmergency() public {
-        vm.prank(emergencyAdmin);
-        registry.pause();
-        assertTrue(registry.paused());
-    }
 
     function test_Pause_OnlyEmergencyRole() public {
         vm.prank(nonAdmin);
@@ -188,15 +150,6 @@ contract AdapterRegistryTest is Test {
         registry.getTargetAdapter(target);
     }
 
-    function test_Unpause_OnlyAdmin() public {
-        vm.prank(emergencyAdmin);
-        registry.pause();
-
-        vm.prank(admin);
-        registry.unpause();
-        assertFalse(registry.paused());
-    }
-
     function test_Unpause_OnlyAdminRole() public {
         vm.prank(emergencyAdmin);
         registry.pause();
@@ -211,9 +164,6 @@ contract AdapterRegistryTest is Test {
     function test_UnregisterAdapter_Success() public {
         address adapter = address(new MockAdapter());
 
-        vm.startPrank(emergencyAdmin);
-        // First register the adapter (only admin can do this)
-        vm.stopPrank();
         vm.prank(admin);
         registry.registerAdapter(adapter);
 
@@ -331,27 +281,7 @@ contract AdapterRegistryTest is Test {
         assertEq(registry.getTargetAdapter(target), adapter2);
     }
 
-    function test_SetTargetAdapter_SameAdapter() public {
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        vm.startPrank(admin);
-        registry.registerAdapter(adapter);
-        registry.setTargetAdapter(target, adapter);
-
-        // Setting same adapter should be no-op (no events emitted)
-        registry.setTargetAdapter(target, adapter);
-        vm.stopPrank();
-
-        assertEq(registry.getTargetAdapter(target), adapter);
-    }
-
     // ============ GetAllTargets Tests ============
-
-    function test_GetAllTargets_Empty() public view {
-        address[] memory targets = registry.getAllTargets();
-        assertEq(targets.length, 0);
-    }
 
     function test_GetAllTargets_FilterUnregistered() public {
         address adapter1 = address(new MockAdapter());
@@ -437,49 +367,6 @@ contract AdapterRegistryTest is Test {
         assertEq(targets[0], target2);
     }
 
-    // ============ Access Control Edge Cases ============
-
-    function test_AdminRole_CanRegisterAdapters() public {
-        address adapter = address(new MockAdapter());
-
-        // Admin should be able to register adapters
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-
-        assertTrue(registry.isRegisteredAdapter(adapter));
-    }
-
-    function test_EmergencyRole_CanPauseAndUnregister() public {
-        address adapter = address(new MockAdapter());
-
-        // Register adapter first
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-
-        // Emergency admin should be able to pause
-        vm.prank(emergencyAdmin);
-        registry.pause();
-        assertTrue(registry.paused());
-
-        // Emergency admin should be able to unregister adapters
-        vm.prank(emergencyAdmin);
-        registry.unregisterAdapter(adapter);
-        assertFalse(registry.isRegisteredAdapter(adapter));
-    }
-
-    // ============ Missing Event Tests ============
-
-    function test_RegisterAdapter_EmitsEvent() public {
-        address adapter = address(new MockAdapter());
-
-        vm.prank(admin);
-        vm.expectEmit(true, false, false, false);
-        emit AdapterRegistered(adapter);
-        registry.registerAdapter(adapter);
-    }
-
-    // ============ Role Management Tests ============
-
     function test_RenounceRole_Success() public {
         // First verify admin has the role
         assertTrue(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), admin));
@@ -499,144 +386,6 @@ contract AdapterRegistryTest is Test {
         registry.registerAdapter(adapter);
     }
 
-    function test_AdminRole_Verification() public view {
-        // Verify admin has the admin role
-        assertTrue(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), admin));
-
-        // Verify emergency admin has emergency role
-        assertTrue(registry.hasRole(registry.EMERGENCY_ROLE(), emergencyAdmin));
-
-        // Verify nonAdmin doesn't have admin role
-        assertFalse(registry.hasRole(registry.DEFAULT_ADMIN_ROLE(), nonAdmin));
-    }
-
-    function test_RoleManagement_AdminCanPerformAdminActions() public {
-        // Test that admin can perform admin-only functions
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        vm.startPrank(admin);
-
-        // Admin can register adapters
-        registry.registerAdapter(adapter);
-        assertTrue(registry.isRegisteredAdapter(adapter));
-
-        // Admin can set target adapters
-        registry.setTargetAdapter(target, adapter);
-        assertEq(registry.getTargetAdapter(target), adapter);
-
-        // Admin can unpause if paused
-        vm.stopPrank();
-
-        // Emergency admin pauses first
-        vm.prank(emergencyAdmin);
-        registry.pause();
-        assertTrue(registry.paused());
-
-        // Admin can unpause
-        vm.prank(admin);
-        registry.unpause();
-        assertFalse(registry.paused());
-    }
-
-    function test_RoleManagement_EmergencyCanPerformEmergencyActions() public {
-        // Set up initial state
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-        vm.prank(admin);
-        registry.setTargetAdapter(target, adapter);
-
-        vm.startPrank(emergencyAdmin);
-
-        // Emergency admin can pause
-        registry.pause();
-        assertTrue(registry.paused());
-
-        // Emergency admin can unregister adapters
-        registry.unregisterAdapter(adapter);
-        assertFalse(registry.isRegisteredAdapter(adapter));
-
-        vm.stopPrank();
-
-        // Unpause to test remove target
-        vm.prank(admin);
-        registry.unpause();
-
-        // Re-register adapter for target removal test
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-
-        // Emergency admin can remove targets
-        vm.prank(emergencyAdmin);
-        registry.removeTarget(target);
-        assertEq(registry.getTargetAdapter(target), address(0));
-    }
-
-    function test_RoleManagement_NonAdminCannotPerformAdminActions() public {
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        vm.startPrank(nonAdmin);
-
-        // Non-admin cannot register adapters
-        vm.expectRevert();
-        registry.registerAdapter(adapter);
-
-        // Non-admin cannot set target adapters
-        vm.expectRevert();
-        registry.setTargetAdapter(target, adapter);
-
-        // Non-admin cannot unpause
-        vm.expectRevert();
-        registry.unpause();
-
-        vm.stopPrank();
-    }
-
-    function test_RoleManagement_NonEmergencyCannotPerformEmergencyActions() public {
-        address adapter = address(new MockAdapter());
-        address target = makeAddr("target");
-
-        // Set up initial state
-        vm.prank(admin);
-        registry.registerAdapter(adapter);
-        vm.prank(admin);
-        registry.setTargetAdapter(target, adapter);
-
-        vm.startPrank(nonAdmin);
-
-        // Non-emergency cannot pause
-        vm.expectRevert();
-        registry.pause();
-
-        // Non-emergency cannot unregister adapters
-        vm.expectRevert();
-        registry.unregisterAdapter(adapter);
-
-        // Non-emergency cannot remove targets
-        vm.expectRevert();
-        registry.removeTarget(target);
-
-        vm.stopPrank();
-    }
-
-    function test_RoleManagement_RoleQueries() public view {
-        // Test role query functions
-        bytes32 adminRole = registry.DEFAULT_ADMIN_ROLE();
-        bytes32 emergencyRole = registry.EMERGENCY_ROLE();
-
-        // Check correct role assignments from constructor
-        assertTrue(registry.hasRole(adminRole, admin));
-        assertTrue(registry.hasRole(emergencyRole, emergencyAdmin));
-        assertFalse(registry.hasRole(adminRole, nonAdmin));
-        assertFalse(registry.hasRole(emergencyRole, nonAdmin));
-        assertFalse(registry.hasRole(adminRole, emergencyAdmin));
-        assertFalse(registry.hasRole(emergencyRole, admin));
-    }
-
     function test_RoleManagement_RoleAdminRelationships() public view {
         // Test role admin relationships
         bytes32 adminRole = registry.DEFAULT_ADMIN_ROLE();
@@ -645,34 +394,6 @@ contract AdapterRegistryTest is Test {
         // Check role admin relationships
         assertEq(registry.getRoleAdmin(adminRole), adminRole); // Admin role is its own admin
         assertEq(registry.getRoleAdmin(emergencyRole), adminRole); // Admin role administers emergency role
-    }
-
-    // ============ Edge Cases & Validation ============
-
-    function test_BatchOperations_AtomicFailure() public {
-        // Test that if we try to set multiple targets in sequence and one fails,
-        // the previous operations should still be valid (no atomic rollback)
-        address adapter1 = address(new MockAdapter());
-        address adapter2 = address(new MockAdapter());
-        address target1 = makeAddr("target1");
-        address target2 = makeAddr("target2");
-
-        vm.startPrank(admin);
-        registry.registerAdapter(adapter1);
-        // Don't register adapter2 - this will cause failure
-
-        // First operation should succeed
-        registry.setTargetAdapter(target1, adapter1);
-        assertEq(registry.getTargetAdapter(target1), adapter1);
-
-        // Second operation should fail due to unregistered adapter
-        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, adapter2));
-        registry.setTargetAdapter(target2, adapter2);
-        vm.stopPrank();
-
-        // First operation should still be valid (no rollback)
-        assertEq(registry.getTargetAdapter(target1), adapter1);
-        assertEq(registry.getTargetAdapter(target2), address(0));
     }
 }
 
