@@ -22,6 +22,7 @@ import {YieldSeekerWalletLinkRegistry} from "../WalletLinkRegistry.sol";
 import {UnknownOperation} from "../agentwalletkit/AWKAdapter.sol";
 import {AWKAgentWalletFactory} from "../agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
+import {FeeActions} from "../fees/FeeActions.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -34,8 +35,9 @@ error NotLinkedWallet(address wallet);
  * @notice Move a token from this wallet to another agent wallet of the same owner that the owner linked
  * @dev Register LINK_REGISTRY as this adapter's target. Both wallets must be the ones this wallet's factory deployed
  *      for the same owner (userWallets(owner, ownerAgentIndex) points back at them, so a look-alike contract cannot
- *      pass), and the owner must have linked them. The receiver's fee tracker must allow the token (so it can always
- *      be withdrawn there), and the sender may only move what its owner could withdraw (so fees owed stay behind).
+ *      pass), and the owner must have linked them. Both fee trackers must account for the token (so it can always be
+ *      withdrawn there), and the transfer is reported first (FeeActions.TRANSFER_OUT) so fees owed are paid before the
+ *      exact amount leaves.
  */
 contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
     using SafeERC20 for IERC20;
@@ -65,9 +67,8 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);
         if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();
-        uint256 feesHeld = _feeTracker().feesHeld(address(this), token);
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance < feesHeld || amount > balance - feesHeld) revert AWKErrors.InsufficientBalance();
+        _reportAction(FeeActions.TRANSFER_OUT, abi.encode(FeeActions.TransferOut({token: token, to: to, amount: amount})));
+        if (IERC20(token).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();
         IERC20(token).safeTransfer(to, amount);
         emit TransferredToLinkedWallet(address(this), to, token, amount);
         return abi.encode(amount);

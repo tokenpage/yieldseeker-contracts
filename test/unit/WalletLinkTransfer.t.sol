@@ -119,6 +119,23 @@ contract WalletLinkTransferTest is Test {
         assertEq(usdc.balanceOf(address(borrowWallet)), 55e6);
     }
 
+    function test_TransferSettlesFeesBeforeSendingExactAmount() public {
+        _linkWallets();
+        _recordBorrowedUsdc();
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
+
+        uint256 feesOwed = vaultFeeModule.feesOwed(address(vaultWallet));
+        uint256 amount = 300e6 - feesOwed;
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+
+        _transfer(vaultWallet, address(usdc), address(borrowWallet), amount, address(linkRegistry));
+
+        assertEq(usdc.balanceOf(address(borrowWallet)), amount);
+        assertEq(usdc.balanceOf(address(vaultWallet)), 0);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, feesOwed);
+        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 0);
+    }
+
     function test_TransferRejectsTokenTheReceiverCannotWithdraw() public {
         _linkWallets();
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 1, abi.encodeWithSelector(InvalidAsset.selector));
@@ -149,12 +166,19 @@ contract WalletLinkTransferTest is Test {
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(unrelated), address(borrowWallet), 1, abi.encodeWithSelector(InvalidAsset.selector));
     }
 
-    function test_TransferCannotExceedFeeModuleWithdrawableBalance() public {
+    function test_TransferCannotExceedBalanceAfterFeeSettlement() public {
         _linkWallets();
         _recordBorrowedUsdc();
         _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
 
-        _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 290e6 + 1, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
+        uint256 feesOwed = vaultFeeModule.feesOwed(address(vaultWallet));
+        uint256 amountAfterSettlement = 300e6 - feesOwed;
+        uint256 transferAmount = amountAfterSettlement + 1;
+        _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), transferAmount, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
+
+        assertEq(usdc.balanceOf(address(vaultWallet)), 300e6);
+        assertEq(usdc.balanceOf(feeCollector), 0);
+        assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), feesOwed);
     }
 
     function _linkWallets() private {

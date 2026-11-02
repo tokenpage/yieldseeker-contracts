@@ -97,7 +97,7 @@ Since adapters execute via `delegatecall` in the wallet's context:
 
 ## Fee Model
 
-Adapters never decide fees. After every action they report what the wallet did (a deposit, a withdrawal, a swap, a claim, a debt change) to every fee module, and each module decides what that costs. The adapter then pays each module's fees due from the wallet's base asset to the fee collector, in the same transaction.
+Adapters never decide fees. After every action they report what the wallet did (a deposit, a withdrawal, a swap, a claim, a debt change) to the fee tracker, which passes it to every fee module, and each module decides what that costs and pays what it is owed from the wallet's base asset, in the same transaction. Before any value leaves the wallet (an owner withdrawal, a transfer to a linked agent) the outflow is reported first (`TRANSFER_OUT`), so every module collects what it is owed; the owner still receives exactly the amount requested.
 
 ### Yield fee (`YIELD_FEE`, all agent types)
 
@@ -113,7 +113,7 @@ A yearly fee on borrowed principal, counted in the borrowed token per market and
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for the remaining position is reduced, and no fees are accrued.
-- **No pending fees in the wallet**: fees are paid as soon as the wallet holds base asset, so the wallet's base-asset balance is what the owner can withdraw.
+- **Fees are settled before funds leave**: any reported action or outflow pays the fees owed from the base asset. `withdrawableBalance(asset)` on the wallet is the amount the owner can take out now (the base asset net of `feesOwedInBaseAsset`); "withdraw all" sends the rest after fees, a fixed amount is sent exactly. Settlement at withdrawal is gas-limited and failure-tolerant, so no module or collector failure can block an exit (the fees then stay owed).
 - **Non-Custodial**: Fees are only paid from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---
@@ -304,7 +304,7 @@ The fee tracker holds the fee modules (one per fee type), their plans, each wall
 
 | Contract | Role |
 |----------|------|
-| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)` (unpaid fees across modules, for display), each module called with a gas limit so a failing one can't block exits |
 | `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`; fees paid in the base asset at the oracle price; accounts for borrowed tokens |
 
@@ -694,9 +694,11 @@ sequenceDiagram
     Wallet-->>EP: ✓
 
     Note over User: User withdraws USDC
-    User->>Wallet: withdrawToken(USDC, userAddress, balance)
+    User->>Wallet: withdrawAssetToUser(user, USDC, amount)
     Wallet->>Wallet: Verify caller is owner ✓
-    Wallet->>User: Transfer USDC
+    Wallet->>FeeTracker: reportAction(TRANSFER_OUT, ...) (gas-limited, failures ignored)
+    FeeTracker-->>Wallet: fees owed, paid to the collector
+    Wallet->>User: Transfer exactly `amount` USDC
 ```
 
 **Security Properties:**

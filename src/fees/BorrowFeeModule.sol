@@ -165,8 +165,17 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return isBorrowedToken[wallet][token];
     }
 
-    /// @notice Borrow fees are paid in the base asset as soon as the wallet holds it, so nothing is held back
-    function feesHeld(address, address) external pure returns (uint256) {
-        return 0;
+    /// @notice Borrow fees owed in every borrowed token, at the oracle price (a token without a fresh price counts 0)
+    function feesOwedInBaseAsset(address wallet) external view returns (uint256 owed) {
+        address[] storage tokens = _borrowedTokens[wallet];
+        if (tokens.length == 0) return 0;
+        address baseAsset = address(IAgentWallet(wallet).baseAsset());
+        for (uint256 i = 0; i < tokens.length; i++) {
+            uint256 tokenOwed = feesOwed[wallet][tokens[i]];
+            if (tokenOwed == 0) continue;
+            try PRICE_ORACLE.quote(tokens[i], baseAsset, tokenOwed) returns (uint256 quoted) {
+                owed += quoted;
+            } catch {}
+        }
     }
 }

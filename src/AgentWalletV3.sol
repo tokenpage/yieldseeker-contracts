@@ -20,8 +20,10 @@ import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
 import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {FeeActions} from "./fees/FeeActions.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error InvalidAsset();
 error InvalidFeeTracker();
@@ -51,10 +53,15 @@ library YieldSeekerStorageV1 {
 /**
  * @title YieldSeekerAgentWalletV3
  * @notice YieldSeeker agent wallet with fee tracking and base asset management
- * @dev Extends AWKAgentWalletV3 with YieldSeeker-specific functionality. V3 lets the fee tracker decide what the owner
- *      may withdraw (e.g. borrowed tokens minus borrow fees owed).
+ * @dev Extends AWKAgentWalletV3 with YieldSeeker-specific functionality. V3 lets the owner withdraw any token the fee
+ *      tracker accounts for (the base asset, or e.g. a borrowed token), and lets every fee module collect what it is
+ *      owed before funds leave.
  */
 contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
+    using SafeERC20 for IERC20;
+
+    uint256 public constant FEE_SETTLEMENT_GAS_LIMIT = 500_000;
+
     event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
 
     constructor(address factory) AWKAgentWalletV3(factory) {}
@@ -112,38 +119,62 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============
 
     /**
-     * @notice Calculate withdrawable balance (total balance minus fees held)
-     * @param asset Address of the asset to check (must be tracked by the fee tracker, e.g. the base asset)
+     * @notice How much of `asset` the owner can withdraw now: the base asset net of fees owed, a token a fee module
+     *         accounts for (e.g. a borrowed token) in full, and nothing for other tokens
      */
-    function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
+    function withdrawableBalance(address asset) public view returns (uint256) {
         FeeTracker tracker = feeTracker();
-        if (!tracker.isAccountedToken(address(this), asset)) revert InvalidAsset();
+        if (!tracker.isAccountedToken(address(this), asset)) return 0;
         uint256 balance = IERC20(asset).balanceOf(address(this));
-        uint256 feesHeld = tracker.feesHeld(address(this), asset);
-        return balance > feesHeld ? balance - feesHeld : 0;
+        if (asset != address(baseAsset())) return balance;
+        uint256 feesOwed = tracker.feesOwedInBaseAsset(address(this));
+        return balance > feesOwed ? balance - feesOwed : 0;
     }
 
     /**
-     * @notice User withdraws any ERC20 asset from agent wallet
+     * @notice User withdraws exactly `amount` of an ERC20 asset from the agent wallet
      * @param recipient Address to send the asset to
-     * @param asset Address of the ERC20 token to withdraw
+     * @param asset Address of the ERC20 token to withdraw (must be accounted for by the fee tracker)
      * @param amount Amount to withdraw
-     * @dev The fee tracker validates the asset and amount allowed for withdrawal.
+     * @dev Fees owed are collected first, from the base asset; the recipient still receives exactly `amount`.
      */
-    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwner {
-        uint256 withdrawable = _getWithdrawableBalance(asset);
-        if (withdrawable < amount) revert AWKErrors.InsufficientBalance();
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwner nonReentrant {
+        _requireAccountedToken(asset);
+        _settleFees(asset, recipient, amount);
+        if (IERC20(asset).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();
         _withdrawAsset(recipient, asset, amount);
     }
 
     /**
-     * @notice User withdraws all of a specific ERC20 asset from agent wallet
+     * @notice User withdraws all of an ERC20 asset from the agent wallet, net of fees owed
      * @param recipient Address to send the asset to
-     * @param asset Address of the ERC20 token to withdraw
-     * @dev The fee tracker validates the asset and amount allowed for withdrawal.
+     * @param asset Address of the ERC20 token to withdraw (must be accounted for by the fee tracker)
      */
-    function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwner {
-        uint256 withdrawable = _getWithdrawableBalance(asset);
-        _withdrawAsset(recipient, asset, withdrawable);
+    function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwner nonReentrant {
+        _requireAccountedToken(asset);
+        _settleFees(asset, recipient, IERC20(asset).balanceOf(address(this)));
+        _withdrawAsset(recipient, asset, IERC20(asset).balanceOf(address(this)));
+    }
+
+    function _requireAccountedToken(address asset) internal view {
+        if (!feeTracker().isAccountedToken(address(this), asset)) revert InvalidAsset();
+    }
+
+    /**
+     * @notice Settles fees before an owner withdrawal; only callable by this wallet (see _settleFees)
+     * @dev Reports the outflow (FeeActions.TRANSFER_OUT) so every fee module collects what it is owed, then pays the
+     *      collector. Runs as one call so a failed payment also undoes the modules' records.
+     */
+    function settleFeesForWithdrawal(address asset, address recipient, uint256 amount) external {
+        if (msg.sender != address(this)) revert AWKErrors.Unauthorized(msg.sender);
+        bytes memory data = abi.encode(FeeActions.TransferOut({token: asset, to: recipient, amount: amount}));
+        (uint256 payment, address collector) = feeTracker().reportAction(FeeActions.TRANSFER_OUT, data);
+        if (payment > 0) baseAsset().safeTransfer(collector, payment);
+    }
+
+    /// @dev Gas-limited and failure-tolerant, so neither a fee module nor the fee collector can block the owner's exit;
+    ///      if settlement fails, nothing is recorded and the fees stay owed.
+    function _settleFees(address asset, address recipient, uint256 amount) internal {
+        try this.settleFeesForWithdrawal{gas: FEE_SETTLEMENT_GAS_LIMIT}(asset, recipient, amount) {} catch {}
     }
 }

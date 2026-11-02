@@ -165,17 +165,18 @@ contract BorrowFeeModuleTest is Test {
     function testFeePaymentIsCappedByWalletBalanceAndAssetRules() public {
         _accrueOneYearFee();
 
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 100);
         assertEq(_settle(40), 40);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 60);
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 60);
 
         assertTrue(tracker.isAccountedToken(address(wallet), address(baseAsset)));
         assertTrue(tracker.isAccountedToken(address(wallet), address(debtToken)));
         assertFalse(tracker.isAccountedToken(address(wallet), address(unrelatedToken)));
-        assertEq(tracker.feesHeld(address(wallet), address(baseAsset)), 0);
-        assertEq(tracker.feesHeld(address(wallet), address(debtToken)), 0);
 
         assertEq(_settle(100), 60);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 0);
     }
 
     function testFeePaymentQuotesTokensInOrderAndSkipsRevertingQuotes() public {
@@ -199,13 +200,16 @@ contract BorrowFeeModuleTest is Test {
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 100);
         assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 100);
         assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 600);
         assertEq(_settle(300), 300);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
         assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 75);
         assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 300);
         assertEq(_settle(1_000), 300);
         assertEq(module.feesOwed(address(wallet), address(secondDebtToken)), 0);
         assertEq(module.feesOwed(address(wallet), address(staleDebtToken)), 100);
+        assertEq(module.feesOwedInBaseAsset(address(wallet)), 0);
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {

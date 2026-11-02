@@ -363,9 +363,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         assertEq(_implementation(), address(nextImplementation));
     }
 
-    function test_EntryPoint_RespectsWithdrawableBalanceGate() public {
-        // _getWithdrawableBalance still runs ahead of the transfer under the EntryPoint-relayed
-        // path, not just the direct-call path.
+    function test_EntryPoint_RejectsAmountAboveBalanceAfterSettlement() public {
         vm.prank(ENTRY_POINT);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
         wallet.withdrawAssetToUser(recipient, address(usdc), 10_000e6);
@@ -712,7 +710,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         wallet.withdrawAssetToUser(recipient, address(usdc), 10_000e6);
     }
 
-    function test_WithdrawAssetToUser_BaseAsset_RespectsFees() public {
+    function test_WithdrawAssetToUser_BaseAsset_SettlesFeesAndTransfersExactAmount() public {
         bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
         feeTracker.createPlan(YIELD_FEE, plan);
@@ -720,19 +718,25 @@ contract AgentWalletV3AuthorizationTest is Test {
         _recordFeeAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: 1_000e6})));
         _recordFeeAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(vault), spent: 1_000e6, heldBefore: 1_000e6, assetsOut: 1_100e6})));
 
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 10e6);
+        uint256 feesOwed = vaultFeeModule.feesOwed(address(wallet));
+        uint256 amountAboveAvailable = 1_000e6;
+        uint256 amount = 990e6;
 
+        assertEq(feesOwed, 10e6);
         vm.prank(ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
-        wallet.withdrawAssetToUser(recipient, address(usdc), 1_000e6);
+        wallet.withdrawAssetToUser(recipient, address(usdc), amountAboveAvailable);
 
         vm.prank(ownerAddr);
-        wallet.withdrawAssetToUser(recipient, address(usdc), 990e6);
+        wallet.withdrawAssetToUser(recipient, address(usdc), amount);
 
-        assertEq(usdc.balanceOf(recipient), 990e6);
+        assertEq(usdc.balanceOf(recipient), amount);
+        assertEq(usdc.balanceOf(admin), feesOwed);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
 
-    function test_WithdrawAllAssetToUser_BaseAsset_RespectsFees() public {
+    function test_WithdrawAllAssetToUser_BaseAsset_SettlesFeesAndSendsRemainder() public {
         bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
         feeTracker.createPlan(YIELD_FEE, plan);
@@ -744,7 +748,9 @@ contract AgentWalletV3AuthorizationTest is Test {
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
 
         assertEq(usdc.balanceOf(recipient), 990e6);
-        assertEq(usdc.balanceOf(address(wallet)), 10e6);
+        assertEq(usdc.balanceOf(address(admin)), 10e6);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
 
     function test_WithdrawAssetToUser_NonBaseAsset_Reverts() public {
@@ -794,7 +800,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         wallet.withdrawAllAssetToUser(recipient, address(otherToken));
     }
 
-    function test_WithdrawAllAssetToUser_WhenFeesExceedBalanceLeavesFunds() public {
+    function test_WithdrawAllAssetToUser_PaysAvailableFeesAndWithdrawsRemainder() public {
         bytes memory plan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
         vm.prank(admin);
         feeTracker.createPlan(YIELD_FEE, plan);
@@ -806,8 +812,9 @@ contract AgentWalletV3AuthorizationTest is Test {
         wallet.withdrawAllAssetToUser(recipient, address(usdc));
 
         assertEq(usdc.balanceOf(recipient), 0);
-        assertEq(usdc.balanceOf(address(wallet)), walletBalanceBefore);
-        assertEq(vaultFeeModule.feesOwed(address(wallet)), 2_000e6);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(usdc.balanceOf(address(admin)), walletBalanceBefore);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 1_000e6);
     }
 
     function test_WithdrawEthToUser_ValidAmount() public {

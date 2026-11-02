@@ -17,10 +17,37 @@ import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwall
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract SwapIntegrationFeeModule is IYieldSeekerFeeModule {
+    address private immutable _accountedToken;
+    uint256 private immutable _feesOwed;
+
+    constructor(address accountedToken_, uint256 feesOwed_) {
+        _accountedToken = accountedToken_;
+        _feesOwed = feesOwed_;
+    }
+
+    function isValidPlan(bytes calldata) external pure returns (bool) {
+        return true;
+    }
+
+    function onAction(address, bytes32, bytes calldata, uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    function isAccountedToken(address, address token) external view returns (bool) {
+        return token == _accountedToken;
+    }
+
+    function feesOwedInBaseAsset(address) external view returns (uint256) {
+        return _feesOwed;
+    }
+}
 
 contract MockUniswapV3RouterIntegration {
     uint256 public configuredBuyAmount;
@@ -320,5 +347,25 @@ contract SwapAdapterIntegrationTest is Test {
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
         assertEq(baseAsset.balanceOf(feeCollector) - feeCollectorBalanceBefore, 20e6);
         assertEq(baseAsset.balanceOf(address(wallet)), 180e6);
+    }
+
+    function test_BaseAssetSaleRevertsWhenFeesRemainOwed() public {
+        AgentWalletV3 wallet = _createWallet();
+        SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(otherToken), 1);
+        vm.prank(admin);
+        feeTracker.setFeeModule(keccak256("swap-integration-fees"), feeModule);
+        baseAsset.mint(address(wallet), 500e6);
+        uniswapRouter.setBuyAmount(100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, uint256(100e6), uint256(100e6)));
+        bytes memory innerError = abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector);
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.prank(user);
+        vm.expectRevert(expectedError);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+
+        assertEq(baseAsset.balanceOf(address(wallet)), 500e6);
+        assertEq(otherToken.balanceOf(address(wallet)), 0);
     }
 }

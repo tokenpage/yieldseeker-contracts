@@ -14,7 +14,9 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
+import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
@@ -29,6 +31,50 @@ contract MockMerklDistributor {
         for (uint256 i = 0; i < tokens.length; i++) {
             require(MockERC20(tokens[i]).transfer(msg.sender, amounts[i]), "Transfer failed");
         }
+    }
+}
+
+contract IntegrationFeeModule is IYieldSeekerFeeModule {
+    address private immutable _accountedToken;
+    uint256 private immutable _feesOwed;
+    bool private immutable _revertsOnAction;
+
+    constructor(address accountedToken_, uint256 feesOwed_, bool revertsOnAction_) {
+        _accountedToken = accountedToken_;
+        _feesOwed = feesOwed_;
+        _revertsOnAction = revertsOnAction_;
+    }
+
+    function isValidPlan(bytes calldata) external pure returns (bool) {
+        return true;
+    }
+
+    function onAction(address, bytes32, bytes calldata, uint256) external view returns (uint256) {
+        if (_revertsOnAction) revert();
+        return 0;
+    }
+
+    function isAccountedToken(address, address token) external view returns (bool) {
+        return token == _accountedToken;
+    }
+
+    function feesOwedInBaseAsset(address) external view returns (uint256) {
+        return _feesOwed;
+    }
+}
+
+contract FeeCollectorRejectingToken is MockERC20 {
+    address public rejectedRecipient;
+
+    constructor() MockERC20("Rejecting Fee Asset", "RFA") {}
+
+    function setRejectedRecipient(address recipient) external {
+        rejectedRecipient = recipient;
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        if (to == rejectedRecipient) revert();
+        return super.transfer(to, amount);
     }
 }
 
@@ -1372,5 +1418,121 @@ contract AgentWalletFeeTrackingIntegrationTest is AgentWalletIntegrationBase {
         assertEq(vault.balanceOf(address(wallet)), 500e6);
         uint256 costBasis = vaultFeeModule.costBasis(address(wallet), address(vault));
         assertEq(costBasis, 500e6);
+    }
+
+    function test_WithdrawAssetToUser_SettlesFeesAndSendsExactAmount() public {
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        uint256 claimedYield = 100e6;
+        uint256 expectedFee = claimedYield * FEE_RATE / 10_000;
+        uint256 withdrawalAmount = 25e6;
+        bytes memory claimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: claimedYield}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, claimData);
+        usdc.mint(walletAddr, 100e6);
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+
+        vm.prank(user);
+        wallet.withdrawAssetToUser(user, address(usdc), withdrawalAmount);
+
+        assertEq(usdc.balanceOf(user) - userBalanceBefore, withdrawalAmount);
+        assertEq(usdc.balanceOf(walletAddr), 100e6 - expectedFee - withdrawalAmount);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, expectedFee);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), 0);
+    }
+
+    function test_WithdrawAllAssetToUser_SettlesFeesAndSendsRemainder() public {
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        uint256 claimedYield = 100e6;
+        uint256 expectedFee = claimedYield * FEE_RATE / 10_000;
+        bytes memory claimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: claimedYield}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, claimData);
+        usdc.mint(walletAddr, 100e6);
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+
+        vm.prank(user);
+        wallet.withdrawAllAssetToUser(user, address(usdc));
+
+        assertEq(usdc.balanceOf(user) - userBalanceBefore, 100e6 - expectedFee);
+        assertEq(usdc.balanceOf(walletAddr), 0);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, expectedFee);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), 0);
+    }
+
+    function test_WithdrawSucceedsWhenFeeModuleReverts() public {
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        uint256 claimedYield = 100e6;
+        uint256 expectedFee = claimedYield * FEE_RATE / 10_000;
+        uint256 withdrawalAmount = 25e6;
+        bytes memory claimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: claimedYield}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, claimData);
+        usdc.mint(walletAddr, 100e6);
+        IntegrationFeeModule failingModule = new IntegrationFeeModule(address(0), 0, true);
+        vm.prank(admin);
+        feeTracker.setFeeModule(keccak256("integration-failing"), failingModule);
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+        uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
+
+        vm.prank(user);
+        wallet.withdrawAssetToUser(user, address(usdc), withdrawalAmount);
+
+        assertEq(usdc.balanceOf(user) - userBalanceBefore, withdrawalAmount);
+        assertEq(usdc.balanceOf(walletAddr), 100e6 - withdrawalAmount);
+        assertEq(usdc.balanceOf(feeCollector), collectorBalanceBefore);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), expectedFee);
+    }
+
+    function test_WithdrawSucceedsWhenFeeCollectorTransferFails() public {
+        FeeCollectorRejectingToken token = new FeeCollectorRejectingToken();
+        token.setRejectedRecipient(feeCollector);
+        uint256 walletIndex = AGENT_INDEX + 1;
+        vm.prank(operator);
+        AgentWalletV3 wallet = AgentWalletV3(payable(factory.createAgentWallet(user, walletIndex, address(token), VAULT_AGENT_PROFILE, new FeePlanChoice[](0))));
+        address walletAddr = address(wallet);
+        uint256 claimedYield = 100e6;
+        uint256 expectedFee = claimedYield * FEE_RATE / 10_000;
+        uint256 withdrawalAmount = 25e6;
+        bytes memory claimData = abi.encode(FeeActions.Claim({token: address(token), amount: claimedYield}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, claimData);
+        token.mint(walletAddr, 100e6);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), expectedFee);
+        uint256 userBalanceBefore = token.balanceOf(user);
+
+        vm.prank(user);
+        wallet.withdrawAssetToUser(user, address(token), withdrawalAmount);
+
+        assertEq(token.balanceOf(user) - userBalanceBefore, withdrawalAmount);
+        assertEq(token.balanceOf(walletAddr), 100e6 - withdrawalAmount);
+        assertEq(token.balanceOf(feeCollector), 0);
+        assertEq(vaultFeeModule.feesOwed(walletAddr), expectedFee);
+    }
+
+    function test_WithdrawableBalance_AccountsForBaseAndModuleTokens() public {
+        address walletAddr = createWalletForUser(user);
+        AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
+        MockERC20 accountedToken = new MockERC20("Accounted", "ACC");
+        MockERC20 unaccountedToken = new MockERC20("Unaccounted", "UNA");
+        uint256 claimedYield = 100e6;
+        uint256 expectedFee = claimedYield * FEE_RATE / 10_000;
+        bytes memory claimData = abi.encode(FeeActions.Claim({token: address(usdc), amount: claimedYield}));
+        vm.prank(walletAddr);
+        feeTracker.reportAction(FeeActions.CLAIM, claimData);
+        IntegrationFeeModule accountingModule = new IntegrationFeeModule(address(accountedToken), 0, false);
+        vm.prank(admin);
+        feeTracker.setFeeModule(keccak256("integration-accounting"), accountingModule);
+        usdc.mint(walletAddr, 100e6);
+        accountedToken.mint(walletAddr, 75e6);
+        unaccountedToken.mint(walletAddr, 50e6);
+
+        assertEq(wallet.withdrawableBalance(address(usdc)), 100e6 - expectedFee);
+        assertEq(wallet.withdrawableBalance(address(accountedToken)), 75e6);
+        assertEq(wallet.withdrawableBalance(address(unaccountedToken)), 0);
     }
 }

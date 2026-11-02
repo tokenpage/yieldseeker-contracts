@@ -74,4 +74,14 @@ library FeeActions {
         uint256 borrowed;
         uint256 repaid;
     }
+
+    bytes32 internal constant TRANSFER_OUT = keccak256("transferOut");
+
+    /// @notice Tokens about to leave the wallet (an owner withdrawal or a transfer to a linked wallet); reported first
+    ///         so every module settles what it is owed before the funds go
+    struct TransferOut {
+        address token;
+        address to;
+        uint256 amount;
+    }
 }

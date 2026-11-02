@@ -70,6 +70,8 @@ contract FeeTrackerSecurityTest is Test {
         AgentWalletV3 wallet = _createWallet();
         _report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 1_000e6})), 0);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 100e6);
+        assertEq(vaultFeeModule.feesOwedInBaseAsset(address(wallet)), 100e6);
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), 100e6);
     }
 
     function test_ProfitWithdrawalAccruesFees() public {
@@ -134,9 +136,11 @@ contract FeeTrackerSecurityTest is Test {
 
         _report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 500e6})), 0);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 50e6);
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), 50e6);
 
         assertEq(_report(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 0})), 30e6), 30e6);
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 20e6);
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), 20e6);
     }
 
     function test_MaxFeeRateEnforced() public {

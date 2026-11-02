@@ -225,21 +225,20 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.feesOwed(address(agent1)), 10e6);
     }
 
-    function testFeePaymentReducesHeldFees() public {
+    function testFeesOwedInBaseAssetTracksFeePayments() public {
         address rewardToken = makeAddr("rewardToken");
         _recordYield(agent1, 100e6);
 
         assertFalse(vaultFees.isAccountedToken(address(agent1), address(baseAsset)));
         assertFalse(vaultFees.isAccountedToken(address(agent1), rewardToken));
-        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 10e6);
-        assertEq(vaultFees.feesHeld(address(agent1), rewardToken), 0);
+        assertEq(vaultFees.feesOwedInBaseAsset(address(agent1)), 10e6);
 
         assertEq(_settleFees(agent1, 2e6), 2e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 8e6);
-        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 8e6);
+        assertEq(vaultFees.feesOwedInBaseAsset(address(agent1)), 8e6);
         assertEq(_settleFees(agent1, 8e6), 8e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 0);
-        assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 0);
+        assertEq(vaultFees.feesOwedInBaseAsset(address(agent1)), 0);
     }
 
     function testZeroAmountRewardTokenSaleDoesNotChangeFeesOwed() public {

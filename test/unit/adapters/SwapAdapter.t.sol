@@ -133,7 +133,7 @@ contract SwapAdapterTest is Test {
         assertEq(usdc.balanceOf(address(wallet)), 1e6 + minimum);
     }
 
-    function test_BaseToBorrowedUsdcCannotSpendYieldFeeReserve() public {
+    function test_BaseToBorrowedUsdcMustPayFeesFromRemainingBaseAsset() public {
         _prepareBorrowedWallet();
         uint256 yieldAmount = 1e18;
         uint256 expectedFee = (yieldAmount * yieldFees.walletPlan(address(wallet)).rateBps) / 10_000;
@@ -142,10 +142,10 @@ contract SwapAdapterTest is Test {
         vm.prank(address(feeTracker));
         uint256 payment = yieldFees.onAction(address(wallet), FeeActions.CLAIM, claimData, 0);
         assertEq(payment, 0);
-        uint256 reserved = feeTracker.feesHeld(address(wallet), address(weth));
-        assertEq(reserved, expectedFee);
+        uint256 owedInBaseAsset = feeTracker.feesOwedInBaseAsset(address(wallet));
+        assertEq(owedInBaseAsset, expectedFee);
         assertTrue(feeTracker.isAccountedToken(address(wallet), address(weth)));
-        uint256 unreservedAmount = baseBalance - reserved;
+        uint256 saleLeavingFeeBalance = baseBalance - owedInBaseAsset;
         uint256 routerOutput = oracle.quote(address(weth), address(usdc), baseBalance);
         usdc.mint(address(router), routerOutput * 2);
         router.setOutputAmount(routerOutput);
@@ -153,9 +153,10 @@ contract SwapAdapterTest is Test {
         vm.expectRevert(_adapterError(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)));
         _executeSwap(address(weth), address(usdc), baseBalance, 1);
         assertEq(weth.balanceOf(address(wallet)), baseBalance);
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), owedInBaseAsset);
 
-        _executeSwap(address(weth), address(usdc), unreservedAmount, 1);
-        assertEq(feeTracker.feesHeld(address(wallet), address(weth)), 0);
+        _executeSwap(address(weth), address(usdc), saleLeavingFeeBalance, 1);
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), 0);
         assertTrue(feeTracker.isAccountedToken(address(wallet), address(weth)));
         assertEq(yieldFees.feesOwed(address(wallet)), 0);
         assertEq(weth.balanceOf(feeTracker.feeCollector()), expectedFee);

@@ -25,6 +25,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 error InvalidPlan(bytes32 feeType, uint256 planId);
 error UnknownPlan(bytes32 feeType, uint256 planId);
 error UnknownFeeType(bytes32 feeType);
+error PaymentExceedsAvailable(address module, uint256 payment, uint256 available);
 
 /// @notice A wallet's choice of plan for one fee type
 struct FeePlanChoice {
@@ -105,15 +106,19 @@ contract YieldSeekerFeeTracker is AccessControl {
 
     /**
      * @notice Report an action of the calling wallet (FeeActions) to every module, in the order they were added
-     * @dev Called by adapters running in the wallet, so msg.sender is the wallet; a caller only affects its own
-     *      accounting. Each module pays from the wallet's base asset that the modules before it left.
+     * @dev Called by the wallet (owner outflows) and by adapters running in it, so msg.sender is the wallet; a caller
+     *      only affects its own accounting. Each module pays from the wallet's base asset that the modules before it
+     *      left, and may not claim more.
      * @return payment Base asset the wallet must now send to the fee collector (already recorded as paid)
      * @return collector The fee collector
      */
     function reportAction(bytes32 action, bytes calldata data) external returns (uint256 payment, address collector) {
         uint256 available = IERC20(IAgentWallet(msg.sender).baseAsset()).balanceOf(msg.sender);
         for (uint256 i = 0; i < _modules.length; i++) {
-            payment += _modules[i].onAction(msg.sender, action, data, available - payment);
+            uint256 remaining = available - payment;
+            uint256 modulePayment = _modules[i].onAction(msg.sender, action, data, remaining);
+            if (modulePayment > remaining) revert PaymentExceedsAvailable(address(_modules[i]), modulePayment, remaining);
+            payment += modulePayment;
         }
         return (payment, feeCollector);
     }
@@ -170,13 +175,13 @@ contract YieldSeekerFeeTracker is AccessControl {
     }
 
     /**
-     * @notice How much `token` `wallet` must keep for fees owed, across every module
-     * @dev Each module is called with a gas limit and a module that fails counts as 0, so no module can block exits.
+     * @notice Fees `wallet` owes and has not paid yet, valued in its base asset, across every module (for display)
+     * @dev Each module is called with a gas limit and a module that fails counts as 0.
      */
-    function feesHeld(address wallet, address token) external view returns (uint256 held) {
+    function feesOwedInBaseAsset(address wallet) external view returns (uint256 owed) {
         for (uint256 i = 0; i < _modules.length; i++) {
-            try _modules[i].feesHeld{gas: MODULE_GAS_LIMIT}(wallet, token) returns (uint256 moduleHeld) {
-                held += moduleHeld;
+            try _modules[i].feesOwedInBaseAsset{gas: MODULE_GAS_LIMIT}(wallet) returns (uint256 moduleOwed) {
+                owed += moduleOwed;
             } catch {}
         }
     }

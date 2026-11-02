@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlanChoice, InvalidPlan, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -16,14 +16,12 @@ import {Test} from "forge-std/Test.sol";
 contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
     address internal immutable _wallet;
     address internal immutable _trackedToken;
-    address internal immutable _heldToken;
-    uint256 internal immutable _heldAmount;
+    uint256 internal immutable _owedAmount;
 
-    constructor(address wallet_, address trackedToken_, address heldToken_, uint256 heldAmount_) {
+    constructor(address wallet_, address trackedToken_, uint256 owedAmount_) {
         _wallet = wallet_;
         _trackedToken = trackedToken_;
-        _heldToken = heldToken_;
-        _heldAmount = heldAmount_;
+        _owedAmount = owedAmount_;
     }
 
     function isValidPlan(bytes calldata plan) external pure override returns (bool) {
@@ -38,8 +36,8 @@ contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
         return wallet == _wallet && token == _trackedToken;
     }
 
-    function feesHeld(address wallet, address token) external view override returns (uint256) {
-        return wallet == _wallet && token == _heldToken ? _heldAmount : 0;
+    function feesOwedInBaseAsset(address wallet) external view override returns (uint256) {
+        return wallet == _wallet ? _owedAmount : 0;
     }
 }
 
@@ -62,7 +60,7 @@ contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
         _fail();
     }
 
-    function feesHeld(address, address) external view override returns (uint256) {
+    function feesOwedInBaseAsset(address) external view override returns (uint256) {
         _fail();
     }
 
@@ -71,6 +69,24 @@ contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
             while (true) {}
         }
         revert();
+    }
+}
+
+contract FeeTrackerOverpayingModule is IYieldSeekerFeeModule {
+    function isValidPlan(bytes calldata plan) external pure override returns (bool) {
+        return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
+    }
+
+    function onAction(address, bytes32, bytes calldata, uint256 maxPayment) external pure override returns (uint256) {
+        return maxPayment + 1;
+    }
+
+    function isAccountedToken(address, address) external pure override returns (bool) {
+        return false;
+    }
+
+    function feesOwedInBaseAsset(address) external pure override returns (uint256) {
+        return 0;
     }
 }
 
@@ -314,9 +330,22 @@ contract FeeTrackerTest is Test {
         assertEq(newPlan.rateBps, 600);
     }
 
-    function testIsAccountedTokenAndFeesHeldAggregateModulesAndIgnoreFailures() public {
-        address heldToken = address(baseAsset);
-        FeeTrackerProbeModule probe = new FeeTrackerProbeModule(address(wallet), PROBE_TOKEN, heldToken, 123);
+    function testReportActionRevertsWhenModuleExceedsAvailable() public {
+        FeeTrackerOverpayingModule overpayingModule = new FeeTrackerOverpayingModule();
+        uint256 available = baseAsset.balanceOf(address(wallet));
+        uint256 payment = available + 1;
+        bytes memory expectedError = abi.encodeWithSelector(PaymentExceedsAvailable.selector, address(overpayingModule), payment, available);
+
+        vm.prank(admin);
+        tracker.setFeeModule(keccak256("overpaying"), overpayingModule);
+
+        vm.prank(address(wallet));
+        vm.expectRevert(expectedError);
+        tracker.reportAction(bytes32(0), bytes(""));
+    }
+
+    function testIsAccountedTokenAndFeesOwedInBaseAssetAggregateModulesAndIgnoreFailures() public {
+        FeeTrackerProbeModule probe = new FeeTrackerProbeModule(address(wallet), PROBE_TOKEN, 123);
         FeeTrackerHostileModule revertingModule = new FeeTrackerHostileModule(false);
         FeeTrackerHostileModule gasBurningModule = new FeeTrackerHostileModule(true);
 
@@ -333,8 +362,7 @@ contract FeeTrackerTest is Test {
         assertTrue(tracker.isAccountedToken(address(wallet), address(debtToken)));
         assertTrue(tracker.isAccountedToken(address(wallet), PROBE_TOKEN));
         assertFalse(tracker.isAccountedToken(address(wallet), UNTRACKED_TOKEN));
-        assertEq(tracker.feesHeld(address(wallet), address(baseAsset)), 10e6 + 123);
-        assertEq(tracker.feesHeld(address(wallet), address(debtToken)), 0);
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), 10e6 + 123);
     }
 
     function testFeeCollectorCanBeUpdatedByAdmin() public {

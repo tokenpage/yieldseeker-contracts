@@ -101,9 +101,9 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         return false;
     }
 
-    /// @notice Fees owed are held back from the base asset
-    function feesHeld(address wallet, address token) external view returns (uint256) {
-        return token == address(IAgentWallet(wallet).baseAsset()) ? feesOwed[wallet] : 0;
+    /// @notice Yield fees are owed in the base asset
+    function feesOwedInBaseAsset(address wallet) external view returns (uint256) {
+        return feesOwed[wallet];
     }
 
     function _releaseCostBasis(address wallet, FeeActions.Withdraw memory withdrawal) internal returns (uint256 yield) {

@@ -192,7 +192,9 @@ contract LendingAdaptersTest is Test {
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
         assertTrue(feeTracker.isAccountedToken(address(wallet), address(usdc)));
-        assertEq(feeTracker.feesHeld(address(wallet), address(usdc)), 0);
+        wethFeed.setAnswer(int256(2_000e8));
+        usdcFeed.setAnswer(int256(1e8));
+        assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), 250_000_000_000_000);
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(usdc.balanceOf(address(wallet)), 0);
@@ -365,12 +367,20 @@ contract LendingAdaptersTest is Test {
 
         _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
 
+        uint256 feesOwed = feeModule.feesOwed(address(wallet), address(usdc));
+        uint256 owedInBaseAsset = feeTracker.feesOwedInBaseAsset(address(wallet));
+        uint256 baseBalance = weth.balanceOf(address(wallet));
         assertEq(weth.balanceOf(feeTracker.feeCollector()), 0);
-        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
-        assertEq(weth.balanceOf(address(wallet)), COLLATERAL);
+        assertEq(feesOwed, 500_000);
+        assertEq(owedInBaseAsset, 0);
+        assertEq(baseBalance, COLLATERAL);
+
         vm.prank(OWNER);
         wallet.withdrawAllAssetToUser(OWNER, address(weth));
-        assertEq(weth.balanceOf(OWNER), COLLATERAL);
+
+        assertEq(weth.balanceOf(OWNER), baseBalance);
+        assertEq(weth.balanceOf(feeTracker.feeCollector()), 0);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), feesOwed);
     }
 
     function test_OwnerCanRepayWithdrawCollateralAndWithdrawBaseAndLeftoverDebtToken() public {
