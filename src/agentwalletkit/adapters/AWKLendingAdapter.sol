@@ -120,6 +120,10 @@ abstract contract AWKLendingAdapter is AWKAdapter {
     /// @dev The wallet's current debt in the market, including accrued interest
     function _debtOf(bytes memory market) internal virtual returns (uint256);
 
+    /// @dev Collateral units worth one debt unit (raw token units, scaled by 1e36), from the market's own oracle: the
+    ///      price the protocol itself uses to value this position
+    function _debtPriceInCollateral(bytes memory market) internal view virtual returns (uint256);
+
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual returns (uint256 supplied);
 
     /// @dev The withdrawn collateral stays in the wallet

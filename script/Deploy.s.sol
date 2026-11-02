@@ -306,7 +306,7 @@ contract DeployScript is Script {
         }
 
         if (deployments.borrowFeeModule == address(0) || BorrowFeeModule(deployments.borrowFeeModule).FEE_TRACKER() != deployments.feeTracker) {
-            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), deployments.priceOracle, BORROW_MAX_FEE_BPS)));
+            deployments.borrowFeeModule = deployCreate2(abi.encodePacked(type(BorrowFeeModule).creationCode, abi.encode(FeeTracker(deployments.feeTracker), BORROW_MAX_FEE_BPS)));
             console2.log("-> BorrowFeeModule deployed at:", deployments.borrowFeeModule);
         } else {
             console2.log("-> Using existing borrowFeeModule:", deployments.borrowFeeModule);

@@ -68,12 +68,15 @@ library FeeActions {
     ///         lending market
     /// @param market The market ID (hash of the market bytes)
     /// @param debtBefore The market's real debt before the action
+    /// @param debtPriceInBaseAsset Base asset units worth one debt unit (raw token units, scaled by 1e36), from the
+    ///        lending market's own oracle; 0 when the market had no debt
     struct DebtChange {
         bytes32 market;
         address debtToken;
         uint256 debtBefore;
         uint256 borrowed;
         uint256 repaid;
+        uint256 debtPriceInBaseAsset;
     }
 
     bytes32 internal constant TRANSFER_OUT = keccak256("transferOut");

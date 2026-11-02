@@ -16,7 +16,9 @@ pragma solidity 0.8.28;
 
 import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IAaveV3LendingPool {
     struct ReserveConfigurationMap {
@@ -48,6 +50,16 @@ interface IAaveV3LendingPool {
     function setUserEMode(uint8 categoryId) external;
     function getUserEMode(address user) external view returns (uint256);
     function getReserveData(address asset) external view returns (ReserveDataLegacy memory);
+    function ADDRESSES_PROVIDER() external view returns (IAaveV3AddressesProvider);
+}
+
+interface IAaveV3AddressesProvider {
+    function getPriceOracle() external view returns (IAaveV3Oracle);
+}
+
+interface IAaveV3Oracle {
+    /// @notice Price of one whole `asset` in the oracle's base currency (the same unit for every asset)
+    function getAssetPrice(address asset) external view returns (uint256);
 }
 
 /**
@@ -72,6 +84,14 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
     function _debtOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool,, address debtAsset,) = _decodeMarket(market);
         return IERC20(pool.getReserveData(debtAsset).variableDebtTokenAddress).balanceOf(address(this));
+    }
+
+    function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV3LendingPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
+        IAaveV3Oracle oracle = pool.ADDRESSES_PROVIDER().getPriceOracle();
+        uint256 debtValue = oracle.getAssetPrice(debtAsset) * 10 ** IERC20Metadata(collateralAsset).decimals();
+        uint256 collateralValue = oracle.getAssetPrice(collateralAsset) * 10 ** IERC20Metadata(debtAsset).decimals();
+        return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {

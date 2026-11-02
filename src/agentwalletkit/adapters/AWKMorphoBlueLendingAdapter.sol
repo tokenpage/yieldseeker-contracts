@@ -37,6 +37,11 @@ interface IMorphoBlue {
     function market(bytes32 id) external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee);
 }
 
+interface IMorphoOracle {
+    /// @notice Price of one collateral unit in loan units (raw token units), scaled by 1e36
+    function price() external view returns (uint256);
+}
+
 /**
  * @title AWKMorphoBlueLendingAdapter
  * @notice Borrow against collateral on a Morpho Blue market
@@ -64,6 +69,11 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
         (, uint128 borrowShares,) = morpho.position(id, address(this));
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(id);
         return Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + VIRTUAL_ASSETS, uint256(totalBorrowShares) + VIRTUAL_SHARES, Math.Rounding.Ceil);
+    }
+
+    function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
+        (, IMorphoBlue.MarketParams memory marketParams,) = _decodeMarket(market);
+        return Math.mulDiv(1e36, 1e36, IMorphoOracle(marketParams.oracle).price());
     }
 
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {

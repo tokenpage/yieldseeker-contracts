@@ -43,7 +43,7 @@ interface IYieldSeekerPriceOracle {
 /**
  * @title YieldSeekerPriceOracle
  * @notice USD prices per asset from Chainlink-style feeds, with a per-asset staleness limit
- * @dev Used to bound swap outputs and to value fees owed in another token. The admin (timelock) sets
+ * @dev Used to bound swaps that sell the base asset (the swap adapter's price floor). The admin (timelock) sets
  *      sources; the emergency role can remove a source, which makes dependent operations revert.
  *      Prices revert while the L2 sequencer is down and for SEQUENCER_GRACE_PERIOD after it comes back.
  */

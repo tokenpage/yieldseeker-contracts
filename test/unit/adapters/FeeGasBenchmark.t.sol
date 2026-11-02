@@ -50,7 +50,7 @@ contract FeeGasBenchmarkTest is Test {
         transferProbe.mint(address(this), 2 * USDC);
         (feeTracker,) = AdapterFeeSetup.deploy(FEE_COLLECTOR, 10_000, 1_000);
         oracle = new MockSwapAdapterPriceOracle();
-        borrowFees = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 10_000);
+        borrowFees = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, borrowFees);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
@@ -300,7 +300,7 @@ contract FeeGasBenchmarkTest is Test {
         wallet.executeAdapter(address(adapter), adapter.marketTarget(market), abi.encodeWithSelector(adapter.repay.selector, market, type(uint256).max));
         uint256 adapterRepayGas = adapterRepayStart - gasleft();
         assertEq(baseAsset.balanceOf(FEE_COLLECTOR), collectorBeforeRepay);
-        assertEq(borrowFees.feesOwed(address(wallet), address(debtAsset)), expectedFee);
+        assertEq(borrowFees.feesOwed(address(wallet)), expectedFee);
         _logGas("Aave V3 repay after one year", directRepayGas, adapterRepayGas, false);
 
         vm.prank(directUser);
@@ -312,7 +312,7 @@ contract FeeGasBenchmarkTest is Test {
         wallet.executeAdapter(address(adapter), adapter.marketTarget(market), abi.encodeWithSelector(adapter.withdrawCollateral.selector, market, type(uint256).max));
         uint256 adapterWithdrawGas = adapterWithdrawStart - gasleft();
         assertEq(baseAsset.balanceOf(FEE_COLLECTOR) - collectorBeforeRepay, expectedFee);
-        assertEq(borrowFees.feesOwed(address(wallet), address(debtAsset)), 0);
+        assertEq(borrowFees.feesOwed(address(wallet)), 0);
         _logGas("Aave V3 withdraw collateral and pay fee", directWithdrawGas, adapterWithdrawGas, true);
     }
 

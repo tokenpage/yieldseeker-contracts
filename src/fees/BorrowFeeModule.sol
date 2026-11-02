@@ -16,8 +16,6 @@
 //
 pragma solidity 0.8.28;
 
-import {IAgentWallet} from "../IAgentWallet.sol";
-import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./FeeActions.sol";
 import {YieldSeekerFeeTracker} from "./FeeTracker.sol";
@@ -27,31 +25,29 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 bytes32 constant BORROW_FEE = keccak256("borrow");
 
-error InsufficientGasForQuote();
-
 /**
  * @title YieldSeekerBorrowFeeModule
- * @notice Borrow fee: a yearly fee on borrowed principal, counted in the borrowed token and paid in the wallet's base
- *         asset (its collateral) at the oracle price
+ * @notice Borrow fee: a yearly fee on borrowed principal, valued in the wallet's base asset (its collateral) with the
+ *         lending market's own price and paid from the base asset
  * @dev Plugged into the fee tracker as BORROW_FEE; the yearly rate comes from the wallet's plan in the tracker (a Plan,
  *      at most MAX_FEE_RATE_BPS).
  *      Lending adapters report every borrow, repay, collateral withdrawal and checkpoint per market with the
- *      protocol's real debt (FeeActions.DEBT_CHANGE). Each period between two reports is charged on min(principal,
- *      debt at the start of the period), so repaying directly on the protocol cannot erase the fee; after a debt
- *      change outside the adapters (e.g. a liquidation) the period runs until the next report, so the operator
- *      checkpoints the market. Repayments pay interest first, then principal. Fees are paid from the base asset after
- *      any reported action; a token without a fresh oracle price stays owed until it has one, so the wallet can always
- *      act. Only the fee tracker reports actions (onAction), for the wallet that reported them to it.
+ *      protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
+ *      is charged on min(principal, debt at the start of the period), so repaying directly on the protocol cannot
+ *      erase the fee; after a debt change outside the adapters (e.g. a liquidation) the period runs until the next
+ *      report, so the operator checkpoints the market. A period whose debt was cleared outside the adapters (the
+ *      market has no debt at the report, so no price) is not charged. Repayments pay interest first, then principal.
+ *      The fee is converted to the base asset when it is charged, then paid from the base asset at the first reported
+ *      action or outflow that finds some. Only the fee tracker reports actions (onAction), for the wallet that
+ *      reported them to it.
  */
 contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
 
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
-    uint256 public constant ORACLE_QUOTE_GAS_LIMIT = 100_000;
 
     bytes32 public constant FEE_TYPE = BORROW_FEE;
     address public immutable FEE_TRACKER;
-    IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
     uint256 public immutable MAX_FEE_RATE_BPS;
 
     struct Plan {
@@ -66,36 +62,35 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     mapping(address wallet => mapping(bytes32 market => DebtPosition)) public debtPositions;
     mapping(address wallet => mapping(address token => bool)) public isBorrowedToken;
-    mapping(address wallet => address[]) internal _borrowedTokens;
-    mapping(address wallet => mapping(address token => uint256)) public feesOwed;
+    mapping(address wallet => uint256) public feesOwed;
 
-    event BorrowFeeCharged(address indexed wallet, bytes32 indexed market, address indexed token, uint256 fee);
-    event FeePaid(address indexed wallet, address indexed token, uint256 amount, address paidToken, uint256 paidAmount);
+    event BorrowFeeCharged(address indexed wallet, bytes32 indexed market, address indexed debtToken, uint256 fee, uint256 feeInBaseAsset);
+    event FeePaid(address indexed wallet, uint256 amount);
 
-    constructor(YieldSeekerFeeTracker feeTracker, IYieldSeekerPriceOracle priceOracle, uint256 maxFeeRateBps) {
-        if (address(feeTracker) == address(0) || address(priceOracle) == address(0)) revert AWKErrors.ZeroAddress();
+    constructor(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps) {
+        if (address(feeTracker) == address(0)) revert AWKErrors.ZeroAddress();
         if (maxFeeRateBps > 1e4) revert InvalidFeeRate();
         FEE_TRACKER = address(feeTracker);
-        PRICE_ORACLE = priceOracle;
         MAX_FEE_RATE_BPS = maxFeeRateBps;
     }
 
     function onAction(address wallet, bytes32 action, bytes calldata data, uint256 maxPayment) external returns (uint256 payment) {
         if (msg.sender != FEE_TRACKER) revert AWKErrors.Unauthorized(msg.sender);
         if (action == FeeActions.DEBT_CHANGE) _recordDebtChange(wallet, abi.decode(data, (FeeActions.DebtChange)));
-        return _payFees(wallet, maxPayment);
+        uint256 owed = feesOwed[wallet];
+        if (owed == 0) return 0;
+        payment = Math.min(owed, maxPayment);
+        feesOwed[wallet] = owed - payment;
+        if (payment > 0) emit FeePaid(wallet, payment);
     }
 
     function _recordDebtChange(address wallet, FeeActions.DebtChange memory change) internal {
-        _accrue(wallet, change.market, change.debtToken, change.debtBefore);
+        _accrue(wallet, change);
         DebtPosition storage position = debtPositions[wallet][change.market];
         if (change.borrowed > 0) {
             position.principal = (uint256(position.principal) + change.borrowed).toUint128();
             position.lastDebt = (uint256(position.lastDebt) + change.borrowed).toUint128();
-            if (!isBorrowedToken[wallet][change.debtToken]) {
-                isBorrowedToken[wallet][change.debtToken] = true;
-                _borrowedTokens[wallet].push(change.debtToken);
-            }
+            isBorrowedToken[wallet][change.debtToken] = true;
         }
         if (change.repaid > 0) {
             uint256 interest = change.debtBefore > position.principal ? change.debtBefore - position.principal : 0;
@@ -105,15 +100,17 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         }
     }
 
-    function _accrue(address wallet, bytes32 market, address token, uint256 currentDebt) internal {
-        DebtPosition storage position = debtPositions[wallet][market];
+    /// @dev Charges the period since the last report, valued in the base asset with the market's price at this report
+    function _accrue(address wallet, FeeActions.DebtChange memory change) internal {
+        DebtPosition storage position = debtPositions[wallet][change.market];
         uint256 fee = _pendingFee(wallet, position);
         if (fee > 0) {
-            feesOwed[wallet][token] += fee;
-            emit BorrowFeeCharged(wallet, market, token, fee);
+            uint256 feeInBaseAsset = Math.mulDiv(fee, change.debtPriceInBaseAsset, 1e36);
+            feesOwed[wallet] += feeInBaseAsset;
+            emit BorrowFeeCharged(wallet, change.market, change.debtToken, fee, feeInBaseAsset);
         }
-        if (currentDebt < position.principal) position.principal = currentDebt.toUint128();
-        position.lastDebt = currentDebt.toUint128();
+        if (change.debtBefore < position.principal) position.principal = change.debtBefore.toUint128();
+        position.lastDebt = change.debtBefore.toUint128();
         position.lastAccrual = uint64(block.timestamp);
     }
 
@@ -123,26 +120,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return (accruingPrincipal * walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual)) / (SECONDS_PER_YEAR * 1e4);
     }
 
-    /// @dev Pays the wallet's fees, token by token, from up to `maxPayment` of its base asset at the oracle price
-    function _payFees(address wallet, uint256 maxPayment) internal returns (uint256 paid) {
-        address[] storage tokens = _borrowedTokens[wallet];
-        if (tokens.length == 0) return 0;
-        address baseAsset = address(IAgentWallet(wallet).baseAsset());
-        for (uint256 i = 0; i < tokens.length && paid < maxPayment; i++) {
-            address token = tokens[i];
-            uint256 owed = feesOwed[wallet][token];
-            if (owed == 0) continue;
-            uint256 owedInBaseAsset = _quoteOrZero(token, baseAsset, owed);
-            if (owedInBaseAsset == 0) continue;
-            uint256 payment = Math.min(owedInBaseAsset, maxPayment - paid);
-            uint256 covered = payment == owedInBaseAsset ? owed : Math.mulDiv(owed, payment, owedInBaseAsset);
-            feesOwed[wallet][token] = owed - covered;
-            paid += payment;
-            emit FeePaid(wallet, token, covered, baseAsset, payment);
-        }
-    }
-
-    /// @notice The fee a market has accrued since its last report (charged at the next report)
+    /// @notice The fee a market has accrued since its last report, in the debt token (charged at the next report)
     function pendingFee(address wallet, bytes32 market) external view returns (uint256) {
         return _pendingFee(wallet, debtPositions[wallet][market]);
     }
@@ -157,38 +135,13 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         if (data.length > 0) plan = abi.decode(data, (Plan));
     }
 
-    function borrowedTokens(address wallet) external view returns (address[] memory) {
-        return _borrowedTokens[wallet];
-    }
-
     /// @notice Borrowed tokens are accounted for here, so they may be held, swapped into and sent out
     function isAccountedToken(address wallet, address token) external view returns (bool) {
         return isBorrowedToken[wallet][token];
     }
 
-    /// @notice Borrow fees owed in every borrowed token, at the oracle price (a token without a fresh price counts 0)
-    function feesOwedInBaseAsset(address wallet) external view returns (uint256 owed) {
-        address[] storage tokens = _borrowedTokens[wallet];
-        if (tokens.length == 0) return 0;
-        address baseAsset = address(IAgentWallet(wallet).baseAsset());
-        for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 tokenOwed = feesOwed[wallet][tokens[i]];
-            if (tokenOwed == 0) continue;
-            owed += _quoteOrZero(tokens[i], baseAsset, tokenOwed);
-        }
-    }
-
-    /**
-     * @dev The oracle value of `amount` of `token` in `baseAsset`, or 0 while the oracle has no fresh price. The quote
-     *      gets a fixed gas budget that the caller must leave room for, so nobody can make a fresh price look stale by
-     *      running the quote out of gas.
-     */
-    function _quoteOrZero(address token, address baseAsset, uint256 amount) internal view returns (uint256) {
-        if (gasleft() < (ORACLE_QUOTE_GAS_LIMIT * 64) / 63 + 5_000) revert InsufficientGasForQuote();
-        try PRICE_ORACLE.quote{gas: ORACLE_QUOTE_GAS_LIMIT}(token, baseAsset, amount) returns (uint256 quoted) {
-            return quoted;
-        } catch {
-            return 0;
-        }
+    /// @notice Borrow fees charged and not paid yet (already in the base asset)
+    function feesOwedInBaseAsset(address wallet) external view returns (uint256) {
+        return feesOwed[wallet];
     }
 }

@@ -14,7 +14,6 @@ import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {MockV3BorrowReporter, MockV3FakeWallet, MockV3YieldSeekerWalletV1} from "../mocks/MockV3TestHelpers.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -54,7 +53,7 @@ contract WalletLinkTransferTest is Test {
         vaultFeeModule = new YieldSeekerYieldFeeModule(vaultFees, 10_000);
         vaultFees.setFeeModule(YIELD_FEE, vaultFeeModule);
         vaultFees.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000})));
-        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, new MockSwapAdapterPriceOracle(), 1_000);
+        borrowFees = new YieldSeekerBorrowFeeModule(vaultFees, 1_000);
         vaultFees.setFeeModule(BORROW_FEE, borrowFees);
         vaultFees.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
@@ -188,7 +187,7 @@ contract WalletLinkTransferTest is Test {
 
     function _recordBorrowedUsdc() private {
         bytes32 market = keccak256("borrowed-usdc-market");
-        bytes memory report = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0}));
+        bytes memory report = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0, debtPriceInBaseAsset: 0}));
         vm.prank(owner);
         borrowWallet.executeViaAdapter(address(borrowReporter), address(borrowFees), report);
     }

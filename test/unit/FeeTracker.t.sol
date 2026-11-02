@@ -9,7 +9,6 @@ import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
-import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -121,7 +120,6 @@ contract FeeTrackerTest is Test {
     MockERC20 internal baseAsset;
     MockERC20 internal debtToken;
     MockFeeWallet internal wallet;
-    MockSwapAdapterPriceOracle internal oracle;
     YieldSeekerFeeTracker internal tracker;
     YieldSeekerYieldFeeModule internal vaultModule;
     YieldSeekerBorrowFeeModule internal borrowModule;
@@ -133,9 +131,8 @@ contract FeeTrackerTest is Test {
         debtToken = new MockERC20("Debt", "DEBT");
         wallet = new MockFeeWallet(ownerA, IERC20(address(baseAsset)));
         tracker = new YieldSeekerFeeTracker(admin, collector);
-        oracle = new MockSwapAdapterPriceOracle();
         vaultModule = new YieldSeekerYieldFeeModule(tracker, 2_000);
-        borrowModule = new YieldSeekerBorrowFeeModule(tracker, oracle, 500);
+        borrowModule = new YieldSeekerBorrowFeeModule(tracker, 500);
         bytes memory initialBorrowPlan = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 300}));
         bytes memory initialYieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1_000}));
 
@@ -240,17 +237,17 @@ contract FeeTrackerTest is Test {
 
     function testReportActionCapsModulesToRemainingBalanceAndReturnsCollector() public {
         bytes32 market = keccak256("market");
-        bytes memory borrowedData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 0, borrowed: 100, repaid: 0}));
+        bytes memory borrowedData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 0, borrowed: 100, repaid: 0, debtPriceInBaseAsset: 0}));
         _reportAction(wallet, FeeActions.DEBT_CHANGE, borrowedData);
 
         uint256 start = vm.getBlockTimestamp();
         uint256 checkpointTime = start + 365 days;
         vm.warp(checkpointTime);
-        bytes memory checkpointData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 100, borrowed: 0, repaid: 0}));
+        bytes memory checkpointData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 100, borrowed: 0, repaid: 0, debtPriceInBaseAsset: 1e36}));
         _reportAction(wallet, FeeActions.DEBT_CHANGE, checkpointData);
         _recordYield(wallet, 100);
 
-        assertEq(borrowModule.feesOwed(address(wallet), address(debtToken)), 3);
+        assertEq(borrowModule.feesOwed(address(wallet)), 3);
         assertEq(vaultModule.feesOwed(address(wallet)), 10);
         baseAsset.mint(address(wallet), 8);
 
@@ -258,7 +255,7 @@ contract FeeTrackerTest is Test {
 
         assertEq(payment, 8);
         assertEq(actualCollector, collector);
-        assertEq(borrowModule.feesOwed(address(wallet), address(debtToken)), 0);
+        assertEq(borrowModule.feesOwed(address(wallet)), 0);
         assertEq(vaultModule.feesOwed(address(wallet)), 5);
     }
 
@@ -298,11 +295,11 @@ contract FeeTrackerTest is Test {
         uint256 planId = tracker.createPlan(BORROW_FEE, additionalPlan);
         assertEq(planId, 1);
 
-        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
+        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, 750);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, replacement);
 
-        YieldSeekerBorrowFeeModule tooSmall = new YieldSeekerBorrowFeeModule(tracker, oracle, 299);
+        YieldSeekerBorrowFeeModule tooSmall = new YieldSeekerBorrowFeeModule(tracker, 299);
         bytes memory unsupportedPlanError = abi.encodeWithSelector(InvalidPlan.selector, BORROW_FEE, 0);
         vm.expectRevert(unsupportedPlanError);
         vm.prank(admin);
@@ -326,7 +323,7 @@ contract FeeTrackerTest is Test {
         FeePlanChoice[] memory walletPlans = new FeePlanChoice[](1);
         walletPlans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: existingPlanId});
         tracker.initWalletPlans(address(wallet), walletPlans);
-        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
+        YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, 750);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, replacement);
 
@@ -424,6 +421,6 @@ contract FeeTrackerTest is Test {
     }
 
     function _recordDebtChange(MockFeeWallet targetWallet, bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        _reportAction(targetWallet, FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: token, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid})));
+        _reportAction(targetWallet, FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: token, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtBefore == 0 ? 0 : 1e36})));
     }
 }

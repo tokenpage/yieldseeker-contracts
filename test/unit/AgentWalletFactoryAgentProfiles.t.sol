@@ -10,7 +10,6 @@ import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeMo
 import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -35,7 +34,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         registryVault = new YieldSeekerAdapterRegistry(address(this), address(this));
         registryBorrow = new YieldSeekerAdapterRegistry(address(this), address(this));
         feeVault = new YieldSeekerFeeTracker(address(this), FEE_COLLECTOR_A);
-        feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, new MockSwapAdapterPriceOracle(), 500);
+        feeBorrow = new YieldSeekerBorrowFeeModule(feeVault, 500);
         feeVault.setFeeModule(BORROW_FEE, feeBorrow);
         feeVault.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500})));
         feeVault.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 250})));

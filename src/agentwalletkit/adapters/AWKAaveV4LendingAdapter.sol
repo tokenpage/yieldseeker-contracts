@@ -17,6 +17,7 @@ pragma solidity 0.8.28;
 import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IAaveV4Spoke {
     struct Reserve {
@@ -37,6 +38,12 @@ interface IAaveV4Spoke {
     function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
     function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
     function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf) external;
+    function ORACLE() external view returns (IAaveV4Oracle);
+}
+
+interface IAaveV4Oracle {
+    /// @notice Price of one whole token of the reserve, in the oracle's currency (the same unit for every reserve)
+    function getReservePrice(uint256 reserveId) external view returns (uint256);
 }
 
 /**
@@ -59,6 +66,14 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
     function _debtOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
         return spoke.getUserTotalDebt(debtReserveId, address(this));
+    }
+
+    function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
+        IAaveV4Oracle oracle = spoke.ORACLE();
+        uint256 debtValue = oracle.getReservePrice(debtReserveId) * 10 ** spoke.getReserve(collateralReserveId).decimals;
+        uint256 collateralValue = oracle.getReservePrice(collateralReserveId) * 10 ** spoke.getReserve(debtReserveId).decimals;
+        return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {

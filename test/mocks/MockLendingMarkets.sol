@@ -1,17 +1,82 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IAaveV3LendingPool} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
-import {IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
-import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IAaveV3AddressesProvider, IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
+import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
+import {IMorphoBlue, IMorphoOracle} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+contract MockAaveV3Oracle is IAaveV3Oracle {
+    uint256 public defaultAssetPrice = 1e8;
+    mapping(address asset => uint256 price) private _assetPrices;
+    mapping(address asset => bool configured) private _assetPriceConfigured;
+
+    function setAssetPrice(address asset, uint256 price) external {
+        _assetPrices[asset] = price;
+        _assetPriceConfigured[asset] = true;
+    }
+
+    function getAssetPrice(address asset) external view override returns (uint256) {
+        return _assetPriceConfigured[asset] ? _assetPrices[asset] : defaultAssetPrice;
+    }
+}
+
+contract MockAaveV3AddressesProvider is IAaveV3AddressesProvider {
+    IAaveV3Oracle private immutable _priceOracle;
+
+    constructor(IAaveV3Oracle priceOracle_) {
+        _priceOracle = priceOracle_;
+    }
+
+    function getPriceOracle() external view override returns (IAaveV3Oracle) {
+        return _priceOracle;
+    }
+}
+
+contract MockMorphoOracle is IMorphoOracle {
+    uint256 public override price = 1e36;
+
+    function setPrice(uint256 price_) external {
+        price = price_;
+    }
+}
+
+contract MockAaveV4Oracle is IAaveV4Oracle {
+    uint256 public defaultReservePrice = 1e8;
+    mapping(uint256 reserveId => uint256 price) private _reservePrices;
+    mapping(uint256 reserveId => bool configured) private _reservePriceConfigured;
+
+    function setReservePrice(uint256 reserveId, uint256 price) external {
+        _reservePrices[reserveId] = price;
+        _reservePriceConfigured[reserveId] = true;
+    }
+
+    function getReservePrice(uint256 reserveId) external view override returns (uint256) {
+        return _reservePriceConfigured[reserveId] ? _reservePrices[reserveId] : defaultReservePrice;
+    }
+}
+
 contract MockLendingAaveV3Pool is IAaveV3LendingPool {
+    MockAaveV3AddressesProvider private immutable _addressesProvider;
     mapping(address asset => ReserveDataLegacy reserve) private _reserves;
     mapping(address user => uint256 category) private _userEMode;
     uint256 public lastRepayAmount;
+
+    constructor() {
+        MockAaveV3Oracle oracle = new MockAaveV3Oracle();
+        _addressesProvider = new MockAaveV3AddressesProvider(oracle);
+    }
+
+    function ADDRESSES_PROVIDER() external view override returns (IAaveV3AddressesProvider) {
+        return _addressesProvider;
+    }
+
+    function setAssetPrice(address asset, uint256 price) external {
+        IAaveV3Oracle oracle = _addressesProvider.getPriceOracle();
+        MockAaveV3Oracle(address(oracle)).setAssetPrice(asset, price);
+    }
 
     function setReserve(address asset, address aTokenAddress, address variableDebtTokenAddress) external {
         ReserveDataLegacy storage reserve = _reserves[asset];
@@ -160,10 +225,23 @@ contract MockLendingMorpho is IMorphoBlue {
 }
 
 contract MockLendingAaveV4Spoke is IAaveV4Spoke {
+    MockAaveV4Oracle private immutable _oracle;
     mapping(uint256 reserveId => Reserve reserve_) private _reserves;
     mapping(uint256 reserveId => mapping(address user => uint256 amount)) private _supplied;
     mapping(uint256 reserveId => mapping(address user => uint256 amount)) private _debt;
     mapping(uint256 reserveId => mapping(address user => bool enabled)) public usingAsCollateral;
+
+    constructor() {
+        _oracle = new MockAaveV4Oracle();
+    }
+
+    function ORACLE() external view override returns (IAaveV4Oracle) {
+        return _oracle;
+    }
+
+    function setReservePrice(uint256 reserveId, uint256 price) external {
+        _oracle.setReservePrice(reserveId, price);
+    }
 
     function setReserve(uint256 reserveId, address underlying, uint8 decimals_) external {
         _reserves[reserveId] = Reserve({underlying: underlying, hub: address(0), assetId: uint16(reserveId), decimals: decimals_, collateralRisk: 0, flags: 0, dynamicConfigKey: 0});

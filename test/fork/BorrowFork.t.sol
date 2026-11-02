@@ -11,12 +11,15 @@ import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferA
 import {YieldSeekerMorphoBlueLendingAdapter} from "../../src/adapters/MorphoBlueLendingAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
+import {IMorphoBlue, IMorphoOracle} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
 
 /// @notice End-to-end borrow flows against live Base protocols. Run with:
@@ -61,7 +64,7 @@ contract BorrowForkTest is Test {
         YieldSeekerYieldFeeModule vaultFees = new YieldSeekerYieldFeeModule(feeTracker, 5000);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
         feeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1000})));
-        borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 200);
+        borrowFeeModule = new YieldSeekerBorrowFeeModule(feeTracker, 200);
         feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         borrowRegistry = new AdapterRegistry(address(this), address(this));
@@ -109,6 +112,19 @@ contract BorrowForkTest is Test {
         return abi.encode(MORPHO, _morphoParams());
     }
 
+    function _marketDebtPriceInBaseAsset(address adapter, bytes memory market) internal view returns (uint256) {
+        if (adapter == address(aaveAdapter)) {
+            (IAaveV3LendingPool pool, address collateralToken, address debtToken,) = abi.decode(market, (IAaveV3LendingPool, address, address, uint8));
+            IAaveV3Oracle marketOracle = pool.ADDRESSES_PROVIDER().getPriceOracle();
+            uint256 debtValue = marketOracle.getAssetPrice(debtToken) * 10 ** IERC20Metadata(collateralToken).decimals();
+            uint256 collateralValue = marketOracle.getAssetPrice(collateralToken) * 10 ** IERC20Metadata(debtToken).decimals();
+            return Math.mulDiv(debtValue, 1e36, collateralValue);
+        }
+
+        (, IMorphoBlue.MarketParams memory params) = abi.decode(market, (IMorphoBlue, IMorphoBlue.MarketParams));
+        return Math.mulDiv(1e36, 1e36, IMorphoOracle(params.oracle).price());
+    }
+
     function _runBorrowCycle(address adapter, bytes memory market) internal {
         address target = aaveAdapter.marketTarget(market);
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
@@ -119,22 +135,25 @@ contract BorrowForkTest is Test {
         vm.warp(vm.getBlockTimestamp() + 365 days);
         vm.roll(block.number + 1);
         deal(USDC, address(wallet), 100_000e6);
-        oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 400 days);
-        oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 400 days);
+
+        uint256 expectedDebtFee = Math.mulDiv(1_000e6, 50, 10_000);
+        uint256 debtPriceInBaseAsset = _marketDebtPriceInBaseAsset(adapter, market);
+        uint256 expectedBaseAssetFee = Math.mulDiv(expectedDebtFee, debtPriceInBaseAsset, 1e36);
+        oracle.removeSource(WETH);
+        oracle.removeSource(USDC);
 
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
         assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
         (uint256 principal,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0, "principal cleared");
-        assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 5e6, "Borrow fee remains owed until collateral withdrawal");
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBaseAssetFee, "Borrow fee is owed in the collateral asset");
 
-        uint256 expectedCollateralFee = oracle.quote(USDC, WETH, borrowFeeModule.feesOwed(address(wallet), USDC));
         uint256 feeCollectorWethBefore = IERC20(WETH).balanceOf(feeCollector);
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max));
         uint256 collateralLeft = IERC20(WETH).balanceOf(address(wallet));
-        assertGe(collateralLeft + 1, 1 ether - expectedCollateralFee, "Collateral pays only the borrow fee at the oracle price");
-        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorWethBefore, expectedCollateralFee, "Fee collector receives collateral");
-        assertEq(borrowFeeModule.feesOwed(address(wallet), USDC), 0, "Collateral withdrawal pays the borrow fee");
+        assertGe(collateralLeft + 1, 1 ether - expectedBaseAssetFee, "Collateral pays only the borrow fee at the market price");
+        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorWethBefore, expectedBaseAssetFee, "Fee collector receives the market-priced collateral fee");
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), 0, "Collateral withdrawal pays the borrow fee");
 
         uint256 usdcLeft = IERC20(USDC).balanceOf(address(wallet));
         vm.startPrank(owner);

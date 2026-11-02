@@ -70,7 +70,7 @@ contract SwapAdapterTest is Test {
 
         feeTracker = new YieldSeekerFeeTracker(address(this), FEE_COLLECTOR);
         yieldFees = AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 1_000);
-        feeModule = new YieldSeekerBorrowFeeModule(feeTracker, oracle, 10_000);
+        feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
