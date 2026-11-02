@@ -35,6 +35,7 @@ error TargetIsBlocked(address target);
 error AdapterExecutionFailed(bytes reason);
 error TransferFailed();
 error NotApprovedImplementation();
+error InvalidRegistry();
 error InvalidState();
 error NotAllowed();
 
@@ -50,7 +51,6 @@ library AgentWalletStorageV3 {
     struct Layout {
         address owner;
         uint256 ownerAgentIndex;
-        // NOTE(krishan711): only self-managed wallets use this; factory wallets read the registry from the factory
         AdapterRegistry adapterRegistry;
         address[] agentOperators;
         mapping(address => bool) isAgentOperator;
@@ -98,7 +98,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     event AdapterUnblocked(address indexed adapter);
     event TargetBlocked(address indexed target);
     event TargetUnblocked(address indexed target);
-    event SyncedFromFactory(address[] agentOperators);
+    event SyncedFromFactory(address indexed adapterRegistry);
 
     modifier onlyOwner() virtual {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
@@ -181,12 +181,11 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     /**
-     * @notice Get the adapter registry: the factory's registry for this wallet's agent profile, read at every call so
-     *         a registry change applies to every wallet at once
+     * @notice Get the adapter registry
      * @return AdapterRegistry instance
      */
     function adapterRegistry() public view virtual returns (AdapterRegistry) {
-        return AdapterRegistry(FACTORY.adapterRegistry(agentProfile()));
+        return AgentWalletStorageV3.layout().adapterRegistry;
     }
 
     /**
@@ -266,7 +265,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     /**
-     * @notice Refresh the agent operators from the factory
+     * @notice Refresh configuration from the factory
      * @dev On onlyExecutors (not a separate onlySyncers) — with EntryPoint already included in
      *      onlyExecutors, a distinct owner-or-operator-only modifier would be redundant.
      */
@@ -275,14 +274,21 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     /**
-     * @notice Internal helper to copy the agent operators from the factory
-     * @dev validateUserOp may only read the wallet's own storage (ERC-7562), so the operators it checks are copied
-     *      here; everything else (the adapter registry) is read from the factory when it is used.
+     * @notice Internal helper to sync configuration from the factory
      */
     function _syncFromFactory() internal virtual {
-        address[] memory operators = FACTORY.listAgentOperators();
-        _setAgentOperators(operators);
-        emit SyncedFromFactory(operators);
+        AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.layout();
+
+        // Operators
+        _setAgentOperators(FACTORY.listAgentOperators());
+
+        // AdapterRegistry
+        address registryAddr = FACTORY.adapterRegistry(agentProfile());
+        if (registryAddr == address(0)) revert InvalidRegistry();
+        if (registryAddr.code.length == 0) revert InvalidRegistry();
+        $.adapterRegistry = AdapterRegistry(registryAddr);
+
+        emit SyncedFromFactory(registryAddr);
     }
 
     function _setAgentOperators(address[] memory operators) internal {

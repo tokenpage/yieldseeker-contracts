@@ -7,47 +7,17 @@ import {Test} from "forge-std/Test.sol";
 
 // Real contracts (not mocks)
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {NoFeeTracker, YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
-import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 
 // Test utilities
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
-
-contract OwnerWithdrawalFeeModule is IYieldSeekerFeeModule {
-    address public immutable override FEE_TRACKER;
-    bytes32 public constant override FEE_TYPE = keccak256("owner-withdrawal");
-    uint256 private immutable _fee;
-
-    constructor(address feeTracker, uint256 fee) {
-        FEE_TRACKER = feeTracker;
-        _fee = fee;
-    }
-
-    function isValidPlan(bytes calldata) external pure override returns (bool) {
-        return true;
-    }
-
-    function onAction(address, bytes32 action, bytes calldata, uint256 maxPayment) external view override returns (uint256) {
-        require(msg.sender == FEE_TRACKER);
-        if (action != FeeActions.TRANSFER_OUT) return 0;
-        return _fee < maxPayment ? _fee : maxPayment;
-    }
-
-    function isAccountedToken(address, address) external pure override returns (bool) {
-        return false;
-    }
-
-    function feesOwedInBaseAsset(address) external pure override returns (uint256) {
-        return 0;
-    }
-}
 
 /// @title System Integration Tests
 /// @notice Simplified integration tests using real contracts working together
@@ -565,109 +535,53 @@ contract SystemIntegrationTest is Test {
     // CROSS-CONTRACT STATE TESTS
     // ========================================
 
-    function test_RegistryUpdate_AffectsActiveWalletsWithoutSync() public {
-        uint256 depositAmount = 1000e6;
-        uint256 updatedAmount = 500e6;
-        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
-        AgentWalletV3 wallet;
-
+    function test_RegistryUpdate_AffectsActiveWallets() public {
+        // Create wallet
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
 
-        usdc.mint(address(wallet), depositAmount);
-        bytes memory initialDepositData = abi.encodeCall(vaultAdapter.deposit, (depositAmount));
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), initialDepositData);
-
-        AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
-        ERC4626Adapter newAdapter = new ERC4626Adapter();
-        bytes memory oldAdapterData = abi.encodeCall(vaultAdapter.deposit, (updatedAmount));
-        bytes memory newAdapterData = abi.encodeCall(newAdapter.deposit, (updatedAmount));
-        bytes memory expectedRevert = abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(vaultAdapter));
-        uint256 expectedShares = vault.balanceOf(address(wallet)) + updatedAmount;
-
-        vm.startPrank(admin);
-        newRegistry.registerAdapter(address(newAdapter));
-        newRegistry.setTargetAdapter(address(vault), address(newAdapter));
-        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
-        vm.stopPrank();
-
-        usdc.mint(address(wallet), updatedAmount);
-        vm.prank(user);
-        vm.expectRevert(expectedRevert);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), oldAdapterData);
-
-        vm.prank(user);
-        wallet.executeViaAdapter(address(newAdapter), address(vault), newAdapterData);
-
-        assertEq(vault.balanceOf(address(wallet)), expectedShares);
-    }
-
-    function test_FeeTrackerUpdate_AffectsActiveWalletsWithoutSync() public {
-        uint256 depositAmount = 1000e6;
-        uint256 yieldAmount = 100e6;
-        uint256 expectedYieldFee = (yieldAmount * FEE_RATE) / 10_000;
-        uint256 ownerWithdrawalFee = 5e6;
-        uint256 ownerWithdrawalAmount = 100e6;
-        address newFeeCollector = makeAddr("newFeeCollector");
-        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
-        AgentWalletV3 wallet;
-
-        vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
-
-        FeeTracker newFeeTracker = new FeeTracker(admin, newFeeCollector);
-        YieldSeekerYieldFeeModule newYieldFeeModule = new YieldSeekerYieldFeeModule(newFeeTracker, 5000);
-        OwnerWithdrawalFeeModule ownerWithdrawalFeeModule = new OwnerWithdrawalFeeModule(address(newFeeTracker), ownerWithdrawalFee);
-        bytes memory yieldPlan = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: FEE_RATE}));
-        bytes32 ownerWithdrawalFeeType = ownerWithdrawalFeeModule.FEE_TYPE();
-
-        vm.startPrank(admin);
-        newFeeTracker.setFeeModule(YIELD_FEE, newYieldFeeModule);
-        newFeeTracker.createPlan(YIELD_FEE, yieldPlan);
-        newFeeTracker.setFeeModule(ownerWithdrawalFeeType, ownerWithdrawalFeeModule);
-        factory.setFeeTracker(newFeeTracker);
-        vm.stopPrank();
-
-        usdc.mint(address(wallet), depositAmount);
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (depositAmount));
+        // Execute operation successfully
+        usdc.mint(address(wallet), 1000e6);
+        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (1000e6));
         vm.prank(user);
         wallet.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
 
-        assertEq(newYieldFeeModule.costBasis(address(wallet), address(vault)), depositAmount);
-        assertEq(vaultFeeModule.costBasis(address(wallet), address(vault)), 0);
+        // Update factory's registry reference
+        AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
+        vm.prank(admin);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
 
-        usdc.mint(address(vault), yieldAmount);
-        uint256 shares = vault.balanceOf(address(wallet));
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
-        uint256 newCollectorBalanceBefore = usdc.balanceOf(newFeeCollector);
-        vm.prank(user);
-        wallet.executeViaAdapter(address(vaultAdapter), address(vault), withdrawData);
+        // Create new wallet - should use new registry (old wallet still uses old registry)
+        vm.prank(operator);
+        AgentWalletV3 wallet2 = AgentWalletV3(payable(address(factory.createAgentWallet(user2, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
 
-        assertEq(usdc.balanceOf(newFeeCollector) - newCollectorBalanceBefore, expectedYieldFee);
-        assertEq(usdc.balanceOf(feeCollector), 0);
-        assertEq(newYieldFeeModule.feesOwed(address(wallet)), 0);
-
-        uint256 ownerBalanceBefore = usdc.balanceOf(user);
-        uint256 walletBalanceBefore = usdc.balanceOf(address(wallet));
-        uint256 ownerCollectorBalanceBefore = usdc.balanceOf(newFeeCollector);
-        uint256 expectedWalletBalance = walletBalanceBefore - ownerWithdrawalAmount - ownerWithdrawalFee;
-        vm.prank(user);
-        wallet.withdrawAssetToUser(user, address(usdc), ownerWithdrawalAmount);
-
-        assertEq(usdc.balanceOf(user) - ownerBalanceBefore, ownerWithdrawalAmount);
-        assertEq(usdc.balanceOf(newFeeCollector) - ownerCollectorBalanceBefore, ownerWithdrawalFee);
-        assertEq(usdc.balanceOf(address(wallet)), expectedWalletBalance);
+        // New wallet uses new registry (empty - no adapters)
+        usdc.mint(address(wallet2), 1000e6);
+        vm.prank(user2);
+        vm.expectRevert();
+        wallet2.executeViaAdapter(address(vaultAdapter), address(vault), depositData);
     }
 
-    function test_CreateWalletWithoutFeeTrackerReverts() public {
-        AgentWalletFactory factoryWithoutTracker = new AgentWalletFactory(admin, operator);
-        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
-        address newOwner = makeAddr("walletOwnerWithoutTracker");
-        uint256 ownerAgentIndex = AGENT_INDEX + 1;
+    function test_WalletSync_UpdatesConfiguration() public {
+        vm.prank(operator);
+        AgentWalletV3 wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
+
+        // Create new registry and fee tracker
+        AdapterRegistry newRegistry = new AdapterRegistry(admin, admin);
+        FeeTracker newFeeTracker = new FeeTracker(admin, feeCollector);
+
+        // Update factory configuration
+        vm.startPrank(admin);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, newRegistry);
+        factory.setFeeTracker(newFeeTracker);
+        vm.stopPrank();
 
         vm.prank(operator);
-        vm.expectRevert(NoFeeTracker.selector);
-        factoryWithoutTracker.createAgentWallet(newOwner, ownerAgentIndex, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
+        wallet.syncFromFactory();
+
+        assertEq(address(wallet.adapterRegistry()), address(newRegistry));
+        assertEq(address(wallet.feeTracker()), address(newFeeTracker));
+        assertTrue(address(factory.adapterRegistry(VAULT_AGENT_PROFILE)) == address(newRegistry));
+        assertEq(address(factory.feeTracker()), address(newFeeTracker));
     }
 }

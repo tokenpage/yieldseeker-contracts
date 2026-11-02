@@ -1013,6 +1013,7 @@ contract AgentWalletIntegrationTest is AgentWalletIntegrationBase {
         address walletAddr = createWalletForUser(user);
         AgentWalletV3 wallet = AgentWalletV3(payable(walletAddr));
 
+        // Sync from factory (updates registry reference)
         vm.prank(user);
         wallet.syncFromFactory();
 

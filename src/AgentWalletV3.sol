@@ -26,6 +26,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error InvalidAsset();
+error InvalidFeeTracker();
 
 /**
  * @title YieldSeekerStorageV1
@@ -38,7 +39,6 @@ library YieldSeekerStorageV1 {
 
     struct Layout {
         IERC20 baseAsset;
-        // NOTE(krishan711): unused since V3 (the fee tracker is read from the factory); kept so the layout doesn't change
         FeeTracker feeTracker;
     }
 
@@ -62,6 +62,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
 
     uint256 public constant FEE_SETTLEMENT_GAS_LIMIT = 500_000;
 
+    event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
     event FeeSettlementFailed(address indexed asset, uint256 amount);
 
     constructor(address factory) AWKAgentWalletV3(factory) {}
@@ -94,11 +95,26 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     }
 
     /**
-     * @notice Get the fee tracker: the factory's, read at every call so a tracker change applies to every wallet at once
+     * @notice Get the fee tracker
      * @return FeeTracker instance
      */
     function feeTracker() public view virtual returns (FeeTracker) {
-        return IAgentWalletFactory(address(FACTORY)).feeTracker();
+        return YieldSeekerStorageV1.layout().feeTracker;
+    }
+
+    // ============ Synchronization ============
+
+    function _syncFromFactory() internal virtual override {
+        super._syncFromFactory();
+
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+
+        FeeTracker newTracker = IAgentWalletFactory(address(FACTORY)).feeTracker();
+        if (address(newTracker) == address(0)) revert InvalidFeeTracker();
+        if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
+        ys.feeTracker = newTracker;
+
+        emit SyncedFromFactory(address(adapterRegistry()), address(newTracker));
     }
 
     // ============ YieldSeeker Withdrawal Functions (Fee-Aware) ============

@@ -188,8 +188,8 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 | `owner` | `address` | Wallet owner (can withdraw, upgrade) |
 | `ownerAgentIndex` | `uint256` | Index of this agent for the owner |
 | `baseAsset` | `IERC20` | The primary asset this agent manages (e.g. USDC) |
-| `adapterRegistry` | `AdapterRegistry` | Unused by factory wallets (they read `factory.adapterRegistry(agentProfile)` at every adapter call); set by the owner on self-managed wallets |
-| `feeTracker` | `FeeTracker` | Unused since V3 (wallets read `factory.feeTracker()` at every call); kept for the storage layout |
+| `adapterRegistry` | `AdapterRegistry` | Cached reference to AdapterRegistry from Factory |
+| `feeTracker` | `FeeTracker` | Cached reference to FeeTracker from Factory |
 | `agentOperators` | `address[]` | Cached list of authorized operators from Factory |
 | `isAgentOperator` | `mapping(address => bool)` | Fast lookup for operator status |
 | `blockedAdapters` | `mapping(address => bool)` | User-level adapter blocklist |
@@ -212,7 +212,7 @@ event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTrac
 | `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
 | `blockTarget(target)` | Owner only | Block a target from being used by this wallet |
 | `unblockTarget(target)` | Owner only | Unblock a previously blocked target |
-| `syncFromFactory()` | Owner, operators, EntryPoint | Refresh the cached operators from Factory (the only cached config) |
+| `syncFromFactory()` | Anyone | Refresh cached config from Factory |
 | `withdrawToken(token, to, amount)` | Owner only | Withdraw any ERC20 token |
 | `withdrawETH(to, amount)` | Owner only | Withdraw ETH |
 | `upgradeToAndCall(newImpl, data)` | Owner only | UUPS upgrade (validates against Factory) |
@@ -964,8 +964,10 @@ We have comprehensive tests in `test/`:
 
 ### Upgrading Factory Configuration
 
-1. `factory.setAdapterRegistry(agentProfile, newRegistry)`, `factory.setFeeTracker(newTracker)` and `factory.setSwapPolicy(agentProfile, newPolicy)` apply to **every existing wallet at once**: wallets read them from the factory when they use them
-2. Only the agent operators are copied into each wallet (`validateUserOp` may only read the wallet's own storage, ERC-7562), so operator changes need `syncFromFactory()` per wallet
+1. Admin calls `factory.setAdapterRegistry(newRegistry)` or `factory.setFeeTracker(newTracker)`
+2. This affects **NEW wallets only**
+3. Existing wallets must call `syncFromFactory()` to get updated references
+4. `factory.setSwapPolicy(agentProfile, newPolicy)` is the exception: adapters read it at every swap, so it applies to existing wallets at their next swap
 
 ---
 
