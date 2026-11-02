@@ -64,7 +64,7 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotLinkedWallet(to);
         if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to) revert NotLinkedWallet(to);
         if (!LINK_REGISTRY.isLinked(address(this), to)) revert NotLinkedWallet(to);
-        if (!IAgentWallet(to).feeTracker().tracksToken(to, token) || !_feeTracker().tracksToken(address(this), token)) revert InvalidAsset();
+        if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();
         uint256 feesHeld = _feeTracker().feesHeld(address(this), token);
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (balance < feesHeld || amount > balance - feesHeld) revert AWKErrors.InsufficientBalance();

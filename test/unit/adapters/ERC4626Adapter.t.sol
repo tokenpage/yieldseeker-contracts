@@ -6,7 +6,6 @@ import {YieldSeekerERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.so
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
-import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
@@ -154,11 +153,9 @@ contract ERC4626AdapterTest is Test {
         uint256 g6 = gasleft();
         baseAsset.approve(address(vault), depositAmount);
         uint256 approveGas = g6 - gasleft();
-        // 8) YieldFeeModule.onAction (1 SSTORE)
-        YieldSeekerYieldFeeModule yieldFeeModule = wallet.yieldFeeModule();
         uint256 g7 = gasleft();
         vm.prank(address(wallet));
-        yieldFeeModule.onAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: depositAmount})));
+        feeTracker.reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(vault), assetsIn: depositAmount})));
         uint256 feeTrackerGas = g7 - gasleft();
         // Summary
         console.log("=== ERC4626 Deposit Gas Breakdown ===");
@@ -171,7 +168,7 @@ contract ERC4626AdapterTest is Test {
         console.log("Read wallet.baseAsset():         ", readBaseAssetGas);
         console.log("2x balanceOf (balance-delta):    ", twoBalanceOfGas);
         console.log("ERC20 approve:                   ", approveGas);
-        console.log("Vault fee module record deposit: ", feeTrackerGas);
+        console.log("Fee tracker reportAction:         ", feeTrackerGas);
     }
 
     function test_DecimalVariant_CbBTC() public {

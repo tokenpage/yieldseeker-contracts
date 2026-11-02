@@ -5,7 +5,6 @@ import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {IAgentWallet} from "../../src/IAgentWallet.sol";
 import {AWKAdapter} from "../../src/agentwalletkit/AWKAdapter.sol";
 import {AWKSelfManagedAgentWalletV3} from "../../src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol";
-import {YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
 
 contract MockV3SelfManagedWallet is AWKSelfManagedAgentWalletV3 {}
@@ -39,16 +38,10 @@ contract MockV3EchoAdapter is AWKAdapter {
 }
 
 contract MockV3BorrowReporter is AWKAdapter {
-    YieldSeekerBorrowFeeModule private immutable _feeModule;
-
-    constructor(YieldSeekerBorrowFeeModule feeModule) {
-        _feeModule = feeModule;
-    }
-
     function execute(address, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
         FeeActions.DebtChange memory change = abi.decode(data, (FeeActions.DebtChange));
-        uint256 payment = _feeModule.onAction(FeeActions.DEBT_CHANGE, data);
-        if (payment > 0) IAgentWallet(address(this)).baseAsset().transfer(IAgentWallet(address(this)).feeTracker().feeCollector(), payment);
+        (uint256 payment, address collector) = IAgentWallet(address(this)).feeTracker().reportAction(FeeActions.DEBT_CHANGE, data);
+        if (payment > 0) IAgentWallet(address(this)).baseAsset().transfer(collector, payment);
         return abi.encode(change.borrowed);
     }
 }

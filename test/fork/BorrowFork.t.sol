@@ -14,7 +14,7 @@ import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapA
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
-import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
@@ -83,7 +83,7 @@ contract BorrowForkTest is Test {
         _register(borrowRegistry, address(transferAdapter), address(linkRegistry));
         _register(vaultRegistry, address(transferAdapter), address(linkRegistry));
         vm.prank(operator);
-        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE, new FeePlan[](0));
+        wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE, new FeePlanChoice[](0));
         deal(WETH, address(wallet), 1 ether);
     }
 
@@ -173,7 +173,7 @@ contract BorrowForkTest is Test {
 
     function test_Transfer_MovesBorrowedCashToLinkedVaultAgent() public {
         vm.prank(operator);
-        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE, new FeePlan[](0));
+        AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));

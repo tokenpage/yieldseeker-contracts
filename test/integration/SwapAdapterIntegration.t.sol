@@ -16,7 +16,7 @@ import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agent
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
@@ -118,7 +118,7 @@ contract SwapAdapterIntegrationTest is Test {
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE, new FeePlan[](0)))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {

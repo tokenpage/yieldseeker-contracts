@@ -6,7 +6,7 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, InvalidPlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InvalidPlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -48,6 +48,7 @@ contract FeeTrackerSecurityTest is Test {
         feeTracker.createPlan(YIELD_FEE, initialPlan);
 
         factory = new AgentWalletFactory(admin, operator);
+        feeTracker.setWalletFactory(address(factory));
         AgentWalletV3 impl = new AgentWalletV3(address(factory));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
@@ -60,7 +61,7 @@ contract FeeTrackerSecurityTest is Test {
     }
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
-        FeePlan[] memory feePlans = new FeePlan[](0);
+        FeePlanChoice[] memory feePlans = new FeePlanChoice[](0);
         vm.prank(operator);
         wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, feePlans))));
     }
@@ -157,6 +158,6 @@ contract FeeTrackerSecurityTest is Test {
         usdc.burn(address(wallet), usdc.balanceOf(address(wallet)));
         usdc.mint(address(wallet), walletBalance);
         vm.prank(address(wallet));
-        payment = vaultFeeModule.onAction(action, data);
+        (payment,) = feeTracker.reportAction(action, data);
     }
 }

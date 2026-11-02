@@ -10,7 +10,7 @@ import {AWKAgentWalletV3, InvalidState} from "../../src/agentwalletkit/AWKAgentW
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -104,7 +104,7 @@ contract AgentWalletV3AuthorizationTest is Test {
         registry.setTargetAdapter(address(vault), address(vaultAdapter));
         vm.stopPrank();
 
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(operatorAddr);
         wallet = AgentWalletV3(payable(address(factory.createAgentWallet(ownerAddr, 1, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
 
@@ -112,7 +112,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function test_FactoryCreate_RejectsInvalidOwnerAndBaseAsset() public {
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(operatorAddr);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         factory.createAgentWallet(address(0), 2, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
@@ -128,7 +128,7 @@ contract AgentWalletV3AuthorizationTest is Test {
     }
 
     function test_FactoryCreate_NonOperatorReverts() public {
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(strangerAddr);
         vm.expectRevert();
         factory.createAgentWallet(ownerAddr, 2, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
@@ -916,11 +916,8 @@ contract AgentWalletV3AuthorizationTest is Test {
 
     // ============ Helpers ============
     function _recordFeeAction(bytes32 action, bytes memory data) private {
-        uint256 baseBalance = usdc.balanceOf(address(wallet));
-        usdc.burn(address(wallet), baseBalance);
-        vm.prank(address(wallet));
-        vaultFeeModule.onAction(action, data);
-        usdc.mint(address(wallet), baseBalance);
+        vm.prank(address(feeTracker));
+        vaultFeeModule.onAction(address(wallet), action, data, 0);
     }
 
     function _ownerActionCallData() internal view returns (bytes[] memory calls) {

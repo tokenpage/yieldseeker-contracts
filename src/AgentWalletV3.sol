@@ -117,7 +117,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      */
     function _getWithdrawableBalance(address asset) internal view virtual returns (uint256) {
         FeeTracker tracker = feeTracker();
-        if (!tracker.tracksToken(address(this), asset)) revert InvalidAsset();
+        if (!tracker.isAccountedToken(address(this), asset)) revert InvalidAsset();
         uint256 balance = IERC20(asset).balanceOf(address(this));
         uint256 feesHeld = tracker.feesHeld(address(this), asset);
         return balance > feesHeld ? balance - feesHeld : 0;

@@ -40,4 +40,8 @@ contract YieldSeekerAaveV4LendingAdapter is AWKAaveV4LendingAdapter, YieldSeeker
     function _repayOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
         return super._repayOperation(market, amount);
     }
+
+    function _checkpointOperation(bytes memory market) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
+        return super._checkpointOperation(market);
+    }
 }

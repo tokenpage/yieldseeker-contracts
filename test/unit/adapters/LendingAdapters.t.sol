@@ -14,7 +14,7 @@ import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
@@ -96,7 +96,7 @@ contract LendingAdaptersTest is Test {
         registry.registerAdapter(address(aaveV4Adapter));
 
         vm.prank(OPERATOR);
-        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE, new FeePlan[](0));
+        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE, new FeePlanChoice[](0));
     }
 
     function test_UnregisteredMarketCannotReachTheAdapter() public {
@@ -118,6 +118,19 @@ contract LendingAdaptersTest is Test {
 
         vm.expectRevert(_adapterError(abi.encodeWithSelector(MarketTargetMismatch.selector, target, expected)));
         _execute(OPERATOR, address(aaveV3Adapter), target, callData);
+    }
+
+    function test_CheckpointRejectsMismatchedMarketTarget() public {
+        bytes memory registeredMarket = _aaveMarket(aavePool, address(weth), address(usdc), 0);
+        bytes memory mismatchedMarket = _aaveMarket(aavePool, address(weth), address(usdc), 1);
+        _registerAaveV3Market(registeredMarket);
+        address target = aaveV3Adapter.marketTarget(registeredMarket);
+        address expected = aaveV3Adapter.marketTarget(mismatchedMarket);
+        bytes memory checkpointData = abi.encodeWithSelector(aaveV3Adapter.checkpoint.selector, mismatchedMarket);
+        bytes memory mismatchError = _adapterError(abi.encodeWithSelector(MarketTargetMismatch.selector, target, expected));
+
+        vm.expectRevert(mismatchError);
+        _execute(OPERATOR, address(aaveV3Adapter), target, checkpointData);
     }
 
     function test_MorphoMarketCannotChangeItsRegisteredOracle() public {
@@ -178,7 +191,7 @@ contract LendingAdaptersTest is Test {
 
         assertEq(usdc.balanceOf(feeTracker.feeCollector()), 0);
         assertEq(feeModule.feesOwed(address(wallet), address(usdc)), 500_000);
-        assertTrue(feeTracker.tracksToken(address(wallet), address(usdc)));
+        assertTrue(feeTracker.isAccountedToken(address(wallet), address(usdc)));
         assertEq(feeTracker.feesHeld(address(wallet), address(usdc)), 0);
         assertEq(aavePool.lastRepayAmount(), BORROW_AMOUNT);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
@@ -281,6 +294,39 @@ contract LendingAdaptersTest is Test {
         (uint128 principal, uint128 lastDebt,) = feeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 40e6);
         assertEq(lastDebt, 40e6);
+    }
+
+    function test_CheckpointAfterExternalFullRepayChargesOnlyUntilCheckpoint() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 0);
+        _fundAndSupplyAave(COLLATERAL, market);
+        _execute(OPERATOR, address(aaveV3Adapter), aaveV3Adapter.marketTarget(market), _lendingCall(aaveV3Adapter.borrow.selector, market, BORROW_AMOUNT));
+        aavePool.reduceDebt(address(usdc), address(wallet), BORROW_AMOUNT);
+        assertEq(variableDebtUsdc.balanceOf(address(wallet)), 0);
+
+        uint256 start = vm.getBlockTimestamp();
+        uint256 expectedFee = BORROW_AMOUNT * 50 / 10_000;
+        bytes32 marketId = keccak256(market);
+        address target = aaveV3Adapter.marketTarget(market);
+        bytes memory checkpointData = abi.encodeWithSelector(aaveV3Adapter.checkpoint.selector, market);
+
+        vm.warp(start + YEAR);
+        assertEq(feeModule.pendingFee(address(wallet), marketId), expectedFee);
+        vm.prank(OPERATOR);
+        bytes memory result = wallet.executeViaAdapter(address(aaveV3Adapter), target, checkpointData);
+
+        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), 0);
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), expectedFee);
+        assertEq(feeModule.pendingFee(address(wallet), marketId), 0);
+        (uint128 principal, uint128 lastDebt,) = feeModule.debtPositions(address(wallet), marketId);
+        assertEq(principal, 0);
+        assertEq(lastDebt, 0);
+
+        vm.warp(start + 2 * YEAR);
+        vm.prank(OPERATOR);
+        wallet.executeViaAdapter(address(aaveV3Adapter), target, checkpointData);
+
+        assertEq(feeModule.feesOwed(address(wallet), address(usdc)), expectedFee);
+        assertEq(feeModule.pendingFee(address(wallet), marketId), 0);
     }
 
     function test_DebtFreeCollateralWithdrawalPaysOwedFeeInWethAtOraclePrice() public {

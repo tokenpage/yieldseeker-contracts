@@ -15,7 +15,7 @@ import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool} from "../../mocks/MockLendingMarkets.sol";
@@ -98,7 +98,7 @@ contract SwapAdapterTest is Test {
         registry.setTargetAdapter(lendingAdapter.marketTarget(market), address(lendingAdapter));
 
         vm.prank(OPERATOR);
-        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE, new FeePlan[](0));
+        wallet = factory.createAgentWallet(OWNER, 1, address(weth), AGENT_PROFILE, new FeePlanChoice[](0));
     }
 
     function test_BaseToUsdcIsRejectedUntilTheWalletHasBorrowedUsdc() public {
@@ -139,15 +139,12 @@ contract SwapAdapterTest is Test {
         uint256 expectedFee = (yieldAmount * yieldFees.walletPlan(address(wallet)).rateBps) / 10_000;
         uint256 baseBalance = weth.balanceOf(address(wallet));
         bytes memory claimData = abi.encode(FeeActions.Claim({token: address(weth), amount: yieldAmount}));
-        vm.prank(address(wallet));
-        weth.transfer(address(this), baseBalance);
-        vm.prank(address(wallet));
-        uint256 payment = yieldFees.onAction(FeeActions.CLAIM, claimData);
+        vm.prank(address(feeTracker));
+        uint256 payment = yieldFees.onAction(address(wallet), FeeActions.CLAIM, claimData, 0);
         assertEq(payment, 0);
-        weth.transfer(address(wallet), baseBalance);
         uint256 reserved = feeTracker.feesHeld(address(wallet), address(weth));
         assertEq(reserved, expectedFee);
-        assertTrue(feeTracker.tracksToken(address(wallet), address(weth)));
+        assertTrue(feeTracker.isAccountedToken(address(wallet), address(weth)));
         uint256 unreservedAmount = baseBalance - reserved;
         uint256 routerOutput = oracle.quote(address(weth), address(usdc), baseBalance);
         usdc.mint(address(router), routerOutput * 2);
@@ -159,7 +156,7 @@ contract SwapAdapterTest is Test {
 
         _executeSwap(address(weth), address(usdc), unreservedAmount, 1);
         assertEq(feeTracker.feesHeld(address(wallet), address(weth)), 0);
-        assertTrue(feeTracker.tracksToken(address(wallet), address(weth)));
+        assertTrue(feeTracker.isAccountedToken(address(wallet), address(weth)));
         assertEq(yieldFees.feesOwed(address(wallet)), 0);
         assertEq(weth.balanceOf(feeTracker.feeCollector()), expectedFee);
         assertEq(weth.balanceOf(address(wallet)), 0);

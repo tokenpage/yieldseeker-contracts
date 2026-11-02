@@ -21,10 +21,9 @@ error InvalidFeeRate();
 /**
  * @title IYieldSeekerFeeModule
  * @notice A fee type plugged into the YieldSeekerFeeTracker (e.g. the yield fee, the borrow fee)
- * @dev After every action, the adapter running in a wallet reports it to every module (see FeeActions). Each module
- *      decides what the action costs and returns what the wallet pays now, which the adapter sends to the fee
- *      collector before calling the next module. Everything is keyed on msg.sender (the wallet), so callers can only
- *      affect their own accounting.
+ * @dev The fee tracker passes every action a wallet's adapters report (see FeeActions) to every module. Each module
+ *      decides what the action costs and returns what the wallet pays now; the tracker adds it up and the adapter
+ *      sends it to the fee collector. Only the module's tracker may call onAction.
  *      Each module defines its own plan struct (its rates); the tracker stores plans ABI-encoded and every wallet's
  *      plan choice, and asks the module to validate each plan.
  */
@@ -33,15 +32,16 @@ interface IYieldSeekerFeeModule {
     function isValidPlan(bytes calldata plan) external view returns (bool);
 
     /**
-     * @notice Record an action of the calling wallet and settle its fees
+     * @notice Record an action of `wallet` and settle its fees; only callable by the module's fee tracker
      * @param action The action ID (FeeActions); unknown actions charge nothing
      * @param data The action's struct, ABI-encoded (FeeActions)
-     * @return payment Base asset the wallet must send to the fee collector now (at most its balance), recorded as paid
+     * @param maxPayment The wallet's base asset still available for fees in this action
+     * @return payment Base asset the wallet pays now (at most `maxPayment`), recorded as paid
      */
-    function onAction(bytes32 action, bytes calldata data) external returns (uint256 payment);
+    function onAction(address wallet, bytes32 action, bytes calldata data, uint256 maxPayment) external returns (uint256 payment);
 
     /// @notice Whether this module accounts for `token` (besides the base asset) in `wallet`, e.g. a borrowed token
-    function tracksToken(address wallet, address token) external view returns (bool);
+    function isAccountedToken(address wallet, address token) external view returns (bool);
 
     /// @notice How much `token` `wallet` must keep for fees owed to this module
     function feesHeld(address wallet, address token) external view returns (uint256);

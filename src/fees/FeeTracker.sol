@@ -20,13 +20,14 @@ import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {IYieldSeekerFeeModule} from "./IYieldSeekerFeeModule.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error InvalidPlan(bytes32 feeType, uint256 planId);
 error UnknownPlan(bytes32 feeType, uint256 planId);
 error UnknownFeeType(bytes32 feeType);
 
 /// @notice A wallet's choice of plan for one fee type
-struct FeePlan {
+struct FeePlanChoice {
     bytes32 feeType;
     uint256 planId;
 }
@@ -34,19 +35,20 @@ struct FeePlan {
 /**
  * @title YieldSeekerFeeTracker
  * @notice The fee modules (one per fee type), their plans, each wallet's plans and the fee collector
- * @dev Every fee type is a module (e.g. the yield fee, the borrow fee) that adapters report every wallet action to.
+ * @dev Adapters running in a wallet report every action here (reportAction); the tracker passes it to every module,
+ *      which decides what it costs, and returns what the wallet must send to the fee collector.
  *      A plan is the module's plan struct (its rates), ABI-encoded and validated by the module. Plans are numbered
  *      per fee type from 0 and never change once created; a replacement module must accept every existing plan, and
  *      can add new ones. The wallet factory sets a wallet's plans when it creates the wallet, and they never change
  *      either: moving to another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0.
- *      The admin (timelock) sets modules, creates plans and sets the fee collector.
- *      Replacing a module drops the fee state the old one holds for wallets unless it is migrated first.
+ *      The admin (timelock) sets modules, creates plans and sets the wallet factory and the fee collector.
+ *      Replacing a module drops the fee state the old one holds for wallets unless the new one imports it.
  */
 contract YieldSeekerFeeTracker is AccessControl {
-    bytes32 public constant WALLET_FACTORY_ROLE = keccak256("WALLET_FACTORY_ROLE");
     uint256 public constant MODULE_GAS_LIMIT = 200_000;
 
     address public feeCollector;
+    address public walletFactory;
     bytes32[] internal _moduleFeeTypes;
     IYieldSeekerFeeModule[] internal _modules;
     mapping(bytes32 feeType => IYieldSeekerFeeModule) public feeModules;
@@ -54,6 +56,7 @@ contract YieldSeekerFeeTracker is AccessControl {
     mapping(address wallet => mapping(bytes32 feeType => uint256 planId)) public walletPlanId;
 
     event FeeCollectorUpdated(address feeCollector);
+    event WalletFactoryUpdated(address walletFactory);
     event FeeModuleSet(bytes32 indexed feeType, address indexed module);
     event PlanCreated(bytes32 indexed feeType, uint256 indexed planId, bytes plan);
     event WalletPlanSet(address indexed wallet, bytes32 indexed feeType, uint256 indexed planId);
@@ -68,6 +71,13 @@ contract YieldSeekerFeeTracker is AccessControl {
         if (newFeeCollector == address(0)) revert AWKErrors.ZeroAddress();
         feeCollector = newFeeCollector;
         emit FeeCollectorUpdated(newFeeCollector);
+    }
+
+    /// @notice The factory allowed to set new wallets' plans (initWalletPlans)
+    function setWalletFactory(address newWalletFactory) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newWalletFactory.code.length == 0) revert AWKErrors.NotAContract(newWalletFactory);
+        walletFactory = newWalletFactory;
+        emit WalletFactoryUpdated(newWalletFactory);
     }
 
     /// @notice Plug in or replace a fee type's module; a replacement must accept every existing plan of the fee type
@@ -93,9 +103,19 @@ contract YieldSeekerFeeTracker is AccessControl {
         return _moduleFeeTypes;
     }
 
-    /// @notice Everything an adapter needs to settle fees after an action, in one call
-    function feeModulesAndCollector() external view returns (IYieldSeekerFeeModule[] memory modules, address collector) {
-        return (_modules, feeCollector);
+    /**
+     * @notice Report an action of the calling wallet (FeeActions) to every module, in the order they were added
+     * @dev Called by adapters running in the wallet, so msg.sender is the wallet; a caller only affects its own
+     *      accounting. Each module pays from the wallet's base asset that the modules before it left.
+     * @return payment Base asset the wallet must now send to the fee collector (already recorded as paid)
+     * @return collector The fee collector
+     */
+    function reportAction(bytes32 action, bytes calldata data) external returns (uint256 payment, address collector) {
+        uint256 available = IERC20(IAgentWallet(msg.sender).baseAsset()).balanceOf(msg.sender);
+        for (uint256 i = 0; i < _modules.length; i++) {
+            payment += _modules[i].onAction(msg.sender, action, data, available - payment);
+        }
+        return (payment, feeCollector);
     }
 
     /// @notice Add a plan (the module's plan struct, ABI-encoded); plan 0 applies to every wallet not given another
@@ -117,18 +137,14 @@ contract YieldSeekerFeeTracker is AccessControl {
         return _plans[feeType][planId];
     }
 
-    /**
-     * @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
-     * @dev Plans being fixed for a wallet's life relies on WALLET_FACTORY_ROLE only ever being granted to wallet
-     *      factories, which call this only for the wallet they are creating. It is not enforced here: a wallet created
-     *      on plan 0 for every fee type never calls it, so a per-wallet flag would not cover it.
-     */
-    function setWalletPlans(address wallet, FeePlan[] calldata plans) external onlyRole(WALLET_FACTORY_ROLE) {
-        for (uint256 i = 0; i < plans.length; i++) {
-            FeePlan calldata feePlan = plans[i];
-            if (feePlan.planId >= _plans[feePlan.feeType].length) revert UnknownPlan(feePlan.feeType, feePlan.planId);
-            walletPlanId[wallet][feePlan.feeType] = feePlan.planId;
-            emit WalletPlanSet(wallet, feePlan.feeType, feePlan.planId);
+    /// @notice Set a new wallet's plans; only the wallet factory calls this, once, when it creates the wallet
+    function initWalletPlans(address wallet, FeePlanChoice[] calldata choices) external {
+        if (msg.sender != walletFactory) revert AWKErrors.Unauthorized(msg.sender);
+        for (uint256 i = 0; i < choices.length; i++) {
+            FeePlanChoice calldata choice = choices[i];
+            if (choice.planId >= _plans[choice.feeType].length) revert UnknownPlan(choice.feeType, choice.planId);
+            walletPlanId[wallet][choice.feeType] = choice.planId;
+            emit WalletPlanSet(wallet, choice.feeType, choice.planId);
         }
     }
 
@@ -143,11 +159,11 @@ contract YieldSeekerFeeTracker is AccessControl {
      * @notice Whether `wallet` may hold and send `token`: its base asset, or a token a module accounts for
      * @dev Each module is called with a gas limit and a module that fails counts as false.
      */
-    function tracksToken(address wallet, address token) external view returns (bool) {
+    function isAccountedToken(address wallet, address token) external view returns (bool) {
         if (token == address(IAgentWallet(wallet).baseAsset())) return true;
         for (uint256 i = 0; i < _modules.length; i++) {
-            try _modules[i].tracksToken{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool tracked) {
-                if (tracked) return true;
+            try _modules[i].isAccountedToken{gas: MODULE_GAS_LIMIT}(wallet, token) returns (bool accounted) {
+                if (accounted) return true;
             } catch {}
         }
         return false;

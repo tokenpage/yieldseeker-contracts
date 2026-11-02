@@ -61,7 +61,7 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
     /// @dev Whether a fee module (not the base asset) accounts for `token` in this wallet
     function _isFeeModuleToken(address token) internal view returns (bool) {
         if (token == _baseAssetAddress()) return false;
-        return _feeTracker().tracksToken(address(this), token);
+        return _feeTracker().isAccountedToken(address(this), token);
     }
 
     function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal virtual override returns (uint256 buyAmount, uint256 soldAmount) {

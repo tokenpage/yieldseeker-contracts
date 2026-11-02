@@ -8,7 +8,7 @@ import {NotApprovedImplementation} from "../../src/agentwalletkit/AWKAgentWallet
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -23,11 +23,11 @@ contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
         return true;
     }
 
-    function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function tracksToken(address, address) external pure override returns (bool) {
+    function isAccountedToken(address, address) external pure override returns (bool) {
         revert();
     }
 
@@ -41,11 +41,11 @@ contract GasBurningFeeQueriesModule is IYieldSeekerFeeModule {
         return true;
     }
 
-    function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function tracksToken(address, address) external pure override returns (bool tracked) {
+    function isAccountedToken(address, address) external pure override returns (bool tracked) {
         tracked = false;
         while (true) {}
     }
@@ -110,7 +110,7 @@ contract AgentWalletV3Test is Test {
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setFeeTracker(vaultFees);
 
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.startPrank(operator);
         vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
         borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_AGENT_PROFILE, noFeePlans);
@@ -171,7 +171,7 @@ contract AgentWalletV3Test is Test {
     }
 
     function test_YieldFeeModuleReservesBaseFeesAndRejectsNonBaseWithdrawal() public {
-        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})), address(usdc));
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
         assertEq(vaultFeeModule.feesOwed(address(vaultWallet)), 10e6);
 
         vm.prank(owner);
@@ -190,7 +190,7 @@ contract AgentWalletV3Test is Test {
     }
 
     function test_YieldWithdrawAllLeavesFeesOwedInWallet() public {
-        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})), address(usdc));
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
         vm.prank(owner);
         vaultWallet.withdrawAllAssetToUser(recipient, address(usdc));
 
@@ -205,11 +205,11 @@ contract AgentWalletV3Test is Test {
         if (startTime == 0) {
             vm.warp(1);
         }
-        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0})), address(weth));
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0})));
 
         uint256 reportTime = vm.getBlockTimestamp();
         vm.warp(reportTime + 365 days);
-        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0})), address(weth));
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0})));
         assertEq(borrowFees.feesOwed(address(borrowWallet), address(usdc)), 10e6);
 
         vm.prank(owner);
@@ -237,20 +237,20 @@ contract AgentWalletV3Test is Test {
             startTime = vm.getBlockTimestamp();
         }
 
-        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0})), address(weth));
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 0, borrowed: 100e6, repaid: 0})));
         vm.warp(startTime + 365 days);
-        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0})), address(weth));
+        _recordFeeAction(borrowFees, address(borrowWallet), FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: address(usdc), debtBefore: 100e6, borrowed: 0, repaid: 0})));
 
         uint256 rewardAmount = 200e6;
-        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: rewardAmount})), address(weth));
+        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: rewardAmount})));
 
         uint256 borrowFeesOwed = borrowFees.feesOwed(address(borrowWallet), address(usdc));
         uint256 vaultFeesOwed = vaultFeeModule.feesOwed(address(borrowWallet));
         assertEq(borrowFeesOwed, 10e6);
         assertEq(vaultFeesOwed, 20e6);
-        assertTrue(vaultFees.tracksToken(address(borrowWallet), address(usdc)));
+        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(usdc)));
         assertEq(vaultFees.feesHeld(address(borrowWallet), address(usdc)), 0);
-        assertTrue(vaultFees.tracksToken(address(borrowWallet), address(weth)));
+        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(weth)));
         assertEq(vaultFees.feesHeld(address(borrowWallet), address(weth)), vaultFeesOwed);
         uint256 borrowedBalance = usdc.balanceOf(address(borrowWallet));
 
@@ -265,12 +265,12 @@ contract AgentWalletV3Test is Test {
         vaultFees.setFeeModule(keccak256("reverting-fee-queries"), new RevertingFeeQueriesModule());
         vaultFees.setFeeModule(keccak256("gas-burning-fee-queries"), new GasBurningFeeQueriesModule());
 
-        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: 100e6})), address(weth));
+        _recordFeeAction(vaultFeeModule, address(borrowWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(weth), amount: 100e6})));
         uint256 reserve = vaultFeeModule.feesOwed(address(borrowWallet));
         uint256 baseBalance = weth.balanceOf(address(borrowWallet));
         uint256 withdrawable = baseBalance - reserve;
 
-        assertTrue(vaultFees.tracksToken(address(borrowWallet), address(weth)));
+        assertTrue(vaultFees.isAccountedToken(address(borrowWallet), address(weth)));
         assertEq(vaultFees.feesHeld(address(borrowWallet), address(weth)), reserve);
 
         vm.prank(owner);
@@ -279,7 +279,7 @@ contract AgentWalletV3Test is Test {
         assertEq(weth.balanceOf(address(borrowWallet)), reserve);
 
         unrelated.mint(address(borrowWallet), 3e6);
-        assertFalse(vaultFees.tracksToken(address(borrowWallet), address(unrelated)));
+        assertFalse(vaultFees.isAccountedToken(address(borrowWallet), address(unrelated)));
         assertEq(vaultFees.feesHeld(address(borrowWallet), address(unrelated)), 0);
         vm.expectRevert(InvalidAsset.selector);
         vm.prank(owner);
@@ -287,12 +287,9 @@ contract AgentWalletV3Test is Test {
         assertEq(unrelated.balanceOf(address(borrowWallet)), 3e6);
     }
 
-    function _recordFeeAction(IYieldSeekerFeeModule module, address wallet, bytes32 action, bytes memory data, address baseAsset) private {
-        uint256 baseBalance = MockERC20(baseAsset).balanceOf(wallet);
-        MockERC20(baseAsset).burn(wallet, baseBalance);
-        vm.prank(wallet);
-        module.onAction(action, data);
-        MockERC20(baseAsset).mint(wallet, baseBalance);
+    function _recordFeeAction(IYieldSeekerFeeModule module, address wallet, bytes32 action, bytes memory data) private {
+        vm.prank(address(vaultFees));
+        module.onAction(wallet, action, data, 0);
     }
 
     function _validateWithSigner(bytes memory callData, uint256 signerKey) private returns (uint256) {

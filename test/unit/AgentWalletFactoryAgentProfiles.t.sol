@@ -7,7 +7,7 @@ import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
-import {FeePlan, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
@@ -43,6 +43,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         feeVault.setFeeModule(YIELD_FEE, feeYield);
         feeVault.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 750})));
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
+        feeVault.setWalletFactory(address(factory));
 
         YieldSeekerAgentWalletV3 implementation = new YieldSeekerAgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(implementation);
@@ -56,7 +57,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
         uint256 vaultIndex = 3;
         uint256 borrowIndex = 4;
 
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.startPrank(OPERATOR);
         YieldSeekerAgentWalletV3 vaultWallet = factory.createAgentWallet(walletOwner, vaultIndex, address(baseAsset), VAULT_AGENT_PROFILE, noFeePlans);
         YieldSeekerAgentWalletV3 borrowWallet = factory.createAgentWallet(walletOwner, borrowIndex, address(baseAsset), BORROW_AGENT_PROFILE, noFeePlans);
@@ -77,9 +78,8 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
 
     function test_CreatedWalletFeePlansSetRatesAndUsePlanZeroForUnlistedTypes() public {
         address walletOwner = makeAddr("fee-plan-wallet-owner");
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: BORROW_FEE, planId: 1});
-        feeVault.grantRole(feeVault.WALLET_FACTORY_ROLE(), address(factory));
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: 1});
         vm.prank(OPERATOR);
         YieldSeekerAgentWalletV3 wallet = factory.createAgentWallet(walletOwner, 1, address(baseAsset), VAULT_AGENT_PROFILE, plans);
 
@@ -91,32 +91,30 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
 
     function test_CreateAgentWalletRejectsUnknownFeePlan() public {
         address walletOwner = makeAddr("unknown-fee-plan-wallet-owner");
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: BORROW_FEE, planId: 2});
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: 2});
         bytes memory expectedError = abi.encodeWithSelector(UnknownPlan.selector, BORROW_FEE, 2);
-        feeVault.grantRole(feeVault.WALLET_FACTORY_ROLE(), address(factory));
 
         vm.prank(OPERATOR);
         vm.expectRevert(expectedError);
         factory.createAgentWallet(walletOwner, 1, address(baseAsset), VAULT_AGENT_PROFILE, plans);
     }
 
-    function test_CreateAgentWalletWithFeePlansRequiresFactoryRole() public {
+    function test_CreateAgentWalletWithFeePlansRequiresWalletFactory() public {
         address walletOwner = makeAddr("unprivileged-fee-plan-wallet-owner");
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: BORROW_FEE, planId: 0});
-        bytes32 factoryRole = feeVault.WALLET_FACTORY_ROLE();
-        bytes memory expectedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(factory), factoryRole);
-        assertFalse(feeVault.hasRole(factoryRole, address(factory)));
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: 0});
+        bytes memory expectedError = abi.encodeWithSelector(AWKErrors.Unauthorized.selector, address(factory));
 
-        vm.prank(OPERATOR);
+        feeVault.setWalletFactory(address(feeBorrow));
         vm.expectRevert(expectedError);
+        vm.prank(OPERATOR);
         factory.createAgentWallet(walletOwner, 1, address(baseAsset), VAULT_AGENT_PROFILE, plans);
     }
 
     function test_CreateAgentWalletRequiresOperatorRole() public {
         address walletOwner = makeAddr("wallet-owner");
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
         vm.prank(STRANGER);
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, STRANGER, operatorRole));
@@ -126,7 +124,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
     function test_CreateAgentWalletRejectsUnknownAgentProfile() public {
         bytes32 unknown = keccak256("missing-agent-profile");
         address walletOwner = makeAddr("wallet-owner");
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(OPERATOR);
         vm.expectRevert(abi.encodeWithSelector(UnknownAgentProfile.selector, unknown));
         factory.createAgentWallet(walletOwner, 1, address(baseAsset), unknown, noFeePlans);
@@ -142,7 +140,7 @@ contract AgentWalletFactoryAgentProfilesTest is Test {
 
     function test_DuplicateOwnerIndexReverts() public {
         address walletOwner = makeAddr("wallet-owner");
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(OPERATOR);
         factory.createAgentWallet(walletOwner, 8, address(baseAsset), VAULT_AGENT_PROFILE, noFeePlans);
 

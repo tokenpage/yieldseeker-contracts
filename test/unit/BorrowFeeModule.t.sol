@@ -2,9 +2,10 @@
 pragma solidity 0.8.28;
 
 import {IYieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
@@ -67,8 +68,20 @@ contract BorrowFeeModuleTest is Test {
         tracker.setFeeModule(YIELD_FEE, vaultModule);
         tracker.createPlan(BORROW_FEE, initialBorrowPlan);
         tracker.createPlan(YIELD_FEE, initialYieldPlan);
-        tracker.grantRole(tracker.WALLET_FACTORY_ROLE(), address(this));
+        tracker.setWalletFactory(address(this));
         vm.stopPrank();
+    }
+
+    function testOnActionRejectsNonTrackerCaller() public {
+        address attacker = makeAddr("attacker");
+        bytes32 action = FeeActions.DEBT_CHANGE;
+        bytes memory data = abi.encode(FeeActions.DebtChange({market: MARKET_A, debtToken: address(debtToken), debtBefore: 0, borrowed: 1, repaid: 0}));
+        uint256 maxPayment = 1;
+        bytes memory unauthorizedError = abi.encodeWithSelector(AWKErrors.Unauthorized.selector, attacker);
+
+        vm.expectRevert(unauthorizedError);
+        vm.prank(attacker);
+        module.onAction(address(wallet), action, data, maxPayment);
     }
 
     function testLinearAccrualIsMarketIsolatedAndPendingUntilCheckpoint() public {
@@ -132,9 +145,9 @@ contract BorrowFeeModuleTest is Test {
         bytes memory planData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
         uint256 planId = tracker.createPlan(BORROW_FEE, planData);
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: BORROW_FEE, planId: planId});
-        tracker.setWalletPlans(address(wallet), plans);
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: planId});
+        tracker.initWalletPlans(address(wallet), plans);
 
         _recordBorrow(MARKET_A, 1_000, 0);
         uint256 start = vm.getBlockTimestamp();
@@ -155,9 +168,9 @@ contract BorrowFeeModuleTest is Test {
         assertEq(_settle(40), 40);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 60);
 
-        assertTrue(tracker.tracksToken(address(wallet), address(baseAsset)));
-        assertTrue(tracker.tracksToken(address(wallet), address(debtToken)));
-        assertFalse(tracker.tracksToken(address(wallet), address(unrelatedToken)));
+        assertTrue(tracker.isAccountedToken(address(wallet), address(baseAsset)));
+        assertTrue(tracker.isAccountedToken(address(wallet), address(debtToken)));
+        assertFalse(tracker.isAccountedToken(address(wallet), address(unrelatedToken)));
         assertEq(tracker.feesHeld(address(wallet), address(baseAsset)), 0);
         assertEq(tracker.feesHeld(address(wallet), address(debtToken)), 0);
 
@@ -196,7 +209,8 @@ contract BorrowFeeModuleTest is Test {
     }
 
     function testRewardHooksDoNotCreateBorrowFees() public {
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: 100})))));
+        bytes memory data = abi.encode(FeeActions.Claim({token: address(baseAsset), amount: 100}));
+        wallet.execute(address(tracker), abi.encodeCall(tracker.reportAction, (FeeActions.CLAIM, data)));
 
         assertEq(vaultModule.feesOwed(address(wallet)), 10);
         assertEq(module.feesOwed(address(wallet), address(debtToken)), 0);
@@ -215,14 +229,16 @@ contract BorrowFeeModuleTest is Test {
     }
 
     function _recordDebtChange(bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        wallet.execute(address(module), abi.encodeCall(module.onAction, (FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: token, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid})))));
+        bytes memory data = abi.encode(FeeActions.DebtChange({market: market, debtToken: token, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid}));
+        address walletAddress = address(wallet);
+        vm.prank(address(tracker));
+        module.onAction(walletAddress, FeeActions.DEBT_CHANGE, data, 0);
     }
 
-    function _settle(uint256 walletBalance) internal returns (uint256 payment) {
-        baseAsset.burn(address(wallet), baseAsset.balanceOf(address(wallet)));
-        baseAsset.mint(address(wallet), walletBalance);
-        bytes memory returnData = wallet.execute(address(module), abi.encodeCall(module.onAction, (bytes32(0), bytes(""))));
-        payment = abi.decode(returnData, (uint256));
+    function _settle(uint256 maxPayment) internal returns (uint256 payment) {
+        address walletAddress = address(wallet);
+        vm.prank(address(tracker));
+        payment = module.onAction(walletAddress, bytes32(0), bytes(""), maxPayment);
     }
 
     function _accrueOneYearFee() internal {

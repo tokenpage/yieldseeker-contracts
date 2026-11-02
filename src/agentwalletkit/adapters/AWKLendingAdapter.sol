@@ -21,17 +21,19 @@ error MarketTargetMismatch(address target, address expected);
 
 /**
  * @title AWKLendingAdapter
- * @notice Base class for lending adapters: supply and withdraw collateral, borrow and repay
+ * @notice Base class for lending adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
  * @dev Every market is its own registry target: target = marketTarget(market), where `market` is the
  *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
  *      used once the registry admin has mapped its target to this adapter.
- *      Pass type(uint256).max to withdraw all collateral or repay all debt.
+ *      Pass type(uint256).max to withdraw all collateral or repay all debt. checkpoint moves no funds: it reads the
+ *      market's current debt so subclasses can record it (e.g. after a liquidation outside the adapter).
  */
 abstract contract AWKLendingAdapter is AWKAdapter {
     event CollateralSupplied(address indexed wallet, address indexed market, uint256 amount);
     event CollateralWithdrawn(address indexed wallet, address indexed market, uint256 amount);
     event Borrowed(address indexed wallet, address indexed market, uint256 amount);
     event Repaid(address indexed wallet, address indexed market, uint256 amount);
+    event Checkpointed(address indexed wallet, address indexed market, uint256 debt);
 
     function supplyCollateral(bytes calldata market, uint256 amount) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
@@ -49,6 +51,10 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         revert AWKErrors.DirectCallForbidden();
     }
 
+    function checkpoint(bytes calldata market) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
     /// @notice The registry target that identifies a market
     function marketTarget(bytes memory market) public pure returns (address) {
         return address(uint160(uint256(keccak256(market))));
@@ -56,6 +62,13 @@ abstract contract AWKLendingAdapter is AWKAdapter {
 
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
+        if (selector == this.checkpoint.selector) {
+            bytes memory checkpointMarket = abi.decode(data[4:], (bytes));
+            if (marketTarget(checkpointMarket) != target) revert MarketTargetMismatch(target, marketTarget(checkpointMarket));
+            uint256 debt = _checkpointOperation(checkpointMarket);
+            emit Checkpointed(address(this), target, debt);
+            return abi.encode(debt);
+        }
         if (selector != this.supplyCollateral.selector && selector != this.withdrawCollateral.selector && selector != this.borrow.selector && selector != this.repay.selector) revert UnknownOperation();
         (bytes memory market, uint256 amount) = abi.decode(data[4:], (bytes, uint256));
         if (marketTarget(market) != target) revert MarketTargetMismatch(target, marketTarget(market));
@@ -93,6 +106,10 @@ abstract contract AWKLendingAdapter is AWKAdapter {
 
     function _repayOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
         return _repay(market, amount);
+    }
+
+    function _checkpointOperation(bytes memory market) internal virtual returns (uint256 debt) {
+        return _debtOf(market);
     }
 
     // ============ Protocol Implementation ============

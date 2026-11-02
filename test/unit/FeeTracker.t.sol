@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, InvalidPlan, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InvalidPlan, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
@@ -29,11 +30,11 @@ contract FeeTrackerProbeModule is IYieldSeekerFeeModule {
         return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
     }
 
-    function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function tracksToken(address wallet, address token) external view override returns (bool) {
+    function isAccountedToken(address wallet, address token) external view override returns (bool) {
         return wallet == _wallet && token == _trackedToken;
     }
 
@@ -53,11 +54,11 @@ contract FeeTrackerHostileModule is IYieldSeekerFeeModule {
         return plan.length == 32 && abi.decode(plan, (uint256)) <= 10_000;
     }
 
-    function onAction(bytes32, bytes calldata) external pure override returns (uint256) {
+    function onAction(address, bytes32, bytes calldata, uint256) external pure override returns (uint256) {
         return 0;
     }
 
-    function tracksToken(address, address) external view override returns (bool) {
+    function isAccountedToken(address, address) external view override returns (bool) {
         _fail();
     }
 
@@ -111,7 +112,7 @@ contract FeeTrackerTest is Test {
         tracker.setFeeModule(YIELD_FEE, vaultModule);
         initialBorrowPlanId = tracker.createPlan(BORROW_FEE, initialBorrowPlan);
         initialYieldPlanId = tracker.createPlan(YIELD_FEE, initialYieldPlan);
-        tracker.grantRole(tracker.WALLET_FACTORY_ROLE(), address(this));
+        tracker.setWalletFactory(address(this));
         vm.stopPrank();
     }
 
@@ -147,9 +148,9 @@ contract FeeTrackerTest is Test {
         assertEq(storedMaximumBorrowPlan.rateBps, borrowMaximum);
         assertEq(tracker.planCount(YIELD_FEE), 2);
         assertEq(tracker.planCount(BORROW_FEE), 2);
-        FeePlan[] memory maximumPlan = new FeePlan[](1);
-        maximumPlan[0] = FeePlan({feeType: YIELD_FEE, planId: yieldPlanId});
-        tracker.setWalletPlans(address(wallet), maximumPlan);
+        FeePlanChoice[] memory maximumPlan = new FeePlanChoice[](1);
+        maximumPlan[0] = FeePlanChoice({feeType: YIELD_FEE, planId: yieldPlanId});
+        tracker.initWalletPlans(address(wallet), maximumPlan);
         _recordYield(wallet, 10_000);
         assertEq(vaultModule.feesOwed(address(wallet)), 2_000);
 
@@ -173,21 +174,60 @@ contract FeeTrackerTest is Test {
         tracker.createPlan(unknownFeeType, unknownFeePlan);
     }
 
-    function testSetWalletPlansRequiresFactoryRoleAndRejectsUnknownPlans() public {
+    function testInitWalletPlansRequiresFactoryAndRejectsUnknownPlans() public {
         address stranger = makeAddr("stranger");
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: YIELD_FEE, planId: 1});
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: YIELD_FEE, planId: 1});
 
-        vm.expectRevert();
+        bytes memory unauthorizedError = abi.encodeWithSelector(AWKErrors.Unauthorized.selector, stranger);
+        vm.expectRevert(unauthorizedError);
         vm.prank(stranger);
-        tracker.setWalletPlans(address(wallet), plans);
+        tracker.initWalletPlans(address(wallet), plans);
 
         bytes memory unknownPlanError = abi.encodeWithSelector(UnknownPlan.selector, YIELD_FEE, 99);
-        plans[0] = FeePlan({feeType: YIELD_FEE, planId: 99});
+        plans[0] = FeePlanChoice({feeType: YIELD_FEE, planId: 99});
         vm.expectRevert(unknownPlanError);
-        tracker.setWalletPlans(address(wallet), plans);
+        tracker.initWalletPlans(address(wallet), plans);
 
         assertEq(tracker.walletPlanId(address(wallet), YIELD_FEE), 0);
+    }
+
+    function testSetWalletFactoryIsAdminOnlyAndRequiresContract() public {
+        address stranger = makeAddr("stranger");
+        vm.expectRevert();
+        vm.prank(stranger);
+        tracker.setWalletFactory(address(this));
+
+        bytes memory notAContractError = abi.encodeWithSelector(AWKErrors.NotAContract.selector, stranger);
+        vm.expectRevert(notAContractError);
+        vm.prank(admin);
+        tracker.setWalletFactory(stranger);
+
+        assertEq(tracker.walletFactory(), address(this));
+    }
+
+    function testReportActionCapsModulesToRemainingBalanceAndReturnsCollector() public {
+        bytes32 market = keccak256("market");
+        bytes memory borrowedData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 0, borrowed: 100, repaid: 0}));
+        _reportAction(wallet, FeeActions.DEBT_CHANGE, borrowedData);
+
+        uint256 start = vm.getBlockTimestamp();
+        uint256 checkpointTime = start + 365 days;
+        vm.warp(checkpointTime);
+        bytes memory checkpointData = abi.encode(FeeActions.DebtChange({market: market, debtToken: address(debtToken), debtBefore: 100, borrowed: 0, repaid: 0}));
+        _reportAction(wallet, FeeActions.DEBT_CHANGE, checkpointData);
+        _recordYield(wallet, 100);
+
+        assertEq(borrowModule.feesOwed(address(wallet), address(debtToken)), 3);
+        assertEq(vaultModule.feesOwed(address(wallet)), 10);
+        baseAsset.mint(address(wallet), 8);
+
+        (uint256 payment, address actualCollector) = _reportAction(wallet, bytes32(0), bytes(""));
+
+        assertEq(payment, 8);
+        assertEq(actualCollector, collector);
+        assertEq(borrowModule.feesOwed(address(wallet), address(debtToken)), 0);
+        assertEq(vaultModule.feesOwed(address(wallet)), 5);
     }
 
     function testWalletRatesUsePerFeeTypePlansAndAreKeyedByWallet() public {
@@ -199,10 +239,10 @@ contract FeeTrackerTest is Test {
         vm.prank(admin);
         uint256 borrowPlanId = tracker.createPlan(BORROW_FEE, borrowPlanData);
 
-        FeePlan[] memory plans = new FeePlan[](2);
-        plans[0] = FeePlan({feeType: YIELD_FEE, planId: yieldPlanId});
-        plans[1] = FeePlan({feeType: BORROW_FEE, planId: borrowPlanId});
-        tracker.setWalletPlans(address(wallet), plans);
+        FeePlanChoice[] memory plans = new FeePlanChoice[](2);
+        plans[0] = FeePlanChoice({feeType: YIELD_FEE, planId: yieldPlanId});
+        plans[1] = FeePlanChoice({feeType: BORROW_FEE, planId: borrowPlanId});
+        tracker.initWalletPlans(address(wallet), plans);
 
         assertEq(vaultModule.walletPlan(address(wallet)).rateBps, 500);
         assertEq(borrowModule.walletPlan(address(wallet)).rateBps, 400);
@@ -251,10 +291,9 @@ contract FeeTrackerTest is Test {
         bytes memory existingPlanData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
         uint256 existingPlanId = tracker.createPlan(BORROW_FEE, existingPlanData);
-        FeePlan[] memory walletPlans = new FeePlan[](1);
-        walletPlans[0] = FeePlan({feeType: BORROW_FEE, planId: existingPlanId});
-        tracker.setWalletPlans(address(wallet), walletPlans);
-
+        FeePlanChoice[] memory walletPlans = new FeePlanChoice[](1);
+        walletPlans[0] = FeePlanChoice({feeType: BORROW_FEE, planId: existingPlanId});
+        tracker.initWalletPlans(address(wallet), walletPlans);
         YieldSeekerBorrowFeeModule replacement = new YieldSeekerBorrowFeeModule(tracker, oracle, 750);
         vm.prank(admin);
         tracker.setFeeModule(BORROW_FEE, replacement);
@@ -275,16 +314,14 @@ contract FeeTrackerTest is Test {
         assertEq(newPlan.rateBps, 600);
     }
 
-    function testTracksTokenAndFeesHeldAggregateModulesAndIgnoreFailures() public {
+    function testIsAccountedTokenAndFeesHeldAggregateModulesAndIgnoreFailures() public {
         address heldToken = address(baseAsset);
         FeeTrackerProbeModule probe = new FeeTrackerProbeModule(address(wallet), PROBE_TOKEN, heldToken, 123);
         FeeTrackerHostileModule revertingModule = new FeeTrackerHostileModule(false);
         FeeTrackerHostileModule gasBurningModule = new FeeTrackerHostileModule(true);
 
-        wallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: 100e6})))));
-        wallet.execute(
-            address(borrowModule), abi.encodeCall(borrowModule.onAction, (FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256("market"), debtToken: address(debtToken), debtBefore: 0, borrowed: 1_000, repaid: 0}))))
-        );
+        _recordYield(wallet, 100e6);
+        _recordDebtChange(wallet, keccak256("market"), address(debtToken), 0, 1_000, 0);
 
         vm.startPrank(admin);
         tracker.setFeeModule(REVERTING_FEE, revertingModule);
@@ -292,10 +329,10 @@ contract FeeTrackerTest is Test {
         tracker.setFeeModule(PROBE_FEE, probe);
         vm.stopPrank();
 
-        assertTrue(tracker.tracksToken(address(wallet), address(baseAsset)));
-        assertTrue(tracker.tracksToken(address(wallet), address(debtToken)));
-        assertTrue(tracker.tracksToken(address(wallet), PROBE_TOKEN));
-        assertFalse(tracker.tracksToken(address(wallet), UNTRACKED_TOKEN));
+        assertTrue(tracker.isAccountedToken(address(wallet), address(baseAsset)));
+        assertTrue(tracker.isAccountedToken(address(wallet), address(debtToken)));
+        assertTrue(tracker.isAccountedToken(address(wallet), PROBE_TOKEN));
+        assertFalse(tracker.isAccountedToken(address(wallet), UNTRACKED_TOKEN));
         assertEq(tracker.feesHeld(address(wallet), address(baseAsset)), 10e6 + 123);
         assertEq(tracker.feesHeld(address(wallet), address(debtToken)), 0);
     }
@@ -307,7 +344,16 @@ contract FeeTrackerTest is Test {
         assertEq(tracker.feeCollector(), newCollector);
     }
 
+    function _reportAction(MockFeeWallet targetWallet, bytes32 action, bytes memory data) internal returns (uint256 payment, address feeCollector) {
+        bytes memory returnData = targetWallet.execute(address(tracker), abi.encodeCall(tracker.reportAction, (action, data)));
+        return abi.decode(returnData, (uint256, address));
+    }
+
     function _recordYield(MockFeeWallet targetWallet, uint256 amount) internal {
-        targetWallet.execute(address(vaultModule), abi.encodeCall(vaultModule.onAction, (FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: amount})))));
+        _reportAction(targetWallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: amount})));
+    }
+
+    function _recordDebtChange(MockFeeWallet targetWallet, bytes32 market, address token, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
+        _reportAction(targetWallet, FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: market, debtToken: token, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid})));
     }
 }

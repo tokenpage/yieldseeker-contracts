@@ -26,9 +26,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title YieldSeekerLendingAdapter
  * @notice YieldSeeker rules on top of an AWK lending adapter
  * @dev Collateral must be the wallet's base asset and the debt asset must differ from it; which markets can be
- *      used at all is decided by the registry. Every borrow, repay and collateral withdrawal reports the market's
- *      real debt to the fee modules (FeeActions.DEBT_CHANGE), and fees due are paid from the base asset, including
- *      collateral just withdrawn.
+ *      used at all is decided by the registry. Every borrow, repay, collateral withdrawal and checkpoint reports the
+ *      market's real debt to the fee modules (FeeActions.DEBT_CHANGE), and fees due are paid from the base asset,
+ *      including collateral just withdrawn. The operator checkpoints a market after its debt changed outside the
+ *      adapter (e.g. a liquidation), so the borrow fee stops accruing on the old debt.
  */
 abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAdapter {
     function _checkedMarketAssets(bytes memory market) internal view returns (address collateralAsset, address debtAsset) {
@@ -63,6 +64,12 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debt = _debtOf(market);
         withdrawn = super._withdrawCollateralOperation(market, amount);
+        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debt, borrowed: 0, repaid: 0})));
+    }
+
+    function _checkpointOperation(bytes memory market) internal virtual override returns (uint256 debt) {
+        (, address debtAsset) = _checkedMarketAssets(market);
+        debt = super._checkpointOperation(market);
         _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debt, borrowed: 0, repaid: 0})));
     }
 }

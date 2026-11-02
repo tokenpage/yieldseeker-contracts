@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeeWallet} from "../mocks/MockFeeWallet.sol";
@@ -36,8 +37,20 @@ contract YieldFeeModuleTest is Test {
         vm.startPrank(admin);
         feeTracker.setFeeModule(YIELD_FEE, vaultFees);
         feeTracker.createPlan(YIELD_FEE, initialPlan);
-        feeTracker.grantRole(feeTracker.WALLET_FACTORY_ROLE(), address(this));
+        feeTracker.setWalletFactory(address(this));
         vm.stopPrank();
+    }
+
+    function testOnActionRejectsNonTrackerCaller() public {
+        address attacker = makeAddr("attacker");
+        bytes32 action = FeeActions.CLAIM;
+        bytes memory data = abi.encode(FeeActions.Claim({token: address(baseAsset), amount: 100}));
+        uint256 maxPayment = 100;
+        bytes memory unauthorizedError = abi.encodeWithSelector(AWKErrors.Unauthorized.selector, attacker);
+
+        vm.expectRevert(unauthorizedError);
+        vm.prank(attacker);
+        vaultFees.onAction(address(agent1), action, data, maxPayment);
     }
 
     function testFeesAreRecordedForTheCallingWallet() public {
@@ -53,9 +66,9 @@ contract YieldFeeModuleTest is Test {
         bytes memory planData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
         uint256 planId = feeTracker.createPlan(YIELD_FEE, planData);
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
-        feeTracker.setWalletPlans(address(agent1), plans);
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: YIELD_FEE, planId: planId});
+        feeTracker.initWalletPlans(address(agent1), plans);
         _recordDeposit(agent1, vault, 1_000e6);
         _recordDeposit(agent2, vault, 1_000e6);
 
@@ -71,9 +84,9 @@ contract YieldFeeModuleTest is Test {
         bytes memory planData = abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);
         uint256 planId = feeTracker.createPlan(YIELD_FEE, planData);
-        FeePlan[] memory plans = new FeePlan[](1);
-        plans[0] = FeePlan({feeType: YIELD_FEE, planId: planId});
-        feeTracker.setWalletPlans(address(agent1), plans);
+        FeePlanChoice[] memory plans = new FeePlanChoice[](1);
+        plans[0] = FeePlanChoice({feeType: YIELD_FEE, planId: planId});
+        feeTracker.initWalletPlans(address(agent1), plans);
         _recordDeposit(agent1, vault, 1_000e6);
         _recordDeposit(agent2, vault, 1_000e6);
 
@@ -216,8 +229,8 @@ contract YieldFeeModuleTest is Test {
         address rewardToken = makeAddr("rewardToken");
         _recordYield(agent1, 100e6);
 
-        assertFalse(vaultFees.tracksToken(address(agent1), address(baseAsset)));
-        assertFalse(vaultFees.tracksToken(address(agent1), rewardToken));
+        assertFalse(vaultFees.isAccountedToken(address(agent1), address(baseAsset)));
+        assertFalse(vaultFees.isAccountedToken(address(agent1), rewardToken));
         assertEq(vaultFees.feesHeld(address(agent1), address(baseAsset)), 10e6);
         assertEq(vaultFees.feesHeld(address(agent1), rewardToken), 0);
 
@@ -236,18 +249,21 @@ contract YieldFeeModuleTest is Test {
     }
 
     function _settleFees(MockFeeWallet wallet, uint256 available) internal returns (uint256 payment) {
-        baseAsset.burn(address(wallet), baseAsset.balanceOf(address(wallet)));
-        baseAsset.mint(address(wallet), available);
-        bytes memory returnData = wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (bytes32(0), bytes(""))));
-        payment = abi.decode(returnData, (uint256));
+        payment = _onAction(wallet, bytes32(0), bytes(""), available);
+    }
+
+    function _onAction(MockFeeWallet wallet, bytes32 action, bytes memory data, uint256 maxPayment) internal returns (uint256 payment) {
+        address walletAddress = address(wallet);
+        vm.prank(address(feeTracker));
+        payment = vaultFees.onAction(walletAddress, action, data, maxPayment);
     }
 
     function _recordDeposit(MockFeeWallet wallet, address vault, uint256 assets) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vault, assetsIn: assets})))));
+        _onAction(wallet, FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vault, assetsIn: assets})), 0);
     }
 
     function _recordShareWithdraw(MockFeeWallet wallet, address vault, uint256 spent, uint256 heldBefore, uint256 assetsReceived) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vault, spent: spent, heldBefore: heldBefore, assetsOut: assetsReceived})))));
+        _onAction(wallet, FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vault, spent: spent, heldBefore: heldBefore, assetsOut: assetsReceived})), 0);
     }
 
     function _recordAssetWithdraw(MockFeeWallet wallet, address vault, uint256 spent, uint256 heldBefore, uint256 assetsReceived) internal {
@@ -255,12 +271,10 @@ contract YieldFeeModuleTest is Test {
     }
 
     function _recordYield(MockFeeWallet wallet, uint256 amount) internal {
-        wallet.execute(address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: amount})))));
+        _onAction(wallet, FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(baseAsset), amount: amount})), 0);
     }
 
     function _recordRewardTokenSale(MockFeeWallet wallet, uint256 baseReceived) internal {
-        wallet.execute(
-            address(vaultFees), abi.encodeCall(vaultFees.onAction, (FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: makeAddr("rewardToken"), soldAmount: baseReceived, bought: address(baseAsset), boughtAmount: baseReceived}))))
-        );
+        _onAction(wallet, FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: makeAddr("rewardToken"), soldAmount: baseReceived, bought: address(baseAsset), boughtAmount: baseReceived})), 0);
     }
 }

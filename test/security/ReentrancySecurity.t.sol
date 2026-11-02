@@ -7,7 +7,7 @@ import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
-import {FeePlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
@@ -107,7 +107,7 @@ contract ReentrancySecurityTest is Test {
     }
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.prank(operator);
         wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, AGENT_INDEX, address(usdc), VAULT_AGENT_PROFILE, noFeePlans))));
     }

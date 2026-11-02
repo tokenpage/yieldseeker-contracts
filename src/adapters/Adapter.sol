@@ -19,7 +19,6 @@ pragma solidity 0.8.28;
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKAdapter} from "../agentwalletkit/AWKAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../fees/FeeTracker.sol";
-import {IYieldSeekerFeeModule} from "../fees/IYieldSeekerFeeModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -30,8 +29,8 @@ error BaseAssetNotAllowed();
  * @title YieldSeekerAdapter
  * @notice Base class for all adapters in the YieldSeeker system.
  * @dev Extends AWKAdapter with YieldSeeker-specific helpers for baseAsset and fees. Adapters only report what the
- *      wallet did (_reportAction with a FeeActions action); every fee module decides what it charges for and the
- *      fees it settles are paid straight away.
+ *      wallet did (_reportAction with a FeeActions action) to the fee tracker, whose modules decide what it costs,
+ *      and pay the fees straight away.
  */
 abstract contract YieldSeekerAdapter is AWKAdapter {
     using SafeERC20 for IERC20;
@@ -61,12 +60,9 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
         return _ysAgentWallet().feeTracker();
     }
 
-    /// @dev Reports an action (FeeActions) to every fee module, paying each module's fees before calling the next
+    /// @dev Reports an action (FeeActions) to the fee tracker and pays the fees its modules settle
     function _reportAction(bytes32 action, bytes memory data) internal {
-        (IYieldSeekerFeeModule[] memory modules, address feeCollector) = _feeTracker().feeModulesAndCollector();
-        for (uint256 i = 0; i < modules.length; i++) {
-            uint256 payment = modules[i].onAction(action, data);
-            if (payment > 0) _baseAsset().safeTransfer(feeCollector, payment);
-        }
+        (uint256 payment, address feeCollector) = _feeTracker().reportAction(action, data);
+        if (payment > 0) _baseAsset().safeTransfer(feeCollector, payment);
     }
 }

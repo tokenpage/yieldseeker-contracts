@@ -109,7 +109,7 @@ Adapters never decide fees. After every action they report what the wallet did (
 
 ### Borrow fee (`BORROW_FEE`)
 
-A yearly fee on borrowed principal, counted in the borrowed token per market and reported by the lending adapters on every borrow, repay and collateral withdrawal. It is due in the base asset (the collateral) at the oracle price and paid at the first action that leaves base asset in the wallet; a token without a fresh price waits until it has one. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet, debtToken)` plus `pendingFee(wallet, market)`, converted with the price oracle.
+A yearly fee on borrowed principal, counted in the borrowed token per market and reported by the lending adapters on every borrow, repay and collateral withdrawal. Each period is charged on the debt seen at the previous report, so after a debt change outside the adapters (a liquidation, or a repay made directly on the protocol) the server calls the lending adapter's `checkpoint(market)`, which moves no funds and reports the real debt; until then the fee keeps accruing on the old debt. It is due in the base asset (the collateral) at the oracle price and paid at the first action that leaves base asset in the wallet; a token without a fresh price waits until it has one. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet, debtToken)` plus `pendingFee(wallet, market)`, converted with the price oracle.
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for the remaining position is reduced, and no fees are accrued.
@@ -259,7 +259,7 @@ Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `createAgentWallet(owner, index, asset, agentProfile, feePlans)` | Operator | Deploys new wallet via CREATE2; sets its fee plans, fixed for life |
+| `createAgentWallet(owner, index, asset, agentProfile, feePlans)` | Operator | Deploys new wallet via CREATE2; sets its fee plan per fee type (`FeePlanChoice[]`), fixed for life |
 | `getAddress(owner, index)` | View | Predicts address before deployment |
 | `setAgentWalletImplementation(newImpl)` | Admin | Updates implementation for NEW wallets |
 | `setAdapterRegistry(newRegistry)` | Admin | Updates registry for NEW wallets |
@@ -298,15 +298,15 @@ The central registry that manages authorized adapters and their targets.
 
 #### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans and the fee collector. After every action, the adapter reports it to every module with `onAction(action, data)`. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset and returns that amount; the adapter sends it to the fee collector before calling the next module. Modules are keyed on `msg.sender`, so a caller can only affect its own accounting.
+The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans, the wallet factory and the fee collector. After every action, the adapter reports it to the tracker with `reportAction(action, data)`; the tracker passes it to every module (`onAction(wallet, action, data, maxPayment)`, callable only by the tracker), in the order the modules were added. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset left by the modules before it; the tracker returns the total and the collector, and the adapter makes one transfer. `msg.sender` of `reportAction` is the wallet, so a caller can only affect its own accounting.
 
-**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
+**Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory (`walletFactory`, set by the timelock) sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)` → `initWalletPlans`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
 
 | Contract | Role |
 |----------|------|
-| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), plans (`createPlan`, `plan`), wallet plans (`setWalletPlans`, factory only; `walletPlanId`, `walletPlan`), `feeCollector`; `tracksToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesHeld(wallet, token)` (summed over modules), each module called with a gas limit so a failing one can't block exits |
 | `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
-| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change; fees paid in the base asset at the oracle price; tracks borrowed tokens |
+| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`; fees paid in the base asset at the oracle price; accounts for borrowed tokens |
 
 Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for plan 0 and any others); adapters, the tracker and wallets don't change. Adding an action (for a new agent type's adapters) needs a new `FeeActions` ID and struct; deployed modules ignore actions they don't know, so only modules that should charge for it change.
 
@@ -321,7 +321,7 @@ Adapters are stateless contracts that execute protocol interactions via DELEGATE
 **YieldSeekerAdapter (`src/adapters/Adapter.sol`)**
 Abstract base class for all adapters providing:
 - `onlyDelegateCall` modifier to prevent direct calls
-- Fee reporting: `_reportAction(action, data)` (tells every fee module and pays the fees each settles)
+- Fee reporting: `_reportAction(action, data)` (reports to the fee tracker and pays the fees its modules settle in one transfer)
 - Base asset validation: `_requireBaseAsset(address)`
 
 #### Concrete Adapters
@@ -587,7 +587,7 @@ address walletAddr = factory.createAgentWallet(
     0,                       // Index
     usdcAddress,             // Base Asset
     keccak256("vault"),      // Agent profile
-    new FeePlan[](0)         // Fee plans (empty: plan 0 for every fee type)
+    new FeePlanChoice[](0)   // Fee plans (empty: plan 0 for every fee type)
 );
 
 // User can now deposit USDC
@@ -689,8 +689,8 @@ sequenceDiagram
     Wallet->>Adapter: DELEGATECALL withdraw(vault, shares)
     Adapter->>Vault: vault.redeem(shares, wallet, wallet)
     Vault-->>Wallet: USDC returned to wallet
-    Adapter->>FeeModules: onAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
-    FeeModules->>FeeModules: Charge on profit, settle fees owed
+    Adapter->>FeeTracker: reportAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
+    FeeTracker->>FeeTracker: Modules charge on profit, settle fees owed
     Wallet-->>EP: ✓
 
     Note over User: User withdraws USDC
@@ -727,9 +727,10 @@ sequenceDiagram
 
     Server->>Wallet: executeViaAdapter(adapter, vault, withdraw(shares))
     Wallet->>Adapter: delegatecall execute(vault, withdraw)
-    Adapter->>Modules: onAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
-    Modules->>Modules: yield module charges on profit, pays from the wallet's USDC
-    Modules-->>Adapter: payment
+    Adapter->>Tracker: reportAction(WITHDRAW, Withdraw(vault, shares, sharesHeldBefore, assets))
+    Tracker->>Modules: onAction(wallet, WITHDRAW, data, USDC balance)
+    Modules-->>Tracker: yield module charges on profit, records the payment
+    Tracker-->>Adapter: payment, feeCollector
     Adapter->>USDC: transfer(feeCollector, payment)
 ```
 
@@ -960,13 +961,12 @@ We have comprehensive tests in `test/`:
 
 ### Changing fee logic
 
-Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, moves wallets to **zero state**: open cost bases and borrow positions, and fees owed, stay behind in the old module.
+Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, starts wallets from **zero state** in the new module unless it imports the old state. Without an import, a new yield module has no cost basis for open positions, so their next withdrawal is charged on the whole amount (**overcharge**); a new borrow module has no positions, so existing debt accrues no fee; unpaid fees stay behind. A new tracker also has no wallet plans.
 
 - **New fee types:** write a module that implements `IYieldSeekerFeeModule`, defines its `Plan` struct and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, abi.encode(Module.Plan(...)))` for plan 0 (existing wallets use it). No adapter changes.
 - **New actions:** add an ID and a struct to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled. Never change an existing struct.
 - **New plans:** `createPlan(feeType, plan)`; only new wallets can be put on it. Plans never change, so a different rate for existing users means moving their agents to new wallets. A replacement module can read old plans and accept new ones in a richer format (e.g. decode by length), so it can add rates without touching existing plans.
-- **`WALLET_FACTORY_ROLE` only goes to wallet factories.** Factories call `setWalletPlans` only for the wallet they are creating; that is what keeps a wallet's plans fixed for life. Any other holder of the role could change a live wallet's plans.
-- **Replacing a module:** losing vault cost bases means profit made before the switch is never charged; losing borrow positions means the fee built up so far is lost. Migrate the state first if that matters (it needs the list of vaults and markets each wallet used, from off-chain indexing).
+- **Replacing a module:** write the replacement to import state lazily: it takes the old module's address in its constructor, and the first time it touches a wallet's position (a vault target, a market) or fees owed, it copies them from the old module's public getters (`costBasis`, `debtPositions`, `feesOwed`) and marks them imported. No off-chain indexing or migration transaction is needed, and the cost is a few reads on first touch. Adding behaviour as a new fee type instead of replacing a module avoids the question entirely.
 
 ---
 

@@ -11,7 +11,7 @@ import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../src/fees/FeeActions.sol";
-import {FeePlan, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockSwapAdapterPriceOracle} from "../mocks/MockSwapAdapterPriceOracle.sol";
@@ -60,7 +60,7 @@ contract WalletLinkTransferTest is Test {
         factory = new YieldSeekerAgentWalletFactory(address(this), OPERATOR);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
-        borrowReporter = new MockV3BorrowReporter(borrowFees);
+        borrowReporter = new MockV3BorrowReporter();
 
         MockV3YieldSeekerWalletV1 implementation = new MockV3YieldSeekerWalletV1(address(factory));
         factory.setAgentWalletImplementation(implementation);
@@ -77,7 +77,7 @@ contract WalletLinkTransferTest is Test {
         borrowRegistry.registerAdapter(address(borrowReporter));
         borrowRegistry.setTargetAdapter(address(borrowFees), address(borrowReporter));
 
-        FeePlan[] memory noFeePlans = new FeePlan[](0);
+        FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
         vm.startPrank(OPERATOR);
         vaultWallet = factory.createAgentWallet(owner, 1, address(usdc), VAULT_AGENT_PROFILE, noFeePlans);
         borrowWallet = factory.createAgentWallet(owner, 2, address(weth), BORROW_AGENT_PROFILE, noFeePlans);
@@ -152,7 +152,7 @@ contract WalletLinkTransferTest is Test {
     function test_TransferCannotExceedFeeModuleWithdrawableBalance() public {
         _linkWallets();
         _recordBorrowedUsdc();
-        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})), address(usdc));
+        _recordFeeAction(vaultFeeModule, address(vaultWallet), FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(usdc), amount: 100e6})));
 
         _expectTransferFailure(vaultWallet, address(linkRegistry), address(usdc), address(borrowWallet), 290e6 + 1, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
     }
@@ -180,11 +180,8 @@ contract WalletLinkTransferTest is Test {
         _transfer(from, token, to, amount, target);
     }
 
-    function _recordFeeAction(YieldSeekerYieldFeeModule module, address wallet, bytes32 action, bytes memory data, address baseAsset) private {
-        uint256 baseBalance = MockERC20(baseAsset).balanceOf(wallet);
-        MockERC20(baseAsset).burn(wallet, baseBalance);
-        vm.prank(wallet);
-        module.onAction(action, data);
-        MockERC20(baseAsset).mint(wallet, baseBalance);
+    function _recordFeeAction(YieldSeekerYieldFeeModule module, address wallet, bytes32 action, bytes memory data) private {
+        vm.prank(address(vaultFees));
+        module.onAction(wallet, action, data, 0);
     }
 }
