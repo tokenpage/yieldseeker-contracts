@@ -15,6 +15,7 @@ import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLend
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho, MockMorphoOracle} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
@@ -37,6 +38,7 @@ contract LendingAdaptersTest is Test {
     YieldSeekerAdapterRegistry private registry;
     YieldSeekerBorrowFeeModule private feeModule;
     YieldSeekerPriceOracle private oracle;
+    YieldSeekerYieldFeeModule private yieldFeeModule;
     MockLendingPriceFeed private wethFeed;
     MockLendingPriceFeed private usdcFeed;
     MockERC20WithDecimals private weth;
@@ -69,7 +71,7 @@ contract LendingAdaptersTest is Test {
         oracle.setSource(address(usdc), IPriceFeed(address(usdcFeed)), 1 days);
 
         feeTracker = new YieldSeekerFeeTracker(address(this), FEE_COLLECTOR);
-        AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 0);
+        yieldFeeModule = AdapterFeeSetup.addYieldModule(feeTracker, 10_000, 1_000);
         feeModule = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, feeModule);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
@@ -162,6 +164,26 @@ contract LendingAdaptersTest is Test {
         _execute(OPERATOR, address(aaveV3Adapter), target, _lendingCall(aaveV3Adapter.supplyCollateral.selector, market, 1e18));
     }
 
+    function test_AaveV3RejectsEModeMarketOnSupply() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 1);
+        _registerAaveV3Market(market);
+        address target = aaveV3Adapter.marketTarget(market);
+        bytes memory callData = _lendingCall(aaveV3Adapter.supplyCollateral.selector, market, 1e18);
+        bytes memory expectedError = _adapterError(abi.encodeWithSelector(bytes4(keccak256("EModeNotAllowed(uint8)")), uint8(1)));
+        vm.expectRevert(expectedError);
+        _execute(OPERATOR, address(aaveV3Adapter), target, callData);
+    }
+
+    function test_AaveV3RejectsEModeMarketOnCheckpoint() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 1);
+        _registerAaveV3Market(market);
+        address target = aaveV3Adapter.marketTarget(market);
+        bytes memory callData = abi.encodeWithSelector(aaveV3Adapter.checkpoint.selector, market);
+        bytes memory expectedError = _adapterError(abi.encodeWithSelector(bytes4(keccak256("EModeNotAllowed(uint8)")), uint8(1)));
+        vm.expectRevert(expectedError);
+        _execute(OPERATOR, address(aaveV3Adapter), target, callData);
+    }
+
     function test_BorrowAccountingKeepsSeparateMarketPrincipals() public {
         MockLendingAaveV3Pool secondPool = new MockLendingAaveV3Pool();
         MockERC20 secondAToken = new MockERC20("Second Aave WETH", "aWETH2");
@@ -185,6 +207,81 @@ contract LendingAdaptersTest is Test {
         assertEq(secondPrincipal, 30e6);
         assertEq(variableDebtUsdc.balanceOf(address(wallet)), 20e6);
         assertEq(secondDebtToken.balanceOf(address(wallet)), 30e6);
+    }
+
+    function test_AaveV3CollateralGrowthChargesYieldProRataAcrossPartialAndFullWithdrawals() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 0);
+        address target = aaveV3Adapter.marketTarget(market);
+        uint256 growth = 2e18;
+        _fundAndSupplyAave(COLLATERAL, market);
+        aavePool.accrueCollateral(address(weth), address(wallet), growth);
+
+        uint256 heldBefore = COLLATERAL + growth;
+        uint256 partialWithdrawal = heldBefore / 2;
+        uint256 partialBasisReleased = COLLATERAL * partialWithdrawal / heldBefore;
+        uint256 partialYield = partialWithdrawal - partialBasisReleased;
+        uint256 partialFee = partialYield * 1_000 / 10_000;
+        _execute(OPERATOR, address(aaveV3Adapter), target, _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, partialWithdrawal));
+
+        assertEq(yieldFeeModule.costBasis(address(wallet), target), COLLATERAL - partialBasisReleased);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), partialFee);
+        assertEq(weth.balanceOf(address(wallet)), partialWithdrawal - partialFee);
+
+        uint256 finalCollateral = heldBefore - partialWithdrawal;
+        uint256 remainingBasis = COLLATERAL - partialBasisReleased;
+        uint256 finalYield = finalCollateral - remainingBasis;
+        uint256 finalFee = finalYield * 1_000 / 10_000;
+        _execute(OPERATOR, address(aaveV3Adapter), target, _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
+
+        assertEq(yieldFeeModule.costBasis(address(wallet), target), 0);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), partialFee + finalFee);
+        assertEq(weth.balanceOf(address(wallet)), heldBefore - partialFee - finalFee);
+    }
+
+    function test_AaveV4CollateralGrowthChargesYieldProRataAcrossPartialAndFullWithdrawals() public {
+        bytes memory market = abi.encode(address(aaveV4Spoke), uint256(1), uint256(2));
+        address target = aaveV4Adapter.marketTarget(market);
+        uint256 growth = 2e18;
+        _registerAaveV4Market(market);
+        weth.mint(address(wallet), COLLATERAL);
+        _execute(OPERATOR, address(aaveV4Adapter), target, _lendingCall(aaveV4Adapter.supplyCollateral.selector, market, COLLATERAL));
+        aaveV4Spoke.accrueSuppliedAssets(1, address(wallet), growth);
+
+        uint256 heldBefore = COLLATERAL + growth;
+        uint256 partialWithdrawal = heldBefore / 2;
+        uint256 partialBasisReleased = COLLATERAL * partialWithdrawal / heldBefore;
+        uint256 partialYield = partialWithdrawal - partialBasisReleased;
+        uint256 partialFee = partialYield * 1_000 / 10_000;
+        _execute(OPERATOR, address(aaveV4Adapter), target, _lendingCall(aaveV4Adapter.withdrawCollateral.selector, market, partialWithdrawal));
+
+        assertEq(yieldFeeModule.costBasis(address(wallet), target), COLLATERAL - partialBasisReleased);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), partialFee);
+        assertEq(weth.balanceOf(address(wallet)), partialWithdrawal - partialFee);
+
+        uint256 finalCollateral = heldBefore - partialWithdrawal;
+        uint256 remainingBasis = COLLATERAL - partialBasisReleased;
+        uint256 finalYield = finalCollateral - remainingBasis;
+        uint256 finalFee = finalYield * 1_000 / 10_000;
+        _execute(OPERATOR, address(aaveV4Adapter), target, _lendingCall(aaveV4Adapter.withdrawCollateral.selector, market, type(uint256).max));
+
+        assertEq(yieldFeeModule.costBasis(address(wallet), target), 0);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), partialFee + finalFee);
+        assertEq(weth.balanceOf(address(wallet)), heldBefore - partialFee - finalFee);
+    }
+
+    function test_AaveV3CollateralLossDoesNotChargeYieldFee() public {
+        bytes memory market = _aaveMarket(aavePool, address(weth), address(usdc), 0);
+        address target = aaveV3Adapter.marketTarget(market);
+        uint256 loss = 2e18;
+        _fundAndSupplyAave(COLLATERAL, market);
+        aWeth.burn(address(wallet), loss);
+
+        _execute(OPERATOR, address(aaveV3Adapter), target, _lendingCall(aaveV3Adapter.withdrawCollateral.selector, market, type(uint256).max));
+
+        assertEq(yieldFeeModule.costBasis(address(wallet), target), 0);
+        assertEq(yieldFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), 0);
+        assertEq(weth.balanceOf(address(wallet)), COLLATERAL - loss);
     }
 
     function test_YearlyRepayDoesNotPayBorrowFeeFromDebtToken() public {
@@ -432,6 +529,8 @@ contract LendingAdaptersTest is Test {
         assertEq(principal, 0);
         assertEq(weth.balanceOf(address(wallet)), 5e18);
         assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(yieldFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(weth.balanceOf(FEE_COLLECTOR), 0);
     }
 
     function test_AaveV4SupplyBorrowRepayAndWithdrawAll() public {

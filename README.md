@@ -101,11 +101,11 @@ Adapters never decide fees. After every action they report what the wallet did (
 
 ### Yield fee (`YIELD_FEE`, all agent types)
 
-1. **On Deposit**: the module adds the base asset deposited to the target's cost basis
-2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults); the same share of the cost basis is released, and anything received above it is yield
+1. **On Deposit**: the module adds the base asset deposited to the target's cost basis (a vault, or a lending market's collateral for borrow agents)
+2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults and lending collateral); the same share of the cost basis is released, and anything received above it is yield
    - Fee = `yield * rateBps / 10000`, where `rateBps` comes from the wallet's `YIELD_FEE` plan
    - If loss: No fee, cost basis reduced for the remaining position
-3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling any other token is yield. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
+3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling a reward token (`REWARD_SALE`) is yield; other trades (`SWAP`, e.g. collateral sold for a borrowed token) are not. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
 
 ### Borrow fee (`BORROW_FEE`)
 
@@ -306,7 +306,7 @@ Each agent profile has its own fee tracker (`factory.feeTracker(agentProfile)`),
 
 | Contract | Role |
 |----------|------|
-| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)` (unpaid fees across modules, for display), each module called with a gas limit so a failing one can't block exits |
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)` (unpaid fees across modules: shown net in `withdrawableBalance`, and must be 0 after a base-asset sale), each module called with a gas limit so a failing one can't block exits |
 | `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from reward sales (`REWARD_SALE`); other trades (`SWAP`) are not yield |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`, converted to the base asset with the lending market's own price; fees paid from the base asset; accounts for borrowed tokens |
 
@@ -875,7 +875,7 @@ Each `SetPriceSource` run prints the feed decimals, description, and latest roun
 The script validates the Base protocol addresses, requires collateral and debt to differ, and requires price sources for both assets. Market bytes are ABI encodings of protocol and market parameters; `cast abi-encode` produces the `bytes` argument. It prints the raw market bytes and target so the multisig can recompute the registration target.
 
 Configuration rules:
-- Register at most one borrow market per `(pool or spoke, collateral)` pair; do not add eMode variants.
+- Register at most one borrow market per `(pool or spoke, collateral)` pair (collateral is one yield-fee position per market). Aave V3 markets must use eMode 0; the YieldSeeker Aave V3 lending adapter reverts `EModeNotAllowed` otherwise.
 - Do not register a base-asset Aave V3 vault in the borrow registry.
 - Do not register opposite borrow pairs: if X is collateral and Y is debt, do not also register Y as collateral and X as debt.
 
@@ -975,7 +975,7 @@ We have comprehensive tests in `test/`:
 
 ### Changing fee logic
 
-Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target and fees owed; `BorrowFeeModule`: debt positions, borrowed tokens and fees owed per borrowed token). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, starts wallets from **zero state** in the new module unless it imports the old state. Without an import, a new yield module has no cost basis for open positions, so their next withdrawal is charged on the whole amount (**overcharge**); a new borrow module has no positions, so existing debt accrues no fee, and doesn't know the wallet's borrowed tokens, so the owner can no longer withdraw or swap into them; unpaid fees stay behind. A new tracker also has no wallet plans, so every wallet would fall back to plan 0. `setFeeModule` only accepts a module built for this tracker and fee type (`FEE_TRACKER`, `FEE_TYPE`), and Deploy redeploys the modules whenever it deploys a new tracker.
+Fee accounting lives in the fee modules, per wallet (`YieldFeeModule`: cost basis per target, including borrow collateral, and fees owed; `BorrowFeeModule`: debt positions, borrowed tokens and fees owed, already in the base asset). Replacing a module with `setFeeModule`, or pointing the factory at a new tracker, starts wallets from **zero state** in the new module unless it imports the old state. Without an import, a new yield module has no cost basis for open positions, so their next withdrawal is charged on the whole amount (**overcharge**); a new borrow module has no positions, so existing debt accrues no fee, and doesn't know the wallet's borrowed tokens, so the owner can no longer withdraw or swap into them; unpaid fees stay behind. A new tracker also has no wallet plans, so every wallet would fall back to plan 0. `setFeeModule` only accepts a module built for this tracker and fee type (`FEE_TRACKER`, `FEE_TYPE`), and Deploy redeploys the modules whenever it deploys a new tracker.
 
 - **New fee types:** write a module that implements `IYieldSeekerFeeModule`, defines its `Plan` struct and charges for the actions it cares about (e.g. a rebalance fee on `WITHDRAW` + `DEPOSIT`), then `setFeeModule(newFeeType, module)` and `createPlan(newFeeType, abi.encode(Module.Plan(...)))` for plan 0 (existing wallets use it). No adapter changes.
 - **New actions:** add an ID and a struct to `FeeActions` and report it from the new adapters. Deployed modules ignore it; a module that should charge for it is deployed (or replaced) with that action handled. Never change an existing struct.

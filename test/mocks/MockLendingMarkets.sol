@@ -84,6 +84,11 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         reserve.variableDebtTokenAddress = variableDebtTokenAddress;
     }
 
+    function accrueCollateral(address asset, address user, uint256 amount) external {
+        MockERC20(_reserves[asset].aTokenAddress).mint(user, amount);
+        MockERC20(asset).mint(address(this), amount);
+    }
+
     function getReserveData(address asset) external view override returns (ReserveDataLegacy memory) {
         return _reserves[asset];
     }
@@ -245,6 +250,11 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
 
     function setReserve(uint256 reserveId, address underlying, uint8 decimals_) external {
         _reserves[reserveId] = Reserve({underlying: underlying, hub: address(0), assetId: uint16(reserveId), decimals: decimals_, collateralRisk: 0, flags: 0, dynamicConfigKey: 0});
+    }
+
+    function accrueSuppliedAssets(uint256 reserveId, address user, uint256 amount) external {
+        _supplied[reserveId][user] += amount;
+        MockERC20(_reserves[reserveId].underlying).mint(address(this), amount);
     }
 
     function getReserve(uint256 reserveId) external view override returns (Reserve memory) {

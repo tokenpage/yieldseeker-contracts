@@ -52,7 +52,6 @@ contract YieldSeekerFeeTracker is AccessControl {
 
     address public feeCollector;
     address public walletFactory;
-    bytes32[] internal _moduleFeeTypes;
     IYieldSeekerFeeModule[] internal _modules;
     mapping(bytes32 feeType => IYieldSeekerFeeModule) public feeModules;
     mapping(bytes32 feeType => bytes[] plan) internal _plans;
@@ -92,20 +91,24 @@ contract YieldSeekerFeeTracker is AccessControl {
         for (uint256 i = 0; i < plans.length; i++) {
             if (!module.isValidPlan(plans[i])) revert InvalidPlan(feeType, i);
         }
-        if (address(feeModules[feeType]) == address(0)) {
-            _moduleFeeTypes.push(feeType);
+        IYieldSeekerFeeModule current = feeModules[feeType];
+        if (address(current) == address(0)) {
             _modules.push(module);
         } else {
-            for (uint256 i = 0; i < _moduleFeeTypes.length; i++) {
-                if (_moduleFeeTypes[i] == feeType) _modules[i] = module;
+            for (uint256 i = 0; i < _modules.length; i++) {
+                if (_modules[i] == current) _modules[i] = module;
             }
         }
         feeModules[feeType] = module;
         emit FeeModuleSet(feeType, address(module));
     }
 
-    function moduleFeeTypes() external view returns (bytes32[] memory) {
-        return _moduleFeeTypes;
+    /// @notice The fee types plugged in, in the order their modules run
+    function moduleFeeTypes() external view returns (bytes32[] memory feeTypes) {
+        feeTypes = new bytes32[](_modules.length);
+        for (uint256 i = 0; i < _modules.length; i++) {
+            feeTypes[i] = _modules[i].FEE_TYPE();
+        }
     }
 
     /**

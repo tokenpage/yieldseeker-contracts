@@ -316,6 +316,22 @@ contract FeeTrackerTest is Test {
         assertEq(feeTypes[1], YIELD_FEE);
     }
 
+    function testReplacementKeepsFeeTypeOrderAndRoutesActionsOnlyToReplacement() public {
+        YieldSeekerYieldFeeModule replacement = new YieldSeekerYieldFeeModule(tracker, 2_000);
+        vm.prank(admin);
+        tracker.setFeeModule(YIELD_FEE, replacement);
+
+        bytes32[] memory feeTypes = tracker.moduleFeeTypes();
+        assertEq(feeTypes.length, 2);
+        assertEq(feeTypes[0], BORROW_FEE);
+        assertEq(feeTypes[1], YIELD_FEE);
+
+        _recordYield(wallet, 100);
+
+        assertEq(replacement.feesOwed(address(wallet)), 10);
+        assertEq(vaultModule.feesOwed(address(wallet)), 0);
+    }
+
     function testHigherMaximumReplacementPreservesPlansAndWalletRates() public {
         bytes memory existingPlanData = abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 500}));
         vm.prank(admin);

@@ -86,6 +86,11 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return IERC20(pool.getReserveData(debtAsset).variableDebtTokenAddress).balanceOf(address(this));
     }
 
+    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
+        return IERC20(pool.getReserveData(collateralAsset).aTokenAddress).balanceOf(address(this));
+    }
+
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
         IAaveV3Oracle oracle = pool.ADDRESSES_PROVIDER().getPriceOracle();

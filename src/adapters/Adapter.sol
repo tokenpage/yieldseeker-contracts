@@ -23,7 +23,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error AssetNotAllowed();
-error BaseAssetNotAllowed();
 
 /**
  * @title YieldSeekerAdapter
@@ -50,10 +49,6 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
 
     function _requireBaseAsset(address asset) internal view {
         if (asset != _baseAssetAddress()) revert AssetNotAllowed();
-    }
-
-    function _requireNotBaseAsset(address asset) internal view {
-        if (asset == _baseAssetAddress()) revert BaseAssetNotAllowed();
     }
 
     function _feeTracker() internal view returns (FeeTracker) {

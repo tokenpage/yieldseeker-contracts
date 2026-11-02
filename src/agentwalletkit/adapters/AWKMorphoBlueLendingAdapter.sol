@@ -71,6 +71,12 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
         return Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + VIRTUAL_ASSETS, uint256(totalBorrowShares) + VIRTUAL_SHARES, Math.Rounding.Ceil);
     }
 
+    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+        (IMorphoBlue morpho,, bytes32 id) = _decodeMarket(market);
+        (,, uint128 collateral) = morpho.position(id, address(this));
+        return collateral;
+    }
+
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (, IMorphoBlue.MarketParams memory marketParams,) = _decodeMarket(market);
         return Math.mulDiv(1e36, 1e36, IMorphoOracle(marketParams.oracle).price());
@@ -85,8 +91,8 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
     }
 
     function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
-        (IMorphoBlue morpho, IMorphoBlue.MarketParams memory marketParams, bytes32 id) = _decodeMarket(market);
-        (,, uint128 collateral) = morpho.position(id, address(this));
+        (IMorphoBlue morpho, IMorphoBlue.MarketParams memory marketParams,) = _decodeMarket(market);
+        uint256 collateral = _collateralOf(market);
         withdrawn = amount > collateral ? collateral : amount;
         morpho.withdrawCollateral(marketParams, withdrawn, address(this), address(this));
     }

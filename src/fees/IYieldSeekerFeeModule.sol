@@ -49,7 +49,8 @@ interface IYieldSeekerFeeModule {
     /// @notice Whether this module accounts for `token` (besides the base asset) in `wallet`, e.g. a borrowed token
     function isAccountedToken(address wallet, address token) external view returns (bool);
 
-    /// @notice Fees `wallet` owes this module and has not paid yet, valued in its base asset (for display; the module
-    ///         collects them at the wallet's next reported action or outflow)
+    /// @notice Fees `wallet` owes this module and has not paid yet, valued in its base asset (shown net in
+    ///         withdrawableBalance and required to be 0 after a base-asset sale; the module collects them at the
+    ///         wallet's next reported action or outflow)
     function feesOwedInBaseAsset(address wallet) external view returns (uint256);
 }

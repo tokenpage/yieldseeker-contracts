@@ -98,6 +98,27 @@ contract BorrowFeeIntegrationTest is Test {
         assertEq(weth.balanceOf(address(wallet)), 0);
     }
 
+    function test_CollateralYieldAndBorrowFeeAreBothPaidOnWithdrawal() public {
+        _supplyAndBorrow();
+        uint256 growth = 2e17;
+        aavePool.accrueCollateral(address(weth), address(wallet), growth);
+
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + YEAR);
+        uint256 expectedYieldFee = Math.mulDiv(growth, 1_000, 10_000);
+        uint256 debtFee = Math.mulDiv(BORROW_AMOUNT, FEE_RATE_BPS, 10_000);
+        uint256 expectedBorrowFee = _feeInBaseAsset(debtFee);
+        uint256 collectorBalanceBefore = weth.balanceOf(feeCollector);
+
+        _execute(_lendingCall(lendingAdapter.withdrawCollateral.selector, type(uint256).max));
+
+        assertEq(weth.balanceOf(feeCollector) - collectorBalanceBefore, expectedYieldFee + expectedBorrowFee);
+        assertEq(yieldFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(feeModule.feesOwed(address(wallet)), 0);
+        assertEq(yieldFeeModule.costBasis(address(wallet), marketTarget), 0);
+        assertEq(weth.balanceOf(address(wallet)), COLLATERAL + growth - expectedYieldFee - expectedBorrowFee);
+    }
+
     function test_MarketPriceChangesOnlyRevalueLaterAccrualPeriods() public {
         _supplyAndBorrow();
         uint256 debtFeePerYear = Math.mulDiv(BORROW_AMOUNT, FEE_RATE_BPS, 10_000);

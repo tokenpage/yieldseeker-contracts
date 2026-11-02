@@ -41,8 +41,6 @@ abstract contract AWKSwapAdapter is AWKAdapter {
 
     function _beforeSwap(address sellToken, address buyToken) internal view virtual {}
 
-    function _afterSwap(address sellToken, uint256 soldAmount, uint256 buyAmount) internal virtual {}
-
     function _validateRouteEndpoints(address sellToken, address buyToken, address routeStartToken, address routeEndToken) internal pure {
         if (routeStartToken != sellToken || routeEndToken != buyToken) revert InvalidRouteEndpoints(sellToken, buyToken);
     }
@@ -61,7 +59,6 @@ abstract contract AWKSwapAdapter is AWKAdapter {
         soldAmount = snapshot.sellBalanceBefore - sellBalanceAfter;
         buyAmount = buyBalanceAfter - snapshot.buyBalanceBefore;
         if (buyAmount < minBuyAmount) revert InsufficientOutput(buyAmount, minBuyAmount);
-        _afterSwap(sellToken, soldAmount, buyAmount);
         emit Swapped(address(this), router, sellToken, buyToken, soldAmount, buyAmount);
     }
 }

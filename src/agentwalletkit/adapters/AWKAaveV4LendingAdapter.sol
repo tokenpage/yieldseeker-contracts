@@ -68,6 +68,11 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         return spoke.getUserTotalDebt(debtReserveId, address(this));
     }
 
+    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
+        return spoke.getUserSuppliedAssets(collateralReserveId, address(this));
+    }
+
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
         IAaveV4Oracle oracle = spoke.ORACLE();
@@ -88,7 +93,7 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
 
     function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
-        uint256 collateral = spoke.getUserSuppliedAssets(collateralReserveId, address(this));
+        uint256 collateral = _collateralOf(market);
         withdrawn = amount > collateral ? collateral : amount;
         spoke.withdraw(collateralReserveId, withdrawn, address(this));
     }

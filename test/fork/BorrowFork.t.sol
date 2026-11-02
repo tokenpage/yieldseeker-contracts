@@ -157,10 +157,15 @@ contract BorrowForkTest is Test {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBaseAssetFee, "Borrow fee is owed in the collateral asset");
 
         uint256 feeCollectorWethBefore = IERC20(WETH).balanceOf(feeCollector);
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max));
+        uint256 withdrawn = abi.decode(_execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
+        uint256 expectedYieldFee;
+        if (adapter == address(aaveAdapter) && withdrawn > 1 ether) {
+            expectedYieldFee = Math.mulDiv(withdrawn - 1 ether, 1_000, 10_000);
+        }
+        uint256 expectedTotalFee = expectedBaseAssetFee + expectedYieldFee;
         uint256 collateralLeft = IERC20(WETH).balanceOf(address(wallet));
-        assertGe(collateralLeft + 1, 1 ether - expectedBaseAssetFee, "Collateral pays only the borrow fee at the market price");
-        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorWethBefore, expectedBaseAssetFee, "Fee collector receives the market-priced collateral fee");
+        assertEq(collateralLeft, withdrawn - expectedTotalFee, "Collateral pays the yield and market-priced borrow fees");
+        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorWethBefore, expectedTotalFee, "Fee collector receives both collateral and borrow fees");
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 0, "Collateral withdrawal pays the borrow fee");
 
         uint256 usdcLeft = IERC20(USDC).balanceOf(address(wallet));
@@ -174,6 +179,28 @@ contract BorrowForkTest is Test {
 
     function test_AaveV3_BorrowRepayWithdrawChargesBorrowFee() public {
         _runBorrowCycle(address(aaveAdapter), _aaveMarket());
+    }
+
+    function test_AaveV3CollateralInterestIsChargedWhenWithdrawn() public {
+        bytes memory market = _aaveMarket();
+        address target = aaveAdapter.marketTarget(market);
+        uint256 requestedSupply = 1 ether;
+        uint256 supplied = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, requestedSupply)), (uint256));
+        assertEq(supplied, requestedSupply);
+
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + 30 days);
+        vm.roll(block.number + 1);
+        uint256 collectorBalanceBefore = IERC20(WETH).balanceOf(feeCollector);
+        uint256 walletBalanceBefore = IERC20(WETH).balanceOf(address(wallet));
+        uint256 withdrawn = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
+
+        assertGt(withdrawn, supplied);
+        uint256 expectedFee = Math.mulDiv(withdrawn - supplied, 1_000, 10_000);
+        assertEq(IERC20(WETH).balanceOf(address(wallet)) - walletBalanceBefore, withdrawn - expectedFee);
+        assertEq(IERC20(WETH).balanceOf(feeCollector) - collectorBalanceBefore, expectedFee);
+        YieldSeekerYieldFeeModule yieldFees = YieldSeekerYieldFeeModule(address(feeTracker.feeModules(YIELD_FEE)));
+        assertEq(yieldFees.costBasis(address(wallet), target), 0);
     }
 
     function test_MorphoBlue_BorrowRepayWithdrawChargesBorrowFee() public {
