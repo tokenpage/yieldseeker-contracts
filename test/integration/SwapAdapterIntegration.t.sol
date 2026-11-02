@@ -7,7 +7,7 @@ import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3
 import {IPriceFeed, IYieldSeekerPriceOracle, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
-import {NoSwapPolicy} from "../../src/adapters/SwapAdapter.sol";
+import {FeesOwed, NoSwapPolicy} from "../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -532,7 +532,7 @@ contract SwapAdapterIntegrationTest is Test {
         uniswapRouter.setBuyAmount(100e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, uint256(100e6), uint256(100e6)));
-        bytes memory innerError = abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector);
+        bytes memory innerError = abi.encodeWithSelector(FeesOwed.selector, uint256(1));
         bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
 
         vm.prank(user);

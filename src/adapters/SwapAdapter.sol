@@ -18,13 +18,13 @@ pragma solidity 0.8.28;
 
 import {IAgentWalletFactory} from "../IAgentWalletFactory.sol";
 import {AWKAgentWalletV3} from "../agentwalletkit/AWKAgentWalletV3.sol";
-import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {FeeActions} from "../fees/FeeActions.sol";
 import {IYieldSeekerSwapPolicy} from "../swaps/IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerAdapter} from "./Adapter.sol";
 
 error NoSwapPolicy(bytes32 agentProfile);
+error FeesOwed(uint256 owed);
 
 /**
  * @title YieldSeekerSwapAdapter
@@ -42,7 +42,10 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
         (buyAmount, soldAmount) = super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
         bytes32 action = _swapPolicy().checkSwapResult(address(this), sellToken, soldAmount, buyToken, buyAmount);
         _reportAction(action, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
-        if (sellToken == _baseAssetAddress() && _feeTracker().feesOwedInBaseAsset(address(this)) > 0) revert AWKErrors.InsufficientBalance();
+        if (sellToken == _baseAssetAddress()) {
+            uint256 owed = _feeTracker().feesOwedInBaseAsset(address(this));
+            if (owed > 0) revert FeesOwed(owed);
+        }
     }
 
     function _swapPolicy() internal view returns (IYieldSeekerSwapPolicy policy) {

@@ -6,6 +6,7 @@ import {YieldSeekerAgentWalletFactory} from "../../../src/AgentWalletFactory.sol
 import {YieldSeekerAgentWalletV3} from "../../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
+import {FeesOwed} from "../../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -152,7 +153,7 @@ contract SwapAdapterTest is Test {
         usdc.mint(address(router), routerOutput * 2);
         router.setOutputAmount(routerOutput);
 
-        vm.expectRevert(_adapterError(abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)));
+        vm.expectRevert(_adapterError(abi.encodeWithSelector(FeesOwed.selector, owedInBaseAsset)));
         _executeSwap(address(weth), address(usdc), baseBalance, 1);
         assertEq(weth.balanceOf(address(wallet)), baseBalance);
         assertEq(feeTracker.feesOwedInBaseAsset(address(wallet)), owedInBaseAsset);
