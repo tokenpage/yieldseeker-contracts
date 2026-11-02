@@ -16,13 +16,12 @@
 //
 pragma solidity 0.8.28;
 
-import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {AWKAerodromeCLSwapAdapter} from "../agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 
 contract YieldSeekerAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapter, YieldSeekerSwapAdapter {
-    constructor(address aerodromeClRouter, address sellPolicy, IYieldSeekerPriceOracle priceOracle, uint256 maxSlippageBps) AWKAerodromeCLSwapAdapter(aerodromeClRouter) YieldSeekerSwapAdapter(sellPolicy, priceOracle, maxSlippageBps) {}
+    constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapter(aerodromeClRouter) {}
 
     function _beforeSwap(address sellToken, address buyToken) internal view override(AWKSwapAdapter, YieldSeekerSwapAdapter) {
         super._beforeSwap(sellToken, buyToken);

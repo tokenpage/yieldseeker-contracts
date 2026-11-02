@@ -16,57 +16,39 @@
 //
 pragma solidity 0.8.28;
 
-import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
+import {IAgentWalletFactory} from "../IAgentWalletFactory.sol";
+import {AWKAgentWalletV3} from "../agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {FeeActions} from "../fees/FeeActions.sol";
-import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
-import {IYieldSeekerSwapSellPolicy} from "./SwapSellPolicy.sol";
+import {IYieldSeekerSwapPolicy} from "../swaps/IYieldSeekerSwapPolicy.sol";
+import {YieldSeekerAdapter} from "./Adapter.sol";
 
-error InvalidSlippage(uint256 maxSlippageBps);
-error SwapBelowOraclePrice(uint256 received, uint256 minimum);
+error NoSwapPolicy(bytes32 agentProfile);
 
 /**
  * @title YieldSeekerSwapAdapter
- * @notice Swap rules shared by every agent type
- * @dev Reward tokens (in the sell policy) may be swapped to the base asset. The base asset may only be swapped into a
- *      token that a fee module accounts for in this wallet (e.g. a borrowed token), at most MAX_SLIPPAGE_BPS below
- *      the price oracle, and only if the fees owed are still fully paid from the base asset left after the swap.
- *      Tokens a fee module accounts for cannot be swapped away. Every swap is reported to the fee modules, which
- *      decide what it costs.
+ * @notice Swap mechanics shared by every agent type; the rules come from the wallet's swap policy
+ * @dev The policy is the factory's swapPolicy for the wallet's agent profile (set by the timelock): it decides which
+ *      swaps are allowed and whether a finished swap is a reward sale or a trade, which is what gets reported to the
+ *      fee modules. A swap that sells the base asset must leave no fees unpaid.
  */
 abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
-    address public immutable SELL_POLICY;
-    IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
-    uint256 public immutable MAX_SLIPPAGE_BPS;
-
-    constructor(address sellPolicy, IYieldSeekerPriceOracle priceOracle, uint256 maxSlippageBps) {
-        if (sellPolicy == address(0) || address(priceOracle) == address(0)) revert AWKErrors.ZeroAddress();
-        if (maxSlippageBps >= 1e4) revert InvalidSlippage(maxSlippageBps);
-        SELL_POLICY = sellPolicy;
-        PRICE_ORACLE = priceOracle;
-        MAX_SLIPPAGE_BPS = maxSlippageBps;
-    }
-
     function _beforeSwap(address sellToken, address buyToken) internal view virtual override {
-        address baseAsset = _baseAssetAddress();
-        if (sellToken == baseAsset) {
-            if (!_feeTracker().isAccountedToken(address(this), buyToken)) revert AssetNotAllowed();
-            return;
-        }
-        if (_feeTracker().isAccountedToken(address(this), sellToken)) revert AssetNotAllowed();
-        IYieldSeekerSwapSellPolicy(SELL_POLICY).validateSellableToken(sellToken);
-        if (buyToken != baseAsset) revert AssetNotAllowed();
+        _swapPolicy().checkSwap(address(this), sellToken, buyToken);
     }
 
     function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal virtual override returns (uint256 buyAmount, uint256 soldAmount) {
         (buyAmount, soldAmount) = super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
-        bool sellsBaseAsset = sellToken == _baseAssetAddress();
-        if (sellsBaseAsset) {
-            uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
-            if (buyAmount < minimum) revert SwapBelowOraclePrice(buyAmount, minimum);
-        }
-        _reportAction(FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
-        if (sellsBaseAsset && _feeTracker().feesOwedInBaseAsset(address(this)) > 0) revert AWKErrors.InsufficientBalance();
+        bytes32 action = _swapPolicy().checkSwapResult(address(this), sellToken, soldAmount, buyToken, buyAmount);
+        _reportAction(action, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
+        if (sellToken == _baseAssetAddress() && _feeTracker().feesOwedInBaseAsset(address(this)) > 0) revert AWKErrors.InsufficientBalance();
+    }
+
+    function _swapPolicy() internal view returns (IYieldSeekerSwapPolicy policy) {
+        AWKAgentWalletV3 wallet = AWKAgentWalletV3(payable(address(this)));
+        bytes32 agentProfile = wallet.agentProfile();
+        policy = IAgentWalletFactory(address(wallet.FACTORY())).swapPolicy(agentProfile);
+        if (address(policy) == address(0)) revert NoSwapPolicy(agentProfile);
     }
 }

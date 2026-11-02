@@ -17,6 +17,7 @@ import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUnis
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
+import {YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -77,7 +78,8 @@ contract BorrowForkTest is Test {
         aaveAdapter = new YieldSeekerAaveV3LendingAdapter();
         morphoAdapter = new YieldSeekerMorphoBlueLendingAdapter();
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER, address(rewardSellPolicy), oracle, 100);
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
+        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
         linkRegistry = new YieldSeekerWalletLinkRegistry();
         transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
         _register(borrowRegistry, address(aaveAdapter), aaveAdapter.marketTarget(_aaveMarket()));

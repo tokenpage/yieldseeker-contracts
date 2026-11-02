@@ -24,6 +24,8 @@ import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/ad
 import {BORROW_FEE, YieldSeekerBorrowFeeModule as BorrowFeeModule} from "../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule as YieldFeeModule} from "../src/fees/YieldFeeModule.sol";
+import {YieldSeekerBorrowSwapPolicy as BorrowSwapPolicy} from "../src/swaps/BorrowSwapPolicy.sol";
+import {YieldSeekerVaultSwapPolicy as VaultSwapPolicy} from "../src/swaps/VaultSwapPolicy.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -56,6 +58,7 @@ contract DeployScript is Script {
     uint256 constant YIELD_DEFAULT_FEE_BPS = 1000;
     uint256 constant BORROW_MAX_FEE_BPS = 200;
     uint256 constant BORROW_DEFAULT_FEE_BPS = 50;
+    uint256 constant BORROW_SWAP_MAX_SLIPPAGE_BPS = 100;
 
     address constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
     address constant MERKL_DISTRIBUTOR = 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae;
@@ -70,6 +73,8 @@ contract DeployScript is Script {
         address borrowFeeModule;
         address priceOracle;
         address swapSellPolicy;
+        address vaultSwapPolicy;
+        address borrowSwapPolicy;
         address walletLinkRegistry;
         address vaultAdapterRegistry;
         address borrowAdapterRegistry;
@@ -218,6 +223,8 @@ contract DeployScript is Script {
             borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
             priceOracle: safeReadAddress(deployJson, ".priceOracle"),
             swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
+            vaultSwapPolicy: safeReadAddress(deployJson, ".vaultSwapPolicy"),
+            borrowSwapPolicy: safeReadAddress(deployJson, ".borrowSwapPolicy"),
             walletLinkRegistry: safeReadAddress(deployJson, ".walletLinkRegistry"),
             vaultAdapterRegistry: safeReadAddress(deployJson, ".vaultAdapterRegistry"),
             borrowAdapterRegistry: safeReadAddress(deployJson, ".borrowAdapterRegistry"),
@@ -319,6 +326,20 @@ contract DeployScript is Script {
             console2.log("-> Using existing swapSellPolicy:", deployments.swapSellPolicy);
         }
 
+        if (deployments.vaultSwapPolicy == address(0)) {
+            deployments.vaultSwapPolicy = deployCreate2(abi.encodePacked(type(VaultSwapPolicy).creationCode, abi.encode(deployments.swapSellPolicy)));
+            console2.log("-> VaultSwapPolicy deployed at:", deployments.vaultSwapPolicy);
+        } else {
+            console2.log("-> Using existing vaultSwapPolicy:", deployments.vaultSwapPolicy);
+        }
+
+        if (deployments.borrowSwapPolicy == address(0)) {
+            deployments.borrowSwapPolicy = deployCreate2(abi.encodePacked(type(BorrowSwapPolicy).creationCode, abi.encode(deployments.swapSellPolicy, deployments.priceOracle, BORROW_SWAP_MAX_SLIPPAGE_BPS)));
+            console2.log("-> BorrowSwapPolicy deployed at:", deployments.borrowSwapPolicy);
+        } else {
+            console2.log("-> Using existing borrowSwapPolicy:", deployments.borrowSwapPolicy);
+        }
+
         if (deployments.walletLinkRegistry == address(0)) {
             deployments.walletLinkRegistry = deployCreate2(type(WalletLinkRegistry).creationCode);
             console2.log("-> WalletLinkRegistry deployed at:", deployments.walletLinkRegistry);
@@ -370,23 +391,23 @@ contract DeployScript is Script {
             console2.log("-> Using existing merklAdapter:", deployments.merklAdapter);
         }
 
-        // Swap adapters (shared by the vault and borrow registries)
+        // Swap adapters (one per DEX, shared by every agent type; the rules come from each agent type's swap policy)
         if (deployments.uniswapV3SwapAdapter == address(0)) {
-            deployments.uniswapV3SwapAdapter = deployCreate2(abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router, deployments.swapSellPolicy, deployments.priceOracle, 100)));
+            deployments.uniswapV3SwapAdapter = deployCreate2(abi.encodePacked(type(UniswapV3SwapAdapter).creationCode, abi.encode(uniswapV3Router)));
             console2.log("-> UniswapV3SwapAdapter deployed at:", deployments.uniswapV3SwapAdapter);
         } else {
             console2.log("-> Using existing uniswapV3SwapAdapter:", deployments.uniswapV3SwapAdapter);
         }
 
         if (deployments.aerodromeV2SwapAdapter == address(0)) {
-            deployments.aerodromeV2SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeV2SwapAdapter).creationCode, abi.encode(aerodromeV2Router, aerodromeV2Factory, deployments.swapSellPolicy, deployments.priceOracle, 100)));
+            deployments.aerodromeV2SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeV2SwapAdapter).creationCode, abi.encode(aerodromeV2Router, aerodromeV2Factory)));
             console2.log("-> AerodromeV2SwapAdapter deployed at:", deployments.aerodromeV2SwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeV2SwapAdapter:", deployments.aerodromeV2SwapAdapter);
         }
 
         if (deployments.aerodromeClSwapAdapter == address(0)) {
-            deployments.aerodromeClSwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter, deployments.swapSellPolicy, deployments.priceOracle, 100)));
+            deployments.aerodromeClSwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeClRouter)));
             console2.log("-> AerodromeCLSwapAdapter deployed at:", deployments.aerodromeClSwapAdapter);
         } else {
             console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
@@ -435,6 +456,8 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "borrowFeeModule", deployments.borrowFeeModule);
         vm.serializeAddress(json, "priceOracle", deployments.priceOracle);
         vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
+        vm.serializeAddress(json, "vaultSwapPolicy", deployments.vaultSwapPolicy);
+        vm.serializeAddress(json, "borrowSwapPolicy", deployments.borrowSwapPolicy);
         vm.serializeAddress(json, "walletLinkRegistry", deployments.walletLinkRegistry);
         vm.serializeAddress(json, "vaultAdapterRegistry", deployments.vaultAdapterRegistry);
         vm.serializeAddress(json, "borrowAdapterRegistry", deployments.borrowAdapterRegistry);
@@ -479,6 +502,12 @@ contract DeployScript is Script {
         }
         if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
+        }
+        if (address(agentWalletFactory.swapPolicy(VAULT_AGENT_PROFILE)) != deployments.vaultSwapPolicy) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (VAULT_AGENT_PROFILE, VaultSwapPolicy(deployments.vaultSwapPolicy))));
+        }
+        if (address(agentWalletFactory.swapPolicy(BORROW_AGENT_PROFILE)) != deployments.borrowSwapPolicy) {
+            _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setSwapPolicy, (BORROW_AGENT_PROFILE, BorrowSwapPolicy(deployments.borrowSwapPolicy))));
         }
         if (feeTracker.walletFactory() != deployments.agentWalletFactory) {
             _op(deployments.feeTracker, abi.encodeCall(feeTracker.setWalletFactory, (deployments.agentWalletFactory)));

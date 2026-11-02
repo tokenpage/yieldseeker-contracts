@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget, InvalidTickSpacing} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
+import {YieldSeekerVaultSwapPolicy} from "../../../src/swaps/VaultSwapPolicy.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
-import {MockSwapAdapterPriceOracle} from "../../mocks/MockSwapAdapterPriceOracle.sol";
 import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -77,9 +77,9 @@ contract AerodromeCLSwapAdapterTest is Test {
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(sellToken));
         router = new MockAerodromeCLRouter();
-        MockSwapAdapterPriceOracle oracle = new MockSwapAdapterPriceOracle();
-        adapter = new YieldSeekerAerodromeCLSwapAdapter(address(router), address(sellPolicy), oracle, 100);
+        adapter = new YieldSeekerAerodromeCLSwapAdapter(address(router));
         wallet = new AdapterWalletHarness(baseAsset, feeTracker);
+        wallet.FACTORY().setSwapPolicy(wallet.agentProfile(), new YieldSeekerVaultSwapPolicy(sellPolicy));
         baseAsset.mint(address(router), 1_000_000e6);
         otherToken.mint(address(router), 1_000_000e18);
         sellToken.mint(address(wallet), 1_000e18);
@@ -177,7 +177,7 @@ contract AerodromeCLSwapAdapterTest is Test {
 
     function test_Execute_Swap_RevertsWhenBuyTokenNotBaseAsset() public {
         AWKAerodromeCLSwapAdapter.SwapRoute memory route = _buildRoute(address(sellToken), address(otherToken));
-        vm.expectRevert(abi.encodeWithSelector(AssetNotAllowed.selector));
+        vm.expectRevert(abi.encodeWithSelector(SwapNotAllowed.selector, address(sellToken), address(otherToken)));
         _executeSwap(address(otherToken), route, 100e18, 1e18);
     }
 
@@ -186,7 +186,7 @@ contract AerodromeCLSwapAdapterTest is Test {
         baseAsset.mint(address(wallet), 1_000e6);
         AWKAerodromeCLSwapAdapter.SwapRoute memory route = _buildRoute(address(baseAsset), address(otherToken));
         bytes memory data = abi.encodeWithSelector(adapter.swap.selector, address(baseAsset), address(otherToken), route, uint256(100e6), uint256(1e18));
-        vm.expectRevert(abi.encodeWithSelector(AssetNotAllowed.selector));
+        vm.expectRevert(abi.encodeWithSelector(SwapNotAllowed.selector, address(baseAsset), address(otherToken)));
         wallet.executeAdapter(address(adapter), address(router), data);
     }
 }

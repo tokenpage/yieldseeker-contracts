@@ -6,8 +6,6 @@ import {YieldSeekerAgentWalletFactory} from "../../../src/AgentWalletFactory.sol
 import {YieldSeekerAgentWalletV3} from "../../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
-import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
-import {SwapBelowOraclePrice} from "../../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -17,6 +15,8 @@ import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFe
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
+import {SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
+import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool} from "../../mocks/MockLendingMarkets.sol";
 import {MockLendingPriceFeed} from "../../mocks/MockLendingPriceFeed.sol";
@@ -82,8 +82,9 @@ contract SwapAdapterTest is Test {
 
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(reward));
+        factory.setSwapPolicy(AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(sellPolicy, oracle, SLIPPAGE_BPS));
         router = new MockLendingSwapRouter();
-        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router), address(sellPolicy), oracle, SLIPPAGE_BPS);
+        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router));
         registry.registerAdapter(address(swapAdapter));
         registry.setTargetAdapter(address(router), address(swapAdapter));
 
@@ -106,7 +107,7 @@ contract SwapAdapterTest is Test {
         usdc.mint(address(router), 5_000e6);
         router.setOutputAmount(2_000e6);
 
-        vm.expectRevert(_adapterError(abi.encodeWithSelector(AssetNotAllowed.selector)));
+        vm.expectRevert(_adapterError(abi.encodeWithSelector(SwapNotAllowed.selector, address(weth), address(usdc))));
         _executeSwap(address(weth), address(usdc), 1e18, 1);
 
         _executeBorrow(1e6);
@@ -124,7 +125,8 @@ contract SwapAdapterTest is Test {
         usdc.mint(address(router), minimum * 2);
 
         router.setOutputAmount(minimum - 1);
-        vm.expectRevert(_adapterError(abi.encodeWithSelector(SwapBelowOraclePrice.selector, minimum - 1, minimum)));
+        bytes memory belowFloorError = _adapterError(abi.encodeWithSelector(SwapBelowOraclePrice.selector, minimum - 1, minimum));
+        vm.expectRevert(belowFloorError);
         _executeSwap(address(weth), address(usdc), 1e18, 1);
 
         router.setOutputAmount(minimum);
@@ -166,7 +168,7 @@ contract SwapAdapterTest is Test {
     function test_BorrowedUsdcCannotBeSwappedBackToWeth() public {
         _prepareBorrowedWallet();
 
-        vm.expectRevert(_adapterError(abi.encodeWithSelector(AssetNotAllowed.selector)));
+        vm.expectRevert(_adapterError(abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(weth))));
         _executeSwap(address(usdc), address(weth), 1e6, 1);
     }
 
@@ -206,7 +208,7 @@ contract SwapAdapterTest is Test {
     function test_SellableRewardCannotBeSwappedToDebtToken() public {
         reward.mint(address(wallet), 1e18);
 
-        vm.expectRevert(_adapterError(abi.encodeWithSelector(AssetNotAllowed.selector)));
+        vm.expectRevert(_adapterError(abi.encodeWithSelector(SwapNotAllowed.selector, address(reward), address(usdc))));
         _executeSwap(address(reward), address(usdc), 1e18, 1);
     }
 

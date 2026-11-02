@@ -32,7 +32,7 @@ bytes32 constant YIELD_FEE = keccak256("yield");
  *      `heldBefore` the wallet held there (vault shares, or the balance for rebasing vaults) releases the same fraction
  *      of the cost basis, and anything received above it is yield. Rewards paid as vault shares or rebasing tokens
  *      have no cost basis, so they are charged when withdrawn. Rewards claimed in the base asset, and the base asset
- *      received for selling any other token, are yield when they arrive.
+ *      received for selling a reward token (REWARD_SALE), are yield when they arrive; other trades (SWAP) are not.
  *      Fees are paid from the base asset as soon as the wallet holds it; what can't be paid stays owed.
  *      Only the fee tracker reports actions (onAction), for the wallet that reported them to it.
  *      The rate comes from the wallet's YIELD_FEE plan in the fee tracker (a Plan, at most MAX_FEE_RATE_BPS).
@@ -67,10 +67,9 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
             costBasis[wallet][deposit.target] += deposit.assetsIn;
         } else if (action == FeeActions.WITHDRAW) {
             yield = _releaseCostBasis(wallet, abi.decode(data, (FeeActions.Withdraw)));
-        } else if (action == FeeActions.SWAP) {
-            FeeActions.Swap memory swap = abi.decode(data, (FeeActions.Swap));
-            address baseAsset = _baseAsset(wallet);
-            if (swap.bought == baseAsset && swap.sold != baseAsset) yield = swap.boughtAmount;
+        } else if (action == FeeActions.REWARD_SALE) {
+            FeeActions.Swap memory sale = abi.decode(data, (FeeActions.Swap));
+            if (sale.bought == _baseAsset(wallet)) yield = sale.boughtAmount;
         } else if (action == FeeActions.CLAIM) {
             FeeActions.Claim memory claim = abi.decode(data, (FeeActions.Claim));
             if (claim.token == _baseAsset(wallet)) yield = claim.amount;

@@ -4,10 +4,10 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
-import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
-import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
+import {IPriceFeed, IYieldSeekerPriceOracle, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
+import {NoSwapPolicy} from "../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -16,9 +16,13 @@ import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter} from "../../src/agent
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InvalidRouteEndpoints} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {BORROW_FEE} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
+import {SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
+import {SwapNotAllowed} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
+import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
 import {Test} from "forge-std/Test.sol";
@@ -121,6 +125,8 @@ contract MockAerodromeCLRouterIntegration {
 
 contract SwapAdapterIntegrationTest is Test {
     bytes32 constant VAULT_AGENT_PROFILE = keccak256("vault");
+    bytes32 constant BORROW_AGENT_PROFILE = keccak256("borrow");
+    bytes32 constant NO_POLICY_AGENT_PROFILE = keccak256("no-swap-policy");
     uint256 constant MAX_SLIPPAGE_BPS = 500;
     AgentWalletFactory factory;
     AdapterRegistry registry;
@@ -148,8 +154,13 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function _createWallet() internal returns (AgentWalletV3 wallet) {
+        return _createWallet(VAULT_AGENT_PROFILE, 1);
+    }
+
+    function _createWallet(bytes32 agentProfile, uint256 ownerAgentIndex) internal returns (AgentWalletV3 wallet) {
+        FeePlanChoice[] memory feePlans = new FeePlanChoice[](0);
         vm.prank(operator);
-        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, 1, address(baseAsset), VAULT_AGENT_PROFILE, new FeePlanChoice[](0)))));
+        wallet = AgentWalletV3(payable(address(factory.createAgentWallet(user, ownerAgentIndex, address(baseAsset), agentProfile, feePlans))));
     }
 
     function _uniswapRoute(address fromToken, address toToken) internal pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -197,6 +208,8 @@ contract SwapAdapterIntegrationTest is Test {
         feeTracker.createPlan(YIELD_FEE, feePlan);
         factory = new AgentWalletFactory(admin, operator);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, registry);
+        factory.setAdapterRegistry(BORROW_AGENT_PROFILE, registry);
+        factory.setAdapterRegistry(NO_POLICY_AGENT_PROFILE, registry);
         factory.setFeeTracker(feeTracker);
         AgentWalletV3 walletImplementation = new AgentWalletV3(address(factory));
         factory.setAgentWalletImplementation(AgentWalletV3(payable(address(walletImplementation))));
@@ -206,9 +219,14 @@ contract SwapAdapterIntegrationTest is Test {
         oracle.setSource(address(otherToken), IPriceFeed(address(tokenPriceFeed)), 1 days);
         sellPolicy = new YieldSeekerSwapSellPolicy(admin, admin, false);
         sellPolicy.addSellableToken(address(sellToken));
-        uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter), address(sellPolicy), oracle, MAX_SLIPPAGE_BPS);
-        aerodromeV2Adapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE), address(sellPolicy), oracle, MAX_SLIPPAGE_BPS);
-        aerodromeClAdapter = new AerodromeCLSwapAdapter(address(aerodromeClRouter), address(sellPolicy), oracle, MAX_SLIPPAGE_BPS);
+        YieldSeekerVaultSwapPolicy vaultPolicy = new YieldSeekerVaultSwapPolicy(sellPolicy);
+        SwapIntegrationFeeModule borrowFeeModule = new SwapIntegrationFeeModule(address(feeTracker), BORROW_FEE, address(otherToken), 0);
+        feeTracker.setFeeModule(BORROW_FEE, borrowFeeModule);
+        factory.setSwapPolicy(VAULT_AGENT_PROFILE, vaultPolicy);
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), MAX_SLIPPAGE_BPS));
+        uniswapAdapter = new UniswapV3SwapAdapter(address(uniswapRouter));
+        aerodromeV2Adapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
+        aerodromeClAdapter = new AerodromeCLSwapAdapter(address(aerodromeClRouter));
         registry.registerAdapter(address(uniswapAdapter));
         registry.registerAdapter(address(aerodromeV2Adapter));
         registry.registerAdapter(address(aerodromeClAdapter));
@@ -236,6 +254,8 @@ contract SwapAdapterIntegrationTest is Test {
         assertEq(buyAmount, 500e6);
         assertEq(sellToken.balanceOf(address(wallet)), 900e6);
         assertEq(baseAsset.balanceOf(address(wallet)), 450e6);
+        assertEq(baseAsset.balanceOf(feeCollector), 50e6);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
     }
 
     function test_AerodromeV2Swap_ThroughWallet_Succeeds() public {
@@ -323,9 +343,158 @@ contract SwapAdapterIntegrationTest is Test {
         sellToken.mint(address(wallet), 500e6);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(otherToken));
         bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(otherToken), route, uint256(100e6), uint256(50e6)));
-        bytes memory innerError = abi.encodeWithSelector(AssetNotAllowed.selector);
+        bytes memory innerError = abi.encodeWithSelector(SwapNotAllowed.selector, address(sellToken), address(otherToken));
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+        vm.expectRevert(expectedError);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError));
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+    }
+
+    function test_VaultPolicyRejectsSellingBaseAsset() public {
+        AgentWalletV3 wallet = _createWallet();
+        uint256 baseAmount = 500e6;
+        baseAsset.mint(address(wallet), baseAmount);
+        uniswapRouter.setBuyAmount(100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, uint256(100e6), uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapNotAllowed.selector, address(baseAsset), address(otherToken));
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+
+        assertEq(baseAsset.balanceOf(address(wallet)), baseAmount);
+        assertEq(otherToken.balanceOf(address(wallet)), 0);
+    }
+
+    function test_BorrowWalletSwapsCollateralForBorrowedTokenAtTheOracleFloorWithoutYieldFee() public {
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
+        uint256 amountIn = 100e6;
+        uint256 quote = oracle.quote(address(baseAsset), address(otherToken), amountIn);
+        uint256 minimum = quote * (10_000 - MAX_SLIPPAGE_BPS) / 10_000;
+        baseAsset.mint(address(wallet), amountIn);
+        uniswapRouter.setBuyAmount(minimum);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, amountIn, uint256(1)));
+        uint256 feeCollectorBalanceBefore = baseAsset.balanceOf(feeCollector);
+
+        vm.prank(user);
+        bytes memory result = wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+
+        assertEq(_decodeUint(result), minimum);
+        assertEq(otherToken.balanceOf(address(wallet)), minimum);
+        assertEq(baseAsset.balanceOf(address(wallet)), 0);
+        assertEq(vaultFeeModule.feesOwed(address(wallet)), 0);
+        assertEq(baseAsset.balanceOf(feeCollector), feeCollectorBalanceBefore);
+    }
+
+    function test_BorrowWalletRejectsSwapBelowTheOracleFloor() public {
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
+        uint256 amountIn = 100e6;
+        uint256 quote = oracle.quote(address(baseAsset), address(otherToken), amountIn);
+        uint256 minimum = quote * (10_000 - MAX_SLIPPAGE_BPS) / 10_000;
+        uint256 output = minimum - 1;
+        baseAsset.mint(address(wallet), amountIn);
+        uniswapRouter.setBuyAmount(output);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, amountIn, uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, output, minimum);
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+    }
+
+    function test_BorrowedTokenCannotBeSold() public {
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
+        otherToken.mint(address(wallet), 100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(otherToken), address(baseAsset));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(otherToken), address(baseAsset), route, uint256(100e6), uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapNotAllowed.selector, address(otherToken), address(baseAsset));
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+    }
+
+    function test_BorrowWalletCannotSwapCollateralForUnborrowedToken() public {
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
+        baseAsset.mint(address(wallet), 100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(sellToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(sellToken), route, uint256(100e6), uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapNotAllowed.selector, address(baseAsset), address(sellToken));
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+    }
+
+    function test_SharedAdapterAppliesDifferentRulesByWalletProfile() public {
+        AgentWalletV3 vaultWallet = _createWallet(VAULT_AGENT_PROFILE, 1);
+        AgentWalletV3 borrowWallet = _createWallet(BORROW_AGENT_PROFILE, 2);
+        uint256 amountIn = 100e6;
+        baseAsset.mint(address(vaultWallet), amountIn);
+        baseAsset.mint(address(borrowWallet), amountIn);
+        uniswapRouter.setBuyAmount(100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, amountIn, uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(SwapNotAllowed.selector, address(baseAsset), address(otherToken));
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        vaultWallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+
+        vm.prank(user);
+        borrowWallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+
+        assertEq(otherToken.balanceOf(address(vaultWallet)), 0);
+        assertEq(otherToken.balanceOf(address(borrowWallet)), 100e6);
+    }
+
+    function test_ReplacingBorrowPolicyChangesRulesForAnExistingWallet() public {
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
+        uint256 amountIn = 100e6;
+        uint256 quote = oracle.quote(address(baseAsset), address(otherToken), amountIn);
+        uint256 oldMinimum = quote * (10_000 - MAX_SLIPPAGE_BPS) / 10_000;
+        baseAsset.mint(address(wallet), 2 * amountIn);
+        uniswapRouter.setBuyAmount(oldMinimum);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(baseAsset), address(otherToken));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(baseAsset), address(otherToken), route, amountIn, uint256(1)));
+        vm.prank(user);
+        bytes memory result = wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+        assertEq(_decodeUint(result), oldMinimum);
+
+        address adapterBefore = address(uniswapAdapter);
+        YieldSeekerBorrowSwapPolicy strictPolicy = new YieldSeekerBorrowSwapPolicy(sellPolicy, IYieldSeekerPriceOracle(address(oracle)), 0);
+        vm.prank(admin);
+        factory.setSwapPolicy(BORROW_AGENT_PROFILE, strictPolicy);
+
+        assertEq(address(factory.swapPolicy(BORROW_AGENT_PROFILE)), address(strictPolicy));
+        assertEq(address(uniswapAdapter), adapterBefore);
+        bytes memory innerError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+        vm.expectRevert(expectedError);
+        vm.prank(user);
+        wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
+        assertEq(baseAsset.balanceOf(address(wallet)), amountIn);
+    }
+
+    function test_WalletWithoutSwapPolicyCannotSwap() public {
+        AgentWalletV3 wallet = _createWallet(NO_POLICY_AGENT_PROFILE, 1);
+        sellToken.mint(address(wallet), 100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(sellToken), address(baseAsset));
+        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(sellToken), address(baseAsset), route, uint256(100e6), uint256(1)));
+        bytes memory innerError = abi.encodeWithSelector(NoSwapPolicy.selector, NO_POLICY_AGENT_PROFILE);
+        bytes memory expectedError = abi.encodeWithSelector(AdapterExecutionFailed.selector, innerError);
+
+        assertEq(address(factory.swapPolicy(NO_POLICY_AGENT_PROFILE)), address(0));
+        vm.expectRevert(expectedError);
+        vm.prank(user);
         wallet.executeViaAdapter(address(uniswapAdapter), address(uniswapRouter), data);
     }
 
@@ -354,7 +523,7 @@ contract SwapAdapterIntegrationTest is Test {
     }
 
     function test_BaseAssetSaleRevertsWhenFeesRemainOwed() public {
-        AgentWalletV3 wallet = _createWallet();
+        AgentWalletV3 wallet = _createWallet(BORROW_AGENT_PROFILE, 1);
         bytes32 feeType = keccak256("swap-integration-fees");
         SwapIntegrationFeeModule feeModule = new SwapIntegrationFeeModule(address(feeTracker), feeType, address(otherToken), 1);
         vm.prank(admin);

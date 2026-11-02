@@ -126,7 +126,7 @@ contract FeeTrackerSecurityTest is Test {
     function test_YieldTokenSaleChargesFeeOnBaseAssetReceived() public {
         AgentWalletV3 wallet = _createWallet();
 
-        _report(wallet, FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: address(vault), soldAmount: 50e6, bought: address(usdc), boughtAmount: 50e6})), 0);
+        _report(wallet, FeeActions.REWARD_SALE, abi.encode(FeeActions.Swap({sold: address(vault), soldAmount: 50e6, bought: address(usdc), boughtAmount: 50e6})), 0);
 
         assertEq(vaultFeeModule.feesOwed(address(wallet)), 5e6);
     }

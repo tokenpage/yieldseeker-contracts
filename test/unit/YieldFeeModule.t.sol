@@ -217,12 +217,19 @@ contract YieldFeeModuleTest is Test {
         assertEq(vaultFees.costBasis(address(agent1), vault), 0);
     }
 
-    function testYieldTokenSalesChargeFeesOnBaseAssetReceived() public {
+    function testRewardTokenSalesChargeFeesOnBaseAssetReceived() public {
         _recordRewardTokenSale(agent1, 5e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 0.5e6);
 
         _recordRewardTokenSale(agent1, 95e6);
         assertEq(vaultFees.feesOwed(address(agent1)), 10e6);
+    }
+
+    function testPlainTradesDoNotChargeYieldFees() public {
+        bytes memory swapData = abi.encode(FeeActions.Swap({sold: makeAddr("collateral"), soldAmount: 100e6, bought: makeAddr("borrowedToken"), boughtAmount: 100e6}));
+        _onAction(agent1, FeeActions.SWAP, swapData, 0);
+
+        assertEq(vaultFees.feesOwed(address(agent1)), 0);
     }
 
     function testFeesOwedInBaseAssetTracksFeePayments() public {
@@ -274,6 +281,6 @@ contract YieldFeeModuleTest is Test {
     }
 
     function _recordRewardTokenSale(MockFeeWallet wallet, uint256 baseReceived) internal {
-        _onAction(wallet, FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: makeAddr("rewardToken"), soldAmount: baseReceived, bought: address(baseAsset), boughtAmount: baseReceived})), 0);
+        _onAction(wallet, FeeActions.REWARD_SALE, abi.encode(FeeActions.Swap({sold: makeAddr("rewardToken"), soldAmount: baseReceived, bought: address(baseAsset), boughtAmount: baseReceived})), 0);
     }
 }

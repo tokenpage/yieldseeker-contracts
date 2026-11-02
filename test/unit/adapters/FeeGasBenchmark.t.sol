@@ -10,10 +10,10 @@ import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3Sw
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {YieldSeekerVaultSwapPolicy} from "../../../src/swaps/VaultSwapPolicy.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {MockLendingAaveV3Pool} from "../../mocks/MockLendingMarkets.sol";
-import {MockSwapAdapterPriceOracle} from "../../mocks/MockSwapAdapterPriceOracle.sol";
 import {AdapterFeeSetup, AdapterWalletHarness} from "./AdapterHarness.t.sol";
 import {MockMerklDistributor} from "./MerklAdapter.t.sol";
 import {IERC20Like, MockMoonwellComptroller} from "./MoonwellRewardAdapter.t.sol";
@@ -31,7 +31,6 @@ contract FeeGasBenchmarkTest is Test {
     AdapterWalletHarness private wallet;
     MockERC20 private baseAsset;
     MockERC20 private transferProbe;
-    MockSwapAdapterPriceOracle private oracle;
     YieldSeekerERC4626Adapter private vaultAdapter;
     YieldSeekerMerklAdapter private merklAdapter;
     YieldSeekerMoonwellRewardAdapter private moonwellAdapter;
@@ -49,7 +48,6 @@ contract FeeGasBenchmarkTest is Test {
         transferProbe = new MockERC20("Transfer Probe", "PROBE");
         transferProbe.mint(address(this), 2 * USDC);
         (feeTracker,) = AdapterFeeSetup.deploy(FEE_COLLECTOR, 10_000, 1_000);
-        oracle = new MockSwapAdapterPriceOracle();
         borrowFees = new YieldSeekerBorrowFeeModule(feeTracker, 10_000);
         feeTracker.setFeeModule(BORROW_FEE, borrowFees);
         feeTracker.createPlan(BORROW_FEE, abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 50})));
@@ -67,8 +65,9 @@ contract FeeGasBenchmarkTest is Test {
         comptroller.setRewardPerMarket(1e18);
         sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         sellPolicy.addSellableToken(address(wellToken));
+        wallet.FACTORY().setSwapPolicy(wallet.agentProfile(), new YieldSeekerVaultSwapPolicy(sellPolicy));
         router = new MockUniswapV3Router();
-        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router), address(sellPolicy), oracle, 100);
+        swapAdapter = new YieldSeekerUniswapV3SwapAdapter(address(router));
         baseAsset.mint(address(router), 1_000_000 * USDC);
     }
 

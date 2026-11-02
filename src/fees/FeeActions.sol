@@ -45,7 +45,11 @@ library FeeActions {
         uint256 assetsOut;
     }
 
+    /// @notice A trade (e.g. collateral sold for a borrowed token); not yield
     bytes32 internal constant SWAP = keccak256("swap");
+
+    /// @notice A reward token sold for the base asset; same data as SWAP
+    bytes32 internal constant REWARD_SALE = keccak256("rewardSale");
 
     struct Swap {
         address sold;

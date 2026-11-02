@@ -298,17 +298,26 @@ The central registry that manages authorized adapters and their targets.
 
 #### FeeTracker (`src/fees/FeeTracker.sol`) and fee modules
 
-The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans, the wallet factory and the fee collector. After every action, the adapter reports it to the tracker with `reportAction(action, data)`; the tracker passes it to every module (`onAction(wallet, action, data, maxPayment)`, callable only by the tracker), in the order the modules were added. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset left by the modules before it; the tracker returns the total and the collector, and the adapter makes one transfer. `msg.sender` of `reportAction` is the wallet, so a caller can only affect its own accounting.
+The fee tracker holds the fee modules (one per fee type), their plans, each wallet's plans, the wallet factory and the fee collector. After every action, the adapter reports it to the tracker with `reportAction(action, data)`; the tracker passes it to every module (`onAction(wallet, action, data, maxPayment)`, callable only by the tracker), in the order the modules were added. Actions are listed in `FeeActions`, each with a struct for its data (`DEPOSIT`/`Deposit`, `WITHDRAW`/`Withdraw`, `REWARD_SALE`/`Swap`, `SWAP`/`Swap`, `CLAIM`/`Claim`, `DEBT_CHANGE`/`DebtChange`). Each module records what the action costs, then pays what it can from the wallet's base asset left by the modules before it; the tracker returns the total and the collector, and the adapter makes one transfer. `msg.sender` of `reportAction` is the wallet, so a caller can only affect its own accounting.
 
 **Plans:** each module defines its own `Plan` struct (its rates; today both modules use `Plan { rateBps }`). The tracker stores plans ABI-encoded, numbered per fee type from 0; the timelock creates them (`createPlan(feeType, abi.encode(Module.Plan(...)))`) and the module validates them (`isValidPlan`, within its fixed maximums). Plans never change. A replacement module must accept every existing plan of its fee type (`setFeeModule` checks) and can add new plans in a richer format. The factory (`walletFactory`, set by the timelock) sets a wallet's plans when it creates the wallet (`createAgentWallet(..., feePlans)` → `initWalletPlans`) and they never change either; fee types not listed use plan 0. Moving a user to another plan means moving their agent to a new wallet.
 
 | Contract | Role |
 |----------|------|
 | `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)` (unpaid fees across modules, for display), each module called with a gas limit so a failing one can't block exits |
-| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from swaps |
+| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from reward sales (`REWARD_SALE`); other trades (`SWAP`) are not yield |
 | `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`, converted to the base asset with the lending market's own price; fees paid from the base asset; accounts for borrowed tokens |
 
 Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for plan 0 and any others); adapters, the tracker and wallets don't change. Adding an action (for a new agent type's adapters) needs a new `FeeActions` ID and struct; deployed modules ignore actions they don't know, so only modules that should charge for it change.
+
+### Swap policies
+
+The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: the factory holds one per agent profile (`swapPolicy(agentProfile)`, set by the timelock with `setSwapPolicy`), and the adapter reads it from the wallet's factory at every swap, so a policy can be replaced on its own and applies to existing wallets at their next swap. A profile without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts if fees owed are not fully paid afterwards.
+
+| Policy | Agent profile | Rules |
+|---|---|---|
+| `YieldSeekerVaultSwapPolicy` | vault | Reward tokens in `swapSellPolicy` → base asset (`REWARD_SALE`), as on `main` |
+| `YieldSeekerBorrowSwapPolicy` | borrow | Vault rules, plus base asset → a token the wallet borrowed (the `BORROW_FEE` module's `isAccountedToken`), at most `MAX_SLIPPAGE_BPS` below `YieldSeekerPriceOracle` (`SWAP`); borrowed tokens can't be sold |
 
 ---
 
@@ -814,7 +823,7 @@ New and reused addresses are saved to `deployments.json`. In production, execute
 V2 wallets keep using the V2 vault registry (`agentWalletV2AdapterRegistry`), whose adapters record fees on the legacy V2 FeeTracker. V3 vault wallets use the V3 vault registry (`vaultAdapterRegistry`), whose adapters record fees on the V3 vault fee module. A registry maps each target to one adapter, so the two systems can't share one registry. Until every V2 wallet has moved to V3, the two vault registries must hold exactly the same targets:
 - `Deploy.s.sol` maps every V2 vault registry target onto the V3 adapter of the same kind (and fails on a V2 adapter it doesn't know). Re-running it schedules any target the V3 registry is missing.
 - `RegisterVault.s.sol` always registers a vault in both registries in one timelock batch.
-- Sellable tokens live in the one `swapSellPolicy` that both registries' swap adapters read, so they can't drift.
+- Sellable tokens live in the one `swapSellPolicy` that both swap policies read, so they can't drift.
 - An emergency `removeTarget` or `unregisterAdapter` on one registry must be repeated on the other.
 - The V3 vault registry also maps the wallet link registry to the agent transfer adapter; the V2 registry doesn't.
 
@@ -958,6 +967,7 @@ We have comprehensive tests in `test/`:
 1. Admin calls `factory.setAdapterRegistry(newRegistry)` or `factory.setFeeTracker(newTracker)`
 2. This affects **NEW wallets only**
 3. Existing wallets must call `syncFromFactory()` to get updated references
+4. `factory.setSwapPolicy(agentProfile, newPolicy)` is the exception: adapters read it at every swap, so it applies to existing wallets at their next swap
 
 ---
 
