@@ -21,35 +21,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IAaveV3LendingPool {
-    struct ReserveConfigurationMap {
-        uint256 data;
-    }
-
-    struct ReserveDataLegacy {
-        ReserveConfigurationMap configuration;
-        uint128 liquidityIndex;
-        uint128 currentLiquidityRate;
-        uint128 variableBorrowIndex;
-        uint128 currentVariableBorrowRate;
-        uint128 currentStableBorrowRate;
-        uint40 lastUpdateTimestamp;
-        uint16 id;
-        address aTokenAddress;
-        address stableDebtTokenAddress;
-        address variableDebtTokenAddress;
-        address interestRateStrategyAddress;
-        uint128 accruedToTreasury;
-        uint128 unbacked;
-        uint128 isolationModeTotalDebt;
-    }
-
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
     function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
     function setUserEMode(uint8 categoryId) external;
     function getUserEMode(address user) external view returns (uint256);
-    function getReserveData(address asset) external view returns (ReserveDataLegacy memory);
+    function getReserveAToken(address asset) external view returns (address);
+    function getReserveVariableDebtToken(address asset) external view returns (address);
     function ADDRESSES_PROVIDER() external view returns (IAaveV3AddressesProvider);
 }
 
@@ -66,7 +45,8 @@ interface IAaveV3Oracle {
  * @title AWKAaveV3LendingAdapter
  * @notice Borrow against collateral on an Aave V3 pool (variable rate)
  * @dev market = abi.encode(address pool, address collateralAsset, address debtAsset, uint8 eModeCategory).
- *      Supplying collateral puts the account in the market's e-mode category (0 = none).
+ *      Supplying collateral puts the account in the market's e-mode category (0 = none). Needs an Aave V3.3+ pool
+ *      (getReserveAToken / getReserveVariableDebtToken, about 20k gas cheaper than getReserveData).
  */
 contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
     using SafeERC20 for IERC20;
@@ -83,12 +63,12 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
 
     function _debtOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool,, address debtAsset,) = _decodeMarket(market);
-        return IERC20(pool.getReserveData(debtAsset).variableDebtTokenAddress).balanceOf(address(this));
+        return IERC20(pool.getReserveVariableDebtToken(debtAsset)).balanceOf(address(this));
     }
 
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
-        return IERC20(pool.getReserveData(collateralAsset).aTokenAddress).balanceOf(address(this));
+        return IERC20(pool.getReserveAToken(collateralAsset)).balanceOf(address(this));
     }
 
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {

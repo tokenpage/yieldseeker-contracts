@@ -59,8 +59,13 @@ contract MockAaveV4Oracle is IAaveV4Oracle {
 }
 
 contract MockLendingAaveV3Pool is IAaveV3LendingPool {
+    struct ReserveTokens {
+        address aTokenAddress;
+        address variableDebtTokenAddress;
+    }
+
     MockAaveV3AddressesProvider private immutable _addressesProvider;
-    mapping(address asset => ReserveDataLegacy reserve) private _reserves;
+    mapping(address asset => ReserveTokens reserve) private _reserves;
     mapping(address user => uint256 category) private _userEMode;
     uint256 public lastRepayAmount;
 
@@ -79,7 +84,7 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
     }
 
     function setReserve(address asset, address aTokenAddress, address variableDebtTokenAddress) external {
-        ReserveDataLegacy storage reserve = _reserves[asset];
+        ReserveTokens storage reserve = _reserves[asset];
         reserve.aTokenAddress = aTokenAddress;
         reserve.variableDebtTokenAddress = variableDebtTokenAddress;
     }
@@ -89,8 +94,12 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         MockERC20(asset).mint(address(this), amount);
     }
 
-    function getReserveData(address asset) external view override returns (ReserveDataLegacy memory) {
-        return _reserves[asset];
+    function getReserveAToken(address asset) external view override returns (address) {
+        return _reserves[asset].aTokenAddress;
+    }
+
+    function getReserveVariableDebtToken(address asset) external view override returns (address) {
+        return _reserves[asset].variableDebtTokenAddress;
     }
 
     function getUserEMode(address user) external view override returns (uint256) {
