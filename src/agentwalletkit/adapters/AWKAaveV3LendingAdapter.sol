@@ -80,8 +80,9 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 
-    /// @dev Enables the supply as collateral explicitly: Aave skips that on supply in some cases (e.g. a reserve whose
-    ///      LTV is 0 at that moment), and the call does nothing when it is already enabled
+    /// @dev Enables the supply as collateral explicitly: Aave only does that on the account's first supply of the asset,
+    ///      and never for an isolation-mode asset. The call does nothing when it is already enabled, and reverts for a
+    ///      reserve with LTV 0 (it can't back a borrow), so such a supply fails here rather than at borrow time.
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset,, uint8 eModeCategory) = _decodeMarket(market);
         IERC20(collateralAsset).forceApprove(address(pool), amount);
