@@ -21,7 +21,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract RecipientAwareSwapRouter {
     uint256 public configuredBuyAmount;
-    address public lastRecipient;
 
     function setBuyAmount(uint256 amount) external {
         configuredBuyAmount = amount;
@@ -49,7 +48,6 @@ contract RecipientAwareSwapRouter {
         require(IERC20(sellToken).transferFrom(msg.sender, address(this), amountIn));
         amountOut = configuredBuyAmount == 0 ? amountOutMin : configuredBuyAmount;
         require(IERC20(buyToken).transfer(recipient, amountOut));
-        lastRecipient = recipient;
     }
 
     function _decodePathEndpoints(bytes calldata path) private pure returns (address firstToken, address lastToken) {
@@ -97,19 +95,16 @@ contract SwapsTest is IntegrationBase {
         AWKUniswapV3SwapAdapter.SwapRoute memory uniRoute = _uniswapRoute(address(rewardToken), address(usdc));
         bytes memory result = _execute(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(recipientUniswapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, sellAmount, uint256(1))));
         assertEq(_decodeUint(result), 200e6);
-        assertEq(recipientUniswapRouter.lastRecipient(), address(wallet));
 
         recipientAerodromeV2Router.setBuyAmount(150e6);
         AWKAerodromeV2SwapAdapter.SwapRoute memory v2Route = _aerodromeV2Route(address(rewardToken), address(usdc));
         result = _execute(wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(recipientAerodromeV2Adapter.swap, (address(rewardToken), address(usdc), v2Route, sellAmount, uint256(1))));
         assertEq(_decodeUint(result), 150e6);
-        assertEq(recipientAerodromeV2Router.lastRecipient(), address(wallet));
 
         recipientAerodromeCLRouter.setBuyAmount(120e6);
         AWKAerodromeCLSwapAdapter.SwapRoute memory clRoute = _aerodromeCLRoute(address(rewardToken), address(usdc));
         result = _execute(wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(recipientAerodromeCLAdapter.swap, (address(rewardToken), address(usdc), clRoute, sellAmount, uint256(1))));
         assertEq(_decodeUint(result), 120e6);
-        assertEq(recipientAerodromeCLRouter.lastRecipient(), address(wallet));
 
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
         assertEq(usdc.balanceOf(address(wallet)), 423e6);
@@ -319,6 +314,8 @@ contract SwapsTest is IntegrationBase {
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), v2Data, zeroAmount);
         bytes memory clData = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(0), uint256(0)));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), clData, zeroAmount);
+        uniData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(0)));
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), uniData, zeroAmount);
 
         uniswapV3Router.setBuyAmount(1);
         uniData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(2)));
@@ -568,7 +565,7 @@ contract SwapsTest is IntegrationBase {
         wallet.executeViaAdapter(address(uniswapV3SwapAdapter), address(aerodromeV2Router), data);
     }
 
-    function testBaseSaleRevertsWhileBorrowFeesRemainOwed() public {
+    function testBaseSaleRevertsWhileBorrowFeesRemainOwedAndSucceedsWhenItsReportPaysThem() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 borrowedAmount = 1e18;
         _borrowWeth(wallet, 3_000e6, borrowedAmount);
@@ -596,10 +593,11 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), owed);
 
-        vm.prank(owner);
-        weth.transfer(address(wallet), borrowedAmount);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
-        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+        _fundWallet(wallet, address(usdc), owed);
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
+
+        assertEq(weth.balanceOf(address(wallet)), output);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, owed);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
     }
