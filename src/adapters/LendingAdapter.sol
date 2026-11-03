@@ -72,7 +72,8 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         uint256 debt = _debtOf(market);
         uint256 collateralBefore = _collateralOf(market);
         withdrawn = super._withdrawCollateralOperation(market, amount);
-        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: marketTarget(market), spent: withdrawn, heldBefore: collateralBefore, assetsOut: withdrawn})));
+        uint256 spent = collateralBefore - _collateralOf(market);
+        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: marketTarget(market), spent: spent, heldBefore: collateralBefore, assetsOut: withdrawn})));
         _reportDebtChange(market, debtAsset, debt, 0, 0);
     }
 
