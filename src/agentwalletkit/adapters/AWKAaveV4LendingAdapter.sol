@@ -84,7 +84,7 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
     /// @dev The spoke returns (shares, assets) from supply / withdraw / borrow / repay; the asset amount is reported
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 supplied) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
-        (address collateralAsset,) = _marketAssets(market);
+        address collateralAsset = spoke.getReserve(collateralReserveId).underlying;
         IERC20(collateralAsset).forceApprove(address(spoke), amount);
         (, supplied) = spoke.supply(collateralReserveId, amount, address(this));
         spoke.setUsingAsCollateral(collateralReserveId, true, address(this));
@@ -104,7 +104,7 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
 
     function _repay(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
         (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
-        (, address debtAsset) = _marketAssets(market);
+        address debtAsset = spoke.getReserve(debtReserveId).underlying;
         uint256 debt = _debtOf(market);
         uint256 requested = amount > debt ? debt : amount;
         IERC20(debtAsset).forceApprove(address(spoke), requested);
