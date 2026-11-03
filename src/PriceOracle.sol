@@ -82,19 +82,28 @@ contract YieldSeekerPriceOracle is AccessControl, IYieldSeekerPriceOracle {
         emit PriceSourceRemoved(asset);
     }
 
-    function getPrice(address asset) public view returns (uint256) {
+    function getPrice(address asset) external view returns (uint256) {
+        _requireSequencerUp();
+        return _price(asset);
+    }
+
+    function quote(address fromToken, address toToken, uint256 amount) external view returns (uint256) {
+        _requireSequencerUp();
+        uint256 fromValue = Math.mulDiv(amount, _price(fromToken), 10 ** IERC20Metadata(fromToken).decimals());
+        return Math.mulDiv(fromValue, 10 ** IERC20Metadata(toToken).decimals(), _price(toToken));
+    }
+
+    function _requireSequencerUp() internal view {
         (, int256 sequencerStatus, uint256 sequencerUpSince,,) = SEQUENCER_UPTIME_FEED.latestRoundData();
         if (sequencerStatus != 0 || sequencerUpSince == 0 || block.timestamp < sequencerUpSince + SEQUENCER_GRACE_PERIOD) revert SequencerDown();
+    }
+
+    function _price(address asset) internal view returns (uint256) {
         PriceSource memory source = sources[asset];
         if (address(source.feed) == address(0)) revert NoPriceSource(asset);
         (, int256 answer,, uint256 updatedAt,) = source.feed.latestRoundData();
         if (answer <= 0) revert InvalidPrice(asset, answer);
         if (block.timestamp > updatedAt + source.maxStaleness) revert StalePrice(asset, updatedAt, source.maxStaleness);
         return Math.mulDiv(uint256(answer), 1e18, 10 ** source.feed.decimals());
-    }
-
-    function quote(address fromToken, address toToken, uint256 amount) external view returns (uint256) {
-        uint256 fromValue = Math.mulDiv(amount, getPrice(fromToken), 10 ** IERC20Metadata(fromToken).decimals());
-        return Math.mulDiv(fromValue, 10 ** IERC20Metadata(toToken).decimals(), getPrice(toToken));
     }
 }

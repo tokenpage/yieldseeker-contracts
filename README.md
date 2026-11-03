@@ -884,7 +884,7 @@ for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
 done
 ```
 
-Each `SetPriceSource` run prints the feed decimals, description, aggregator and latest round data, and rejects nonpositive or stale answers and feeds that aren't aggregator proxies (`aggregator()`). Use the raw feed, never a protocol's wrapper (e.g. Aave's "Capped USDC/USD" adapter for Aave V4 reserve 7, which the loop above skips): wrappers can cap or rewrite answers and timestamps, so the staleness check would not see a dead feed. In production, execute the emitted price-source timelock operations before continuing.
+Each `SetPriceSource` run prints the feed decimals, description, aggregator and latest round data, and rejects nonpositive or stale answers and feeds that aren't aggregator proxies (`aggregator()`). Use the raw feed, never a protocol's wrapper (e.g. Aave's "Capped USDC/USD" adapter for Aave V4 reserve 7, which the loop above skips): wrappers can cap or rewrite answers and timestamps, so the staleness check would not see a dead feed. Every source must be priced in USD (check the printed description, e.g. `ETH / USD`): `quote` divides one asset's price by another's, so a feed in another currency (e.g. `cbETH / ETH`) makes the floor wrong, and too low a base asset price disables it. In production, execute the emitted price-source timelock operations before continuing.
 
 ### Register borrow markets
 
