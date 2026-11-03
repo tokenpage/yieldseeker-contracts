@@ -11,7 +11,7 @@ import {Test} from "forge-std/Test.sol";
 
 contract BorrowFeeModuleTest is Test {
     uint256 private constant YEAR = 365 days;
-    bytes32 private constant MARKET = keccak256("market");
+    address private constant MARKET = address(uint160(uint256(keccak256("market"))));
 
     address private admin = makeAddr("admin");
     address private collector = makeAddr("collector");
@@ -46,7 +46,7 @@ contract BorrowFeeModuleTest is Test {
         module.onAction(address(wallet), FeeActions.DEBT_CHANGE, data, 0);
     }
 
-    function testPendingAccrualUsesLowerOfPrincipalAndReportedDebt() public {
+    function testEachPeriodIsChargedOnTheDebtAtItsStart() public {
         _reportDebt(0, 1_000);
         uint256 start = vm.getBlockTimestamp();
         vm.warp(start + YEAR);
@@ -56,7 +56,7 @@ contract BorrowFeeModuleTest is Test {
 
         _reportDebt(1_200, 0);
         vm.warp(start + 2 * YEAR);
-        assertEq(module.pendingFee(address(wallet), MARKET), 60);
+        assertEq(module.pendingFee(address(wallet), MARKET), 120);
         assertEq(module.feesOwed(address(wallet)), 100);
     }
 

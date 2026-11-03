@@ -292,7 +292,7 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(collateral.balanceOf(owner), 2e8 - 2_500);
     }
 
-    function test_ExternalDebtReductionCheckpointChargesOldDebtThenReducedPrincipal() public {
+    function test_ExternalDebtReductionCheckpointChargesOldDebtThenReducedDebt() public {
         AgentWallet wallet = _createBorrowWallet(owner, 10);
         uint256 principal = 100e18;
         _supplyAndBorrowAaveV3(wallet, 10_000e6, principal);
@@ -304,8 +304,8 @@ contract LendingIntegrationTest is IntegrationBase {
         address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 1_000e6);
-        (uint128 recordedPrincipal,,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(aaveV3Market));
-        assertEq(recordedPrincipal, 40e18);
+        (uint128 recordedDebt,,) = borrowFeeModule.debtPositions(address(wallet), target);
+        assertEq(recordedDebt, 40e18);
 
         vm.warp(start + 2 * YEAR);
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
@@ -351,7 +351,7 @@ contract LendingIntegrationTest is IntegrationBase {
 
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBorrowFee);
-        assertEq(borrowFeeModule.pendingFee(address(wallet), keccak256(aaveV3Market)), 0);
+        assertEq(borrowFeeModule.pendingFee(address(wallet), target), 0);
         assertEq(_feesCollected(address(usdc)), 0);
 
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max)));
@@ -360,18 +360,19 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(wallet)), COLLATERAL - expectedBorrowFee);
     }
 
-    function test_RepaymentAppliesToInterestBeforeReducingPrincipal() public {
+    function test_BorrowFeeChargesInterestOnceCheckpointed() public {
         AgentWallet wallet = _createBorrowWallet(owner, 12);
         uint256 borrowed = 100e18;
         _supplyAndBorrowAaveV3(wallet, COLLATERAL, borrowed);
         aaveV3LendingPool.growDebt(address(weth), address(wallet), 10e18);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, 50e18)));
+        address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + YEAR);
 
-        (uint128 principal, uint128 lastDebt,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(aaveV3Market));
-        assertEq(principal, 60e18);
-        assertEq(lastDebt, 60e18);
-        assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 60e18);
-        assertEq(weth.balanceOf(address(wallet)), 50e18);
+        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), 1_100e6);
     }
 
     function test_BorrowFeePaymentIsCappedByAvailableBaseAsset() public {

@@ -141,8 +141,8 @@ contract BorrowForkTest is ForkBase {
 
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
         assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
-        (uint256 principal,,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
-        assertEq(principal, 0, "principal cleared");
+        (uint128 lastDebt,,) = borrowFeeModule.debtPositions(address(wallet), target);
+        assertEq(lastDebt, 0, "debt cleared");
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBaseAssetFee, "Borrow fee is owed in the collateral asset");
 
         uint256 feeCollectorWethBefore = IERC20(WETH).balanceOf(feeCollector);
@@ -202,10 +202,9 @@ contract BorrowForkTest is ForkBase {
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 1_000e6));
 
-        bytes32 marketHash = keccak256(market);
-        (uint128 principal, uint128 lastDebt,, uint192 lastPrice) = borrowFeeModule.debtPositions(address(wallet), marketHash);
+        (uint128 lastDebt,, uint192 lastPrice) = borrowFeeModule.debtPositions(address(wallet), target);
         assertGt(lastPrice, 0);
-        uint256 expectedDebtFee = Math.mulDiv(Math.min(principal, lastDebt), 50 * 365 days, 365 days * 10_000, Math.Rounding.Ceil);
+        uint256 expectedDebtFee = Math.mulDiv(lastDebt, 50 * 365 days, 365 days * 10_000, Math.Rounding.Ceil);
         uint256 expectedBorrowFee = Math.mulDiv(expectedDebtFee, lastPrice, 1e36, Math.Rounding.Ceil);
         address externalRepayer = makeAddr("external protocol repayer");
         uint256 start = vm.getBlockTimestamp();

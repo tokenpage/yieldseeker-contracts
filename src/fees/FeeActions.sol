@@ -70,12 +70,12 @@ library FeeActions {
 
     /// @notice A borrow (`borrowed` > 0), a repay (`repaid` > 0), or a collateral withdrawal or checkpoint (both 0) on a
     ///         lending market
-    /// @param market The market ID (hash of the market bytes)
+    /// @param market The market's registry target (the lending adapter's `marketTarget`)
     /// @param debtBefore The market's real debt before the action
     /// @param debtPriceInBaseAsset Base asset units worth one debt unit (raw token units, scaled by 1e36), from the
-    ///        lending market's own oracle; 0 when the market had no debt
+    ///        lending market's own oracle; 0 when the market has no debt before or after the action
     struct DebtChange {
-        bytes32 market;
+        address market;
         address debtToken;
         uint256 debtBefore;
         uint256 borrowed;
