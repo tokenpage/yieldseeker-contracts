@@ -14,7 +14,7 @@ import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router, InvalidAerodromeV2RouterT
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
-import {SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
+import {SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -345,7 +345,10 @@ contract SwapsTest is IntegrationBase {
         bytes memory invalidBorrowSwap = abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(weth));
         _executeExpectRevert(borrowWallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, invalidBorrowSwap);
 
-        _borrowWeth(borrowWallet, 1_000e6, 1e18);
+        uint256 borrowedAmount = _oracleFloor(amountIn);
+        _borrowWeth(borrowWallet, 1_000e6, borrowedAmount);
+        vm.prank(owner);
+        borrowWallet.withdrawAllAssetToUser(owner, address(weth));
         _fundWallet(vaultWallet, address(usdc), amountIn);
         uint256 minimum = _oracleFloor(amountIn);
         uint256 collectorBefore = _feesCollected(address(usdc));
@@ -356,9 +359,13 @@ contract SwapsTest is IntegrationBase {
         bytes memory result = _execute(borrowWallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(_decodeUint(result), minimum);
         assertEq(usdc.balanceOf(address(borrowWallet)), 0);
-        assertEq(weth.balanceOf(address(borrowWallet)), 1e18 + minimum);
+        assertEq(weth.balanceOf(address(borrowWallet)), minimum);
         assertEq(_feesCollected(address(usdc)), collectorBefore);
         assertEq(borrowYieldFeeModule.feesOwed(address(borrowWallet)), 0);
+
+        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(borrowWallet), address(weth)), 0);
+        assertEq(weth.balanceOf(address(borrowWallet)), 0);
     }
 
     function testBorrowSwapBelowOracleFloorRevertsWithoutMovingBalances() public {
@@ -397,13 +404,121 @@ contract SwapsTest is IntegrationBase {
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
     }
 
+    function testBorrowSwapCannotLeaveHeldBalanceAboveDebt() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 1);
+        uint256 debt = 1e18;
+        _borrowWeth(wallet, 3_000e6, debt);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
+
+        uint256 amountIn = 2_000e6;
+        _fundWallet(wallet, address(usdc), amountIn);
+        uint256 held = debt + 1;
+        uniswapV3Router.setBuyAmount(held);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1)));
+        bytes memory aboveDebt = abi.encodeWithSelector(SwapAboveDebt.selector, held, debt);
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, aboveDebt);
+
+        assertEq(weth.balanceOf(address(wallet)), 0);
+        assertEq(usdc.balanceOf(address(wallet)), amountIn);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
+
+        vm.prank(owner);
+        weth.transfer(address(wallet), debt);
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+    }
+
+    function testBorrowSwapUpToDebtCanRepayInFull() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 1);
+        uint256 debt = 1e18;
+        _borrowWeth(wallet, 3_000e6, debt);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
+
+        uint256 amountIn = 2_000e6;
+        _fundWallet(wallet, address(usdc), amountIn);
+        uniswapV3Router.setBuyAmount(debt);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1)));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
+        assertEq(weth.balanceOf(address(wallet)), debt);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
+
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+        assertEq(weth.balanceOf(address(wallet)), 0);
+    }
+
+    function testBorrowSwapAfterFullRepayRevertsWithoutDebt() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 1);
+        uint256 debt = 1e18;
+        _borrowWeth(wallet, 3_000e6, debt);
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+
+        uint256 amountIn = 20e6;
+        uint256 bought = 1e16;
+        _fundWallet(wallet, address(usdc), amountIn);
+        uniswapV3Router.setBuyAmount(bought);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1)));
+        bytes memory aboveDebt = abi.encodeWithSelector(SwapAboveDebt.selector, bought, uint256(0));
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, aboveDebt);
+        assertEq(usdc.balanceOf(address(wallet)), amountIn);
+        assertEq(weth.balanceOf(address(wallet)), 0);
+    }
+
+    function testBorrowSwapCapIncludesAccruedInterestAfterCheckpoint() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 1);
+        uint256 principal = 1e18;
+        uint256 interest = 0.1e18;
+        _borrowWeth(wallet, 3_000e6, principal);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
+
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + 30 days);
+        uint256 timestamp = vm.getBlockTimestamp();
+        usdcPriceFeed.setPrice(1e8, timestamp);
+        wethPriceFeed.setPrice(2000e8, timestamp);
+        aaveV3LendingPool.growDebt(address(weth), address(wallet), interest);
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        uint256 debt = principal + interest;
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
+
+        uint256 feesOwed = borrowFeeModule.feesOwed(address(wallet));
+        assertGt(feesOwed, 0);
+        _fundWallet(wallet, address(usdc), feesOwed);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(usdc));
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
+
+        uint256 amountIn = 2_200e6;
+        _fundWallet(wallet, address(usdc), amountIn);
+        uniswapV3Router.setBuyAmount(debt);
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1)));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
+        assertEq(weth.balanceOf(address(wallet)), debt);
+
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+    }
+
     function testUpdatedBorrowPolicyTakesEffectOnlyAfterWalletSync() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
-        _borrowWeth(wallet, 1_000e6, 1e18);
         uint256 amountIn = 100e6;
-        _fundWallet(wallet, address(usdc), 3 * amountIn);
         uint256 quote = priceOracle.quote(address(usdc), address(weth), amountIn);
         uint256 oldMinimum = quote * (10_000 - BORROW_SWAP_MAX_SLIPPAGE_BPS) / 10_000;
+        uint256 debt = 2 * oldMinimum;
+        _borrowWeth(wallet, 1_000e6, debt);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
+        _fundWallet(wallet, address(usdc), 3 * amountIn);
         uniswapV3Router.setBuyAmount(oldMinimum);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1)));
@@ -415,13 +530,17 @@ contract SwapsTest is IntegrationBase {
         factory.setSwapPolicy(BORROW_AGENT_PROFILE, strictPolicy);
         result = _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(_decodeUint(result), oldMinimum);
+        bytes memory strictFloorError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
 
         vm.prank(owner);
         wallet.syncFromFactory();
-        bytes memory strictFloorError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, oldMinimum, quote);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, strictFloorError);
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
-        assertEq(weth.balanceOf(address(wallet)), 1e18 + 2 * oldMinimum);
+        assertEq(weth.balanceOf(address(wallet)), debt);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
+
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
     function testWalletWithoutSwapPolicyCannotSwap() public {
@@ -452,7 +571,9 @@ contract SwapsTest is IntegrationBase {
     function testBaseSaleRevertsWhileBorrowFeesRemainOwed() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 borrowedAmount = 1e18;
-        _borrowWeth(wallet, 1_000e6, borrowedAmount);
+        _borrowWeth(wallet, 3_000e6, borrowedAmount);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
         vm.warp(vm.getBlockTimestamp() + 365 days);
         uint256 timestamp = vm.getBlockTimestamp();
         usdcPriceFeed.setPrice(1e8, timestamp);
@@ -461,6 +582,7 @@ contract SwapsTest is IntegrationBase {
         _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), checkpoint);
         uint256 owed = borrowFeeModule.feesOwed(address(wallet));
         assertGt(owed, 0);
+        uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
         uint256 amountIn = 100e6;
         _fundWallet(wallet, address(usdc), amountIn);
@@ -471,8 +593,15 @@ contract SwapsTest is IntegrationBase {
         bytes memory unpaidFees = abi.encodeWithSelector(FeesOwed.selector, owed);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, unpaidFees);
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
-        assertEq(weth.balanceOf(address(wallet)), borrowedAmount);
+        assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), owed);
+
+        vm.prank(owner);
+        weth.transfer(address(wallet), borrowedAmount);
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBefore, owed);
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
     }
 
     function testBatchSwapsAcrossAllThreeDexesSettleEachRewardFee() public {

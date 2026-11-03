@@ -26,6 +26,7 @@ interface IAaveV3LendingPool {
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
     function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
     function setUserEMode(uint8 categoryId) external;
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
     function getUserEMode(address user) external view returns (uint256);
     function getReserveAToken(address asset) external view returns (address);
     function getReserveVariableDebtToken(address asset) external view returns (address);
@@ -79,11 +80,14 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 
+    /// @dev Enables the supply as collateral explicitly: Aave skips that on supply in some cases (e.g. a reserve whose
+    ///      LTV is 0 at that moment), and the call does nothing when it is already enabled
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset,, uint8 eModeCategory) = _decodeMarket(market);
         IERC20(collateralAsset).forceApprove(address(pool), amount);
         pool.supply({asset: collateralAsset, amount: amount, onBehalfOf: address(this), referralCode: 0});
         IERC20(collateralAsset).forceApprove(address(pool), 0);
+        pool.setUserUseReserveAsCollateral(collateralAsset, true);
         if (pool.getUserEMode(address(this)) != eModeCategory) pool.setUserEMode(eModeCategory);
         return amount;
     }

@@ -81,36 +81,34 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 
-    function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
+    /// @dev The spoke returns (shares, assets) from supply / withdraw / borrow / repay; the asset amount is reported
+    function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 supplied) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
         (address collateralAsset,) = _marketAssets(market);
         IERC20(collateralAsset).forceApprove(address(spoke), amount);
-        spoke.supply(collateralReserveId, amount, address(this));
+        (, supplied) = spoke.supply(collateralReserveId, amount, address(this));
         spoke.setUsingAsCollateral(collateralReserveId, true, address(this));
         IERC20(collateralAsset).forceApprove(address(spoke), 0);
-        return amount;
     }
 
     function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
         uint256 collateral = _collateralOf(market);
-        withdrawn = amount > collateral ? collateral : amount;
-        spoke.withdraw(collateralReserveId, withdrawn, address(this));
+        (, withdrawn) = spoke.withdraw(collateralReserveId, amount > collateral ? collateral : amount, address(this));
     }
 
-    function _borrow(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
+    function _borrow(bytes memory market, uint256 amount) internal virtual override returns (uint256 borrowed) {
         (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
-        spoke.borrow(debtReserveId, amount, address(this));
-        return amount;
+        (, borrowed) = spoke.borrow(debtReserveId, amount, address(this));
     }
 
     function _repay(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
         (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
         (, address debtAsset) = _marketAssets(market);
         uint256 debt = _debtOf(market);
-        repaid = amount > debt ? debt : amount;
-        IERC20(debtAsset).forceApprove(address(spoke), repaid);
-        spoke.repay(debtReserveId, repaid, address(this));
+        uint256 requested = amount > debt ? debt : amount;
+        IERC20(debtAsset).forceApprove(address(spoke), requested);
+        (, repaid) = spoke.repay(debtReserveId, requested, address(this));
         IERC20(debtAsset).forceApprove(address(spoke), 0);
     }
 }

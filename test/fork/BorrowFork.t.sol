@@ -22,6 +22,15 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+interface IAaveV3UserConfiguration {
+    struct UserConfigurationMap {
+        uint256 data;
+    }
+
+    function getUserConfiguration(address user) external view returns (UserConfigurationMap memory);
+    function getReservesList() external view returns (address[] memory);
+}
+
 contract BorrowForkTest is ForkBase {
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
@@ -266,18 +275,48 @@ contract BorrowForkTest is ForkBase {
     function test_PairSwap_SellsCollateralForBorrowedTokenWithinOracleBound() public {
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
+        uint256 swapAmount = 0.1 ether;
+        uint256 debt = 2 * oracle.quote(WETH, USDC, swapAmount);
+        deal(WETH, address(wallet), 2 ether);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 0.5 ether));
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 100e6));
+        IAaveV3UserConfiguration pool = IAaveV3UserConfiguration(AAVE_POOL);
+        address[] memory reserves = pool.getReservesList();
+        uint256 wethReserveIndex = type(uint256).max;
+        for (uint256 i = 0; i < reserves.length; i++) {
+            if (reserves[i] == WETH) wethReserveIndex = i;
+        }
+        assertLt(wethReserveIndex, reserves.length);
+        uint256 collateralBit = uint256(1) << (2 * wethReserveIndex + 1);
+        assertTrue((pool.getUserConfiguration(address(wallet)).data & collateralBit) != 0);
+
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 0.5 ether));
+        assertTrue((pool.getUserConfiguration(address(wallet)).data & collateralBit) != 0);
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, debt));
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, USDC);
+        assertEq(IERC20(USDC).balanceOf(address(wallet)), 0);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), USDC), debt);
+
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = USDC;
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
-        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, 0.1 ether, 1));
+        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1));
         uint256 bought = abi.decode(result, (uint256));
-        assertGe(bought, (oracle.quote(WETH, USDC, 0.1 ether) * 99) / 100, "swap output within the oracle bound");
-        assertEq(IERC20(USDC).balanceOf(address(wallet)), 100e6 + bought, "borrowed token received");
+        assertGe(bought, (oracle.quote(WETH, USDC, swapAmount) * 99) / 100, "swap output within the oracle bound");
+        assertLe(bought, debt, "swap output does not exceed the reported debt");
+        assertEq(IERC20(USDC).balanceOf(address(wallet)), bought, "swap buys borrowed token for repayment");
+
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, bought));
+        uint256 remainingDebt = borrowFeeModule.tokenDebt(address(wallet), USDC);
+        assertApproxEqAbs(remainingDebt, debt - bought, 1, "reported debt drops by the repayment, Aave rounds interest up by at most 1 unit");
+        vm.prank(owner);
+        IERC20(USDC).transfer(address(wallet), remainingDebt + 1);
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), USDC), 0);
+        assertLe(IERC20(USDC).balanceOf(address(wallet)), 1, "at most Aave's 1-unit rounding is left over");
     }
 
     function test_Transfer_MovesBorrowedCashToLinkedVaultAgent() public {

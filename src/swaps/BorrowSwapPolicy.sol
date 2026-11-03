@@ -20,23 +20,25 @@ import {IAgentWallet} from "../IAgentWallet.sol";
 import {IYieldSeekerPriceOracle} from "../PriceOracle.sol";
 import {IYieldSeekerSwapSellPolicy} from "../adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {BORROW_FEE} from "../fees/BorrowFeeModule.sol";
+import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../fees/BorrowFeeModule.sol";
 import {FeeActions} from "../fees/FeeActions.sol";
-import {IYieldSeekerFeeModule} from "../fees/IYieldSeekerFeeModule.sol";
 import {SwapNotAllowed} from "./IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "./VaultSwapPolicy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error InvalidSlippage(uint256 maxSlippageBps);
 error SwapBelowOraclePrice(uint256 received, uint256 minimum);
+error SwapAboveDebt(uint256 held, uint256 debt);
 
 /**
  * @title YieldSeekerBorrowSwapPolicy
  * @notice Borrow agents sell reward tokens for the base asset, and sell the base asset (their collateral) for a token
- *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle
- * @dev Borrowed tokens can never be sold, so within one wallet each unit of collateral can be swapped at most once (a
- *      compromised operator can't drain it with round trips). Across linked wallets the bound holds only while no
- *      chain of registered markets leads back to a collateral (README "Register borrow markets": no cycles). Selling
- *      the base asset is a trade (FeeActions.SWAP), not yield.
+ *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle and only up to what they owe in it
+ * @dev Buying a borrowed token is for repaying: after the swap the wallet may hold at most its debt in that token as
+ *      of each market's last report (the BORROW_FEE module's tokenDebt; checkpoint first to include fresh interest).
+ *      Borrowed tokens can never be sold, so collateral can't be drained with round trips, and across linked wallets
+ *      each wallet can turn at most its own debt's worth of collateral into the token. Selling the base asset is a
+ *      trade (FeeActions.SWAP), not yield.
  */
 contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
@@ -62,11 +64,18 @@ contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
         if (sellToken != address(IAgentWallet(wallet).baseAsset())) return FeeActions.REWARD_SALE;
         uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
         if (boughtAmount < minimum) revert SwapBelowOraclePrice(boughtAmount, minimum);
+        uint256 held = IERC20(buyToken).balanceOf(wallet);
+        uint256 debt = _borrowFees(wallet).tokenDebt(wallet, buyToken);
+        if (held > debt) revert SwapAboveDebt(held, debt);
         return FeeActions.SWAP;
     }
 
     function _isBorrowedToken(address wallet, address token) internal view returns (bool) {
-        IYieldSeekerFeeModule borrowFees = IAgentWallet(wallet).feeTracker().feeModules(BORROW_FEE);
+        YieldSeekerBorrowFeeModule borrowFees = _borrowFees(wallet);
         return address(borrowFees) != address(0) && borrowFees.isAccountedToken(wallet, token);
+    }
+
+    function _borrowFees(address wallet) internal view returns (YieldSeekerBorrowFeeModule) {
+        return YieldSeekerBorrowFeeModule(address(IAgentWallet(wallet).feeTracker().feeModules(BORROW_FEE)));
     }
 }

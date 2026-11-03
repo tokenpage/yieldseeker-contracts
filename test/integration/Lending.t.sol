@@ -10,6 +10,7 @@ import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendin
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
+import {MockLendingAaveV3Pool} from "../mocks/MockLendingMarkets.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 
 contract LendingIntegrationTest is IntegrationBase {
@@ -97,6 +98,19 @@ contract LendingIntegrationTest is IntegrationBase {
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, address(usdc));
         assertEq(usdc.balanceOf(owner), COLLATERAL - 10e6);
+    }
+
+    function test_AaveV3SupplyEnablesCollateralAndCanSupplyAgain() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 19);
+        address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        uint256 supplied = 2 * COLLATERAL;
+        _fundWallet(wallet, address(usdc), supplied);
+        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
+        assertTrue(aaveV3LendingPool.usingAsCollateral(address(wallet), address(usdc)));
+
+        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
+        assertTrue(aaveV3LendingPool.usingAsCollateral(address(wallet), address(usdc)));
+        assertEq(aaveV3CollateralAToken.balanceOf(address(wallet)), supplied);
     }
 
     function test_MorphoSupplyBorrowCheckpointRepayMaxAndWithdraw() public {
@@ -403,6 +417,54 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 10e6);
         _execute(wallet, address(aaveV3LendingAdapter), secondTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (secondMarket)));
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 10_500_000);
+    }
+
+    function test_TokenDebtTracksBorrowPartialRepayAndExternalRepayCheckpoint() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 20);
+        _supplyAndBorrowAaveV3(wallet, 3 * COLLATERAL, BORROWED_WETH);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), BORROWED_WETH);
+
+        uint256 partialRepayment = 0.4e18;
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, partialRepayment)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), BORROWED_WETH - partialRepayment);
+
+        uint256 externalRepayment = 0.1e18;
+        aaveV3LendingPool.reduceDebt(address(weth), address(wallet), externalRepayment);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), BORROWED_WETH - partialRepayment);
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        uint256 remainingDebt = BORROWED_WETH - partialRepayment - externalRepayment;
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), remainingDebt);
+
+        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
+    }
+
+    function test_TokenDebtSumsMarketsWithTheSameDebtToken() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 21);
+        MockLendingAaveV3Pool secondPool = new MockLendingAaveV3Pool();
+        MockERC20 secondCollateralAToken = new MockERC20("Second Aave USDC", "aUSDC2");
+        MockERC20 secondDebtToken = new MockERC20("Second Aave WETH Debt", "vdWETH2");
+        secondPool.setReserve(address(usdc), address(secondCollateralAToken), address(0));
+        secondPool.setReserve(address(weth), address(0), address(secondDebtToken));
+        secondPool.setAssetPrice(address(usdc), 1e8);
+        secondPool.setAssetPrice(address(weth), 2000e8);
+        bytes memory secondMarket = abi.encode(address(secondPool), address(usdc), address(weth), uint8(0));
+        address firstTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address secondTarget = aaveV3LendingAdapter.marketTarget(secondMarket);
+        borrowRegistry.setTargetAdapter(secondTarget, address(aaveV3LendingAdapter));
+
+        uint256 firstDebt = 0.1e18;
+        uint256 secondDebt = 0.2e18;
+        _fundWallet(wallet, address(usdc), 2 * COLLATERAL);
+        _execute(wallet, address(aaveV3LendingAdapter), firstTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
+        _execute(wallet, address(aaveV3LendingAdapter), firstTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, firstDebt)));
+        _execute(wallet, address(aaveV3LendingAdapter), secondTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (secondMarket, COLLATERAL)));
+        _execute(wallet, address(aaveV3LendingAdapter), secondTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (secondMarket, secondDebt)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), firstDebt + secondDebt);
+
+        uint256 partialRepayment = 0.04e18;
+        _execute(wallet, address(aaveV3LendingAdapter), firstTarget, abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, partialRepayment)));
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), firstDebt + secondDebt - partialRepayment);
     }
 
     function test_AssignedBorrowFeePlanRateAppliesToRealWallet() public {

@@ -63,6 +63,8 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
 
     mapping(address wallet => mapping(bytes32 market => DebtPosition)) public debtPositions;
     mapping(address wallet => mapping(address token => bool)) public isBorrowedToken;
+    /// @notice Debt in `token` across the wallet's markets, as of each market's last report
+    mapping(address wallet => mapping(address token => uint256)) public tokenDebt;
     mapping(address wallet => uint256) public feesOwed;
 
     event BorrowFeeCharged(address indexed wallet, bytes32 indexed market, address indexed debtToken, uint256 fee, uint256 feeInBaseAsset);
@@ -86,8 +88,9 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     }
 
     function _recordDebtChange(address wallet, FeeActions.DebtChange memory change) internal {
-        _accrue(wallet, change);
         DebtPosition storage position = debtPositions[wallet][change.market];
+        uint256 debtAtLastReport = position.lastDebt;
+        _accrue(wallet, change);
         if (change.borrowed > 0) {
             position.principal = (uint256(position.principal) + change.borrowed).toUint128();
             position.lastDebt = (uint256(position.lastDebt) + change.borrowed).toUint128();
@@ -99,6 +102,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
             position.principal = principalRepaid >= position.principal ? 0 : position.principal - principalRepaid.toUint128();
             position.lastDebt = (change.debtBefore > change.repaid ? change.debtBefore - change.repaid : 0).toUint128();
         }
+        tokenDebt[wallet][change.debtToken] = tokenDebt[wallet][change.debtToken] + position.lastDebt - debtAtLastReport;
     }
 
     /// @dev Charges the period since the last report, valued in the base asset with the market's price at this report

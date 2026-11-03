@@ -418,7 +418,12 @@ contract FeesIntegrationTest is IntegrationBase {
 
     function testPlainBorrowCollateralTradeDoesNotAccrueYieldFees() public {
         AgentWallet wallet = _createBorrowWallet(owner, 60);
-        _executeLending(wallet, aaveV3LendingAdapter.borrow.selector, 1e18);
+        _fundWallet(wallet, address(usdc), 1_000 * USDC);
+        _executeLending(wallet, aaveV3LendingAdapter.supplyCollateral.selector, 1_000 * USDC);
+        uint256 bought = 0.05e18;
+        _executeLending(wallet, aaveV3LendingAdapter.borrow.selector, bought);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(weth));
         _fundWallet(wallet, address(usdc), 100 * USDC);
         address[] memory path = new address[](2);
         path[0] = address(usdc);
@@ -426,14 +431,17 @@ contract FeesIntegrationTest is IntegrationBase {
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
-        uint256 bought = 0.05e18;
         uniswapV3Router.setBuyAmount(bought);
 
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought));
 
         assertEq(vaultYieldFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(feeCollector), 0);
-        assertEq(weth.balanceOf(address(wallet)), 1e18 + bought);
+        assertEq(weth.balanceOf(address(wallet)), bought);
+
+        _executeLending(wallet, aaveV3LendingAdapter.repay.selector, type(uint256).max);
+        assertEq(weth.balanceOf(address(wallet)), 0);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
     function _claim(AgentWallet wallet, address token, uint256 amount) private {

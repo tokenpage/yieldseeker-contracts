@@ -110,6 +110,12 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         _userEMode[msg.sender] = categoryId;
     }
 
+    mapping(address user => mapping(address asset => bool)) public usingAsCollateral;
+
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external override {
+        usingAsCollateral[msg.sender][asset] = useAsCollateral;
+    }
+
     function supply(address asset, uint256 amount, address onBehalfOf, uint16) external override {
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
         MockERC20(_reserves[asset].aTokenAddress).mint(onBehalfOf, amount);
