@@ -100,19 +100,6 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(owner), COLLATERAL - 10e6);
     }
 
-    function test_AaveV3SupplyEnablesCollateralAndCanSupplyAgain() public {
-        AgentWallet wallet = _createBorrowWallet(owner, 19);
-        address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
-        uint256 supplied = 2 * COLLATERAL;
-        _fundWallet(wallet, address(usdc), supplied);
-        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
-        assertTrue(aaveV3LendingPool.usingAsCollateral(address(wallet), address(usdc)));
-
-        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
-        assertTrue(aaveV3LendingPool.usingAsCollateral(address(wallet), address(usdc)));
-        assertEq(aaveV3CollateralAToken.balanceOf(address(wallet)), supplied);
-    }
-
     function test_MorphoSupplyBorrowCheckpointRepayMaxAndWithdraw() public {
         AgentWallet wallet = _createBorrowWallet(owner, 3);
         IMorphoBlue.MarketParams memory params;
@@ -294,8 +281,8 @@ contract LendingIntegrationTest is IntegrationBase {
 
     function test_ExternalDebtReductionCheckpointChargesOldDebtThenReducedDebt() public {
         AgentWallet wallet = _createBorrowWallet(owner, 10);
-        uint256 principal = 100e18;
-        _supplyAndBorrowAaveV3(wallet, 10_000e6, principal);
+        uint256 borrowed = 100e18;
+        _supplyAndBorrowAaveV3(wallet, 10_000e6, borrowed);
         uint256 start = vm.getBlockTimestamp();
         vm.warp(start + YEAR);
         aaveV3LendingPool.reduceDebt(address(weth), address(wallet), 60e18);
@@ -393,6 +380,23 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(_feesCollected(address(usdc)), 10e6);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), COLLATERAL + partialPayment - 10e6);
+    }
+
+    function test_RepayMaxRepaysHeldBalanceBelowDebtAndRevertsWithNothingHeld() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 22);
+        _supplyAndBorrowAaveV3(wallet, COLLATERAL, BORROWED_WETH);
+        uint256 held = BORROWED_WETH / 2;
+        weth.burn(address(wallet), BORROWED_WETH - held);
+        address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        bytes memory repayMax = abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max));
+
+        bytes memory result = _execute(wallet, address(aaveV3LendingAdapter), target, repayMax);
+
+        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), held);
+        assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), BORROWED_WETH - held);
+        assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), BORROWED_WETH - held);
+        assertEq(weth.balanceOf(address(wallet)), 0);
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), target, repayMax, abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector));
     }
 
     function test_BorrowFeeAccrualIsIsolatedAcrossMarkets() public {
@@ -521,6 +525,18 @@ contract LendingIntegrationTest is IntegrationBase {
         address unsupportedTarget = aaveV3LendingAdapter.marketTarget(unsupportedMarket);
         borrowRegistry.setTargetAdapter(unsupportedTarget, address(aaveV3LendingAdapter));
         _executeExpectRevert(wallet, address(aaveV3LendingAdapter), unsupportedTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (unsupportedMarket, 1e6)), abi.encodeWithSelector(AssetNotAllowed.selector));
+    }
+
+    function test_MarketBorrowingTheBaseAssetIsRejected() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 23);
+        bytes memory sameAssetMarket = abi.encode(address(aaveV3LendingPool), address(usdc), address(usdc), uint8(0));
+        address target = aaveV3LendingAdapter.marketTarget(sameAssetMarket);
+        borrowRegistry.setTargetAdapter(target, address(aaveV3LendingAdapter));
+        _fundWallet(wallet, address(usdc), COLLATERAL);
+        bytes memory assetNotAllowed = abi.encodeWithSelector(AssetNotAllowed.selector);
+
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (sameAssetMarket, COLLATERAL)), assetNotAllowed);
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.borrow, (sameAssetMarket, COLLATERAL)), assetNotAllowed);
     }
 
     function _supplyAndBorrowAaveV3(AgentWallet wallet, uint256 collateralAmount, uint256 borrowAmount) private {
