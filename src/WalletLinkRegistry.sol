@@ -9,7 +9,7 @@
 //      | $$    | $$|  $$$$$$$| $$|  $$$$$$$|  $$$$$$/|  $$$$$$$|  $$$$$$$| $$ \  $$|  $$$$$$$| $$
 //      |__/    |__/ \_______/|__/ \_______/ \______/  \_______/ \_______/|__/  \__/ \_______/|__/
 //
-//  Grow your wealth on auto-pilot with DeFi agents
+//  Build wealth on auto-pilot with DeFi agents
 //  https://yieldseeker.xyz
 //
 //  For technical queries or guidance contact @krishan711
