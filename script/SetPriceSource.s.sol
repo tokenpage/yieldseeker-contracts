@@ -9,6 +9,7 @@ import {console2} from "forge-std/console2.sol";
 
 interface IDescribedPriceFeed {
     function description() external view returns (string memory);
+    function aggregator() external view returns (address);
 }
 
 contract SetPriceSourceScript is Script {
@@ -34,6 +35,9 @@ contract SetPriceSourceScript is Script {
         (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) = priceFeed.latestRoundData();
         console2.log("Feed decimals:", uint256(feedDecimals));
         console2.log("Feed description:", feedDescription);
+        address aggregator = IDescribedPriceFeed(feed).aggregator();
+        console2.log("Feed aggregator:", aggregator);
+        require(aggregator != address(0), "Feed must be an aggregator proxy, not a wrapper");
         console2.log("Feed latestRoundData roundId:", uint256(roundId));
         console2.log("Feed latestRoundData answer:", answer);
         console2.log("Feed latestRoundData startedAt:", startedAt);
