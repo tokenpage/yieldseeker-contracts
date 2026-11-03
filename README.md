@@ -336,6 +336,18 @@ Abstract base class for all adapters providing:
 - Fee reporting: `_reportAction(action, data)` (reports to the fee tracker and pays the fees its modules settle in one transfer)
 - Base asset validation: `_requireBaseAsset(address)`
 
+**One shape for every adapter.** Each call goes through three layers:
+
+```
+execute            decodes and validates the input (per protocol / DEX)
+  ▼
+_xOperation        YieldSeeker overrides this: rules + fee reports
+  ▼
+_x                 the AWK protocol implementation
+```
+
+The YieldSeeker layers are written once per adapter family: `YieldSeekerVaultAdapter` (`_depositOperation` / `_withdrawOperation`), `YieldSeekerSwapAdapter` (`_swapOperation`), `YieldSeekerLendingAdapter` (the five lending operations). Reward adapters override `_claimOperation` directly. A YieldSeeker protocol adapter is the AWK protocol contract plus its family's YieldSeeker layer; Solidity requires it to restate each operation as `override(AWKBase, YieldSeekerBase)`, which only calls `super`.
+
 #### Concrete Adapters
 
 #### ERC4626Adapter (`src/adapters/ERC4626Adapter.sol`)
@@ -1053,8 +1065,8 @@ Wallets cache `agentOperators` and `adapterRegistry` references locally because:
 ### Adapter Base Classes
 The inheritance hierarchy provides:
 - `YieldSeekerAdapter`: Base class with `onlyDelegateCall` protection and helper functions
-- `YieldSeekerVaultAdapter`: Abstract vault adapter with standard deposit/withdraw interface
-- Concrete adapters: Protocol-specific implementations
+- `YieldSeekerVaultAdapter` / `YieldSeekerSwapAdapter` / `YieldSeekerLendingAdapter`: the YieldSeeker rules and fee reports for each adapter family, as operation overrides
+- Concrete adapters: the AWK protocol implementation plus the family's YieldSeeker layer
 
 This enables:
 - Code reuse across similar protocols

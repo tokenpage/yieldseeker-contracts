@@ -63,7 +63,7 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
 
     /**
      * @notice Swap tokens via Aerodrome V2 (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swap()
+     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
      */
     function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
@@ -72,34 +72,31 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
     // ============ Swap Execution (delegatecall only) ============
 
     /**
-     * @notice Route delegatecall operations to the swap handler
+     * @notice Validate a swap call and run it
      * @param target The Aerodrome V2 router target contract
      * @param data ABI-encoded call data (must match swap() selector)
      * @return ABI-encoded buy amount
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.swap.selector) {
-            (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
-            (uint256 buyAmount,) = _swap(target, sellToken, buyToken, route, sellAmount, minBuyAmount);
-            return abi.encode(buyAmount);
-        }
-        revert UnknownOperation();
+        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
+        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
+        if (target != AERODROME_V2_ROUTER) revert InvalidAerodromeV2RouterTarget(target, AERODROME_V2_ROUTER);
+        _validateRoute(sellToken, buyToken, route);
+        _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
+        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, abi.encode(route));
+        return abi.encode(buyAmount);
     }
 
     // ============ Internal Implementations ============
 
-    function _swap(address target, address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) internal virtual returns (uint256 buyAmount, uint256 soldAmount) {
-        if (target != AERODROME_V2_ROUTER) revert InvalidAerodromeV2RouterTarget(target, AERODROME_V2_ROUTER);
-        _validateRoute(sellToken, buyToken, route);
-        SwapBalanceSnapshot memory balanceSnapshot = _beforeSwapInternal(sellToken, buyToken, sellAmount, minBuyAmount);
-        IERC20(sellToken).forceApprove(AERODROME_V2_ROUTER, sellAmount);
+    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory encodedRoute) internal virtual override {
+        SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
+        IERC20(sellToken).forceApprove(router, sellAmount);
         IAerodromeV2Router.Route[] memory routes = new IAerodromeV2Router.Route[](route.stables.length);
         for (uint256 i = 0; i < route.stables.length; i++) {
             routes[i] = IAerodromeV2Router.Route({from: route.path[i], to: route.path[i + 1], stable: route.stables[i], factory: AERODROME_V2_FACTORY});
         }
-        IAerodromeV2Router(AERODROME_V2_ROUTER).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), FAR_FUTURE_DEADLINE);
-        (buyAmount, soldAmount) = _afterSwapInternal(AERODROME_V2_ROUTER, sellToken, buyToken, minBuyAmount, balanceSnapshot);
+        IAerodromeV2Router(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), FAR_FUTURE_DEADLINE);
     }
 
     function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {

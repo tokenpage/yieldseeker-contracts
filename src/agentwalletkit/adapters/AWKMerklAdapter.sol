@@ -29,24 +29,18 @@ interface IMerklDistributor {
 
 /**
  * @title AWKMerklAdapter
- * @notice Generic adapter for claiming rewards via Merkl with pre/post hooks
- * @dev Subclasses can override hooks to add custom logic (e.g., fee tracking).
+ * @notice Generic adapter for claiming rewards via Merkl
+ * @dev execute calls the operation (_claimOperation), which subclasses override to add rules; the operation calls
+ *      the protocol implementation (_claim).
  */
 contract AWKMerklAdapter is AWKAdapter {
     using SafeERC20 for IERC20;
 
-    /**
-     * @notice Override execute to properly handle dynamic array parameters
-     * @dev Already running in wallet context via delegatecall from AgentWallet
-     */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.claim.selector) {
-            (address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));
-            _claimInternal(target, users, tokens, amounts, proofs);
-            return "";
-        }
-        revert UnknownOperation();
+        if (bytes4(data[:4]) != this.claim.selector) revert UnknownOperation();
+        (address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));
+        _claimOperation(target, users, tokens, amounts, proofs);
+        return "";
     }
 
     /**
@@ -57,11 +51,15 @@ contract AWKMerklAdapter is AWKAdapter {
         revert AWKErrors.DirectCallForbidden();
     }
 
-    /**
-     * @notice Internal claim implementation
-     * @dev Runs in wallet context via delegatecall.
-     */
-    function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
+    // ============ Operations (override to add rules) ============
+
+    function _claimOperation(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
+        _claim(distributor, users, tokens, amounts, proofs);
+    }
+
+    // ============ Protocol Implementation ============
+
+    function _claim(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
         IMerklDistributor(distributor).claim(users, tokens, amounts, proofs);
     }
 }

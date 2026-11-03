@@ -23,11 +23,7 @@ import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 contract YieldSeekerAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapter, YieldSeekerSwapAdapter {
     constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapter(aerodromeClRouter) {}
 
-    function _beforeSwap(address sellToken, address buyToken) internal view override(AWKSwapAdapter, YieldSeekerSwapAdapter) {
-        super._beforeSwap(sellToken, buyToken);
-    }
-
-    function _afterSwapInternal(address router, address sellToken, address buyToken, uint256 minBuyAmount, SwapBalanceSnapshot memory snapshot) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) returns (uint256, uint256) {
-        return super._afterSwapInternal(router, sellToken, buyToken, minBuyAmount, snapshot);
+    function _swapOperation(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory route) internal override(AWKSwapAdapter, YieldSeekerSwapAdapter) returns (uint256, uint256) {
+        return super._swapOperation(router, sellToken, buyToken, sellAmount, minBuyAmount, route);
     }
 }

@@ -14,7 +14,6 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../AWKErrors.sol";
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -28,6 +27,10 @@ interface ICToken {
     function mint(uint256 mintAmount) external returns (uint256);
     function redeem(uint256 redeemTokens) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
+}
+
+interface IWETH {
+    function deposit() external payable;
 }
 
 /**
@@ -47,13 +50,8 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
         return ICToken(vault).underlying();
     }
 
-    /**
-     * @notice Internal deposit implementation for Compound V2
-     * @dev Runs in wallet context via delegatecall. The amount parameter is the underlying asset amount.
-     *      Returns the cTokens received as shares.
-     */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
-        if (amount == 0) revert AWKErrors.ZeroAmount();
+    /// @dev The amount is the underlying asset amount; shares are the cTokens received
+    function _deposit(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = ICToken(vault).underlying();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = ICToken(vault).balanceOf(address(this));
@@ -64,22 +62,18 @@ abstract contract AWKCompoundV2Adapter is AWKBaseVaultAdapter {
         shares = balanceAfter - balanceBefore;
         require(shares > 0, "AWKCompoundV2Adapter: zero shares minted");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
-    /**
-     * @notice Internal withdraw implementation for Compound V2
-     * @dev Runs in wallet context via delegatecall. The shares parameter is the cToken amount to redeem.
-     *      Returns the underlying received, including any paid out as native ETH.
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
-        if (shares == 0) revert AWKErrors.ZeroAmount();
-        IERC20 asset = IERC20(ICToken(vault).underlying());
-        uint256 assetBalanceBefore = asset.balanceOf(address(this));
+    /// @dev The shares parameter is the cToken amount to redeem; underlying paid out as native ETH is wrapped back
+    ///      into the underlying (WETH), so the wallet always receives the underlying token
+    function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
+        address asset = ICToken(vault).underlying();
+        uint256 assetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 nativeBalanceBefore = address(this).balance;
         uint256 redeemResult = ICToken(vault).redeem(shares);
         require(redeemResult == 0, "AWKCompoundV2Adapter: redeem failed");
-        assets = asset.balanceOf(address(this)) - assetBalanceBefore + address(this).balance - nativeBalanceBefore;
-        emit Withdrawn(address(this), vault, shares, assets);
+        uint256 nativeReceived = address(this).balance - nativeBalanceBefore;
+        if (nativeReceived > 0) IWETH(asset).deposit{value: nativeReceived}();
+        assets = IERC20(asset).balanceOf(address(this)) - assetBalanceBefore;
     }
 }

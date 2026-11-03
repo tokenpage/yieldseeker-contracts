@@ -49,13 +49,8 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
         return ICompoundV3Comet(vault).baseToken();
     }
 
-    /**
-     * @notice Internal deposit implementation for Compound V3
-     * @dev Runs in wallet context via delegatecall. The amount parameter is the base token amount.
-     *      Returns the change in balance as shares (though Compound V3 uses rebasing, not actual shares).
-     */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
-        if (amount == 0) revert AWKErrors.ZeroAmount();
+    /// @dev The amount is the base token amount; shares are the Comet balance received (rebasing, not real shares)
+    function _deposit(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = ICompoundV3Comet(vault).baseToken();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = ICompoundV3Comet(vault).balanceOf(address(this));
@@ -64,16 +59,12 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
         uint256 balanceAfter = ICompoundV3Comet(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
-    /**
-     * @notice Internal withdraw implementation for Compound V3
-     * @dev Runs in wallet context via delegatecall. The shares parameter represents the amount to withdraw
-     *      (in Compound V3, balance and assets are equivalent due to rebasing). Capped at the wallet's balance: a
-     *      Comet withdraw above it would borrow against any collateral the account holds.
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
+    /// @dev The shares parameter is the amount to withdraw (balance and assets are equivalent due to rebasing).
+    ///      Capped at the wallet's balance: a Comet withdraw above it would borrow against any collateral the
+    ///      account holds.
+    function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         uint256 held = ICompoundV3Comet(vault).balanceOf(address(this));
         uint256 amount = shares > held ? held : shares;
         if (amount == 0) revert AWKErrors.ZeroAmount();
@@ -82,6 +73,5 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
         ICompoundV3Comet(vault).withdraw({asset: asset, amount: amount});
         uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
         assets = balanceAfter - balanceBefore;
-        emit Withdrawn(address(this), vault, shares, assets);
     }
 }

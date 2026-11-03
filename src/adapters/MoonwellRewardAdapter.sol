@@ -36,11 +36,11 @@ contract YieldSeekerMoonwellRewardAdapter is AWKMoonwellRewardAdapter, YieldSeek
         WELL_TOKEN = IERC20(wellToken);
     }
 
-    function _claimInternal(address comptroller, address holder, address[] memory mTokens) internal override {
+    function _claimOperation(address comptroller, address[] memory mTokens) internal override {
         IERC20 baseAsset = _baseAsset();
         uint256 wellBalanceBefore = WELL_TOKEN.balanceOf(address(this));
         uint256 baseBalanceBefore = baseAsset.balanceOf(address(this));
-        super._claimInternal(comptroller, holder, mTokens);
+        super._claimOperation(comptroller, mTokens);
         uint256 wellClaimed = WELL_TOKEN.balanceOf(address(this)) - wellBalanceBefore;
         uint256 baseClaimed = address(baseAsset) == address(WELL_TOKEN) ? 0 : baseAsset.balanceOf(address(this)) - baseBalanceBefore;
         if (wellClaimed > 0) _reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: address(WELL_TOKEN), amount: wellClaimed})));

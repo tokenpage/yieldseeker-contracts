@@ -25,13 +25,11 @@ interface IMoonwellComptroller {
 
 abstract contract AWKMoonwellRewardAdapter is AWKAdapter {
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.claimReward.selector) {
-            (address holder, address[] memory mTokens) = abi.decode(data[4:], (address, address[]));
-            _claimInternal(target, holder, mTokens);
-            return "";
-        }
-        revert UnknownOperation();
+        if (bytes4(data[:4]) != this.claimReward.selector) revert UnknownOperation();
+        (address holder, address[] memory mTokens) = abi.decode(data[4:], (address, address[]));
+        if (holder != address(this)) revert InvalidClaimHolder(holder);
+        _claimOperation(target, mTokens);
+        return "";
     }
 
     function claimReward(address holder, address[] calldata mTokens) external pure {
@@ -40,8 +38,16 @@ abstract contract AWKMoonwellRewardAdapter is AWKAdapter {
         revert AWKErrors.DirectCallForbidden();
     }
 
-    function _claimInternal(address comptroller, address holder, address[] memory mTokens) internal virtual {
-        if (holder != address(this)) revert InvalidClaimHolder(holder);
-        IMoonwellComptroller(comptroller).claimReward(holder, mTokens);
+    // ============ Operations (override to add rules) ============
+
+    function _claimOperation(address comptroller, address[] memory mTokens) internal virtual {
+        _claim(comptroller, mTokens);
+    }
+
+    // ============ Protocol Implementation ============
+
+    /// @dev Claims the wallet's rewards on `mTokens` into the wallet
+    function _claim(address comptroller, address[] memory mTokens) internal virtual {
+        IMoonwellComptroller(comptroller).claimReward(address(this), mTokens);
     }
 }

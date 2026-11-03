@@ -28,12 +28,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *      All amounts are measured before the first report, since a report can pay fees from the base asset.
  */
 contract YieldSeekerMerklAdapter is AWKMerklAdapter, YieldSeekerAdapter {
-    function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal override {
+    function _claimOperation(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal override {
         uint256[] memory balancesBefore = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
             balancesBefore[i] = IERC20(tokens[i]).balanceOf(address(this));
         }
-        super._claimInternal(distributor, users, tokens, amounts, proofs);
+        super._claimOperation(distributor, users, tokens, amounts, proofs);
         uint256[] memory claimed = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
             if (!_listedEarlier(tokens, i)) claimed[i] = IERC20(tokens[i]).balanceOf(address(this)) - balancesBefore[i];

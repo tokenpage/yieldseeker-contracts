@@ -14,7 +14,6 @@
 //
 pragma solidity 0.8.28;
 
-import {AWKErrors} from "../AWKErrors.sol";
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -55,13 +54,8 @@ abstract contract AWKAaveV3Adapter is AWKBaseVaultAdapter {
         return IAaveAToken(vault).UNDERLYING_ASSET_ADDRESS();
     }
 
-    /**
-     * @notice Internal deposit implementation for Aave V3
-     * @dev Runs in wallet context via delegatecall. The amount parameter is the underlying asset amount.
-     *      For Aave, shares received equals amount deposited (1:1 rebasing).
-     */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
-        if (amount == 0) revert AWKErrors.ZeroAmount();
+    /// @dev The amount is the underlying asset amount; shares are the aToken balance received (1:1 rebasing)
+    function _deposit(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = IAaveAToken(vault).UNDERLYING_ASSET_ADDRESS();
         address pool = IAaveAToken(vault).POOL();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
@@ -71,19 +65,12 @@ abstract contract AWKAaveV3Adapter is AWKBaseVaultAdapter {
         uint256 balanceAfter = IAaveAToken(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
-    /**
-     * @notice Internal withdraw implementation for Aave V3
-     * @dev Runs in wallet context via delegatecall. The shares parameter is treated as underlying asset amount
-     *      since Aave uses 1:1 rebasing tokens.
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
-        if (shares == 0) revert AWKErrors.ZeroAmount();
+    /// @dev The shares parameter is the underlying asset amount, since aTokens rebase 1:1
+    function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         address asset = IAaveAToken(vault).UNDERLYING_ASSET_ADDRESS();
         address pool = IAaveAToken(vault).POOL();
         assets = IAaveV3Pool(pool).withdraw({asset: asset, amount: shares, to: address(this)});
-        emit Withdrawn(address(this), vault, shares, assets);
     }
 }

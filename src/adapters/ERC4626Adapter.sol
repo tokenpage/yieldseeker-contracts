@@ -16,38 +16,20 @@
 //
 pragma solidity 0.8.28;
 
+import {AWKBaseVaultAdapter} from "../agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {AWKERC4626Adapter} from "../agentwalletkit/adapters/AWKERC4626Adapter.sol";
-import {FeeActions} from "../fees/FeeActions.sol";
-import {YieldSeekerAdapter} from "./Adapter.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
 
 /**
  * @title YieldSeekerERC4626Adapter
- * @notice YieldSeeker-specific ERC4626 adapter with fee tracking
- * @dev Extends the generic AWKERC4626Adapter and reports deposits and withdrawals to the fee modules (FeeActions),
- *      which charge the yield fee and are paid in the same call.
+ * @notice YieldSeeker ERC4626 vault adapter: the AWK protocol code plus the shared YieldSeeker vault rules and fee reports
  */
-contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerAdapter {
-    /**
-     * @notice Internal deposit implementation with validation and fee tracking
-     * @dev Overrides AWK logic to add the base asset check and fee reporting
-     */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
-        address asset = IERC4626(vault).asset();
-        _requireBaseAsset(asset);
-        (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: vault, assetsIn: assetsDeposited})));
+contract YieldSeekerERC4626Adapter is AWKERC4626Adapter, YieldSeekerVaultAdapter {
+    function _depositOperation(address vault, uint256 amount) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256, uint256) {
+        return super._depositOperation(vault, amount);
     }
 
-    /**
-     * @notice Internal withdraw implementation with validation and fee tracking
-     * @dev Overrides AWK logic to add the base asset check and fee reporting
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        address asset = IERC4626(vault).asset();
-        _requireBaseAsset(asset);
-        uint256 heldBefore = IERC4626(vault).balanceOf(address(this));
-        assets = super._withdrawInternal(vault, shares);
-        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: vault, spent: shares, heldBefore: heldBefore, assetsOut: assets})));
+    function _withdrawOperation(address vault, uint256 shares) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256) {
+        return super._withdrawOperation(vault, shares);
     }
 }
