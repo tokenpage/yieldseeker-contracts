@@ -53,13 +53,6 @@ contract MockCompoundV3Comet {
         _totalSupply += amount;
     }
 
-    function supplyTo(address to, address asset, uint256 amount) external {
-        require(asset == address(_BASE_TOKEN), "Invalid asset");
-        require(_BASE_TOKEN.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-        _balances[to] += amount;
-        _totalSupply += amount;
-    }
-
     function withdraw(address asset, uint256 amount) external {
         require(asset == address(_BASE_TOKEN), "Invalid asset");
         uint256 suppliedBalance = _balances[msg.sender];
@@ -74,22 +67,6 @@ contract MockCompoundV3Comet {
             _totalSupply -= amount;
         }
         require(_BASE_TOKEN.transfer(msg.sender, amount), "Transfer failed");
-    }
-
-    function withdrawTo(address to, address asset, uint256 amount) external {
-        require(asset == address(_BASE_TOKEN), "Invalid asset");
-        uint256 suppliedBalance = _balances[msg.sender];
-        if (amount > suppliedBalance) {
-            uint256 borrowed = amount - suppliedBalance;
-            require(_collateral[msg.sender] >= _borrowBalances[msg.sender] + borrowed, "Insufficient balance");
-            _borrowBalances[msg.sender] += borrowed;
-            _balances[msg.sender] = 0;
-            _totalSupply -= suppliedBalance;
-        } else {
-            _balances[msg.sender] = suppliedBalance - amount;
-            _totalSupply -= amount;
-        }
-        require(_BASE_TOKEN.transfer(to, amount), "Transfer failed");
     }
 
     /// @notice Simulate yield by increasing a user's balance

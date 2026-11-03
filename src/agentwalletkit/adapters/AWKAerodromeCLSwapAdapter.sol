@@ -24,17 +24,6 @@ error InvalidAerodromeCLRouterTarget(address target, address expected);
 error InvalidTickSpacing(int24 tickSpacing);
 
 interface IAerodromeCLSwapRouter {
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        int24 tickSpacing;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
-    }
-
     struct ExactInputParams {
         bytes path;
         address recipient;
@@ -43,7 +32,6 @@ interface IAerodromeCLSwapRouter {
         uint256 amountOutMinimum;
     }
 
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
 }
 

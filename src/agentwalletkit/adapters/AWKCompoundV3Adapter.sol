@@ -26,9 +26,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 interface ICompoundV3Comet {
     function baseToken() external view returns (address);
     function supply(address asset, uint256 amount) external;
-    function supplyTo(address to, address asset, uint256 amount) external;
     function withdraw(address asset, uint256 amount) external;
-    function withdrawTo(address to, address asset, uint256 amount) external;
     function balanceOf(address account) external view returns (uint256);
 }
 
