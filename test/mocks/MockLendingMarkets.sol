@@ -118,7 +118,8 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
     function withdraw(address asset, uint256 amount, address to) external override returns (uint256 withdrawn) {
         MockERC20 aToken = MockERC20(_reserves[asset].aTokenAddress);
         uint256 collateral = aToken.balanceOf(msg.sender);
-        withdrawn = amount == type(uint256).max || amount > collateral ? collateral : amount;
+        require(amount == type(uint256).max || amount <= collateral, "Aave V3: amount exceeds balance");
+        withdrawn = amount == type(uint256).max ? collateral : amount;
         aToken.burn(msg.sender, withdrawn);
         IERC20(asset).transfer(to, withdrawn);
     }
@@ -134,7 +135,7 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         repaid = amount == type(uint256).max || amount > debt ? debt : amount;
         lastRepayAmount = repaid;
         if (repaid != 0) {
-            IERC20(asset).transferFrom(onBehalfOf, address(this), repaid);
+            IERC20(asset).transferFrom(msg.sender, address(this), repaid);
             variableDebtToken.burn(onBehalfOf, repaid);
         }
     }

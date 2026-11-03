@@ -82,9 +82,10 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         _reportDebtChange(market, debtAsset, debt, 0, 0);
     }
 
-    /// @dev The market's price is only read while it has debt (no debt, no fee to value)
+    /// @dev The market's price is read whenever the market has debt before or after the action, so the borrow fee
+    ///      module always knows a price for open debt (a market with no debt has no fee to value)
     function _reportDebtChange(bytes memory market, address debtAsset, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
-        uint256 debtPrice = debtBefore > 0 ? _debtPriceInCollateral(market) : 0;
+        uint256 debtPrice = debtBefore > 0 || borrowed > 0 ? _debtPriceInCollateral(market) : 0;
         _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: keccak256(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtPrice})));
     }
 }

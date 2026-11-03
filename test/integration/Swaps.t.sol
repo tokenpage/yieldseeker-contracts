@@ -142,6 +142,38 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), 0);
     }
 
+    function testVaultPolicyRejectsPositionTokensWhenAllTokensAreSellable() public {
+        AgentWallet wallet = _createVaultWallet(owner, 1);
+        uint256 positionAmount = 100e6;
+        _fundWallet(wallet, address(usdc), 2 * positionAmount);
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (positionAmount)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (positionAmount)));
+        _fundWallet(wallet, address(rewardToken), 10e18);
+        swapSellPolicy.setAllowSellingAllTokens(true);
+
+        AWKUniswapV3SwapAdapter.SwapRoute memory shareRoute = _uniswapRoute(address(erc4626Vault), address(usdc));
+        bytes memory shareSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(erc4626Vault), address(usdc), shareRoute, positionAmount, uint256(1)));
+        bytes memory shareNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(erc4626Vault), address(usdc));
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), shareSale, shareNotAllowed);
+
+        AWKUniswapV3SwapAdapter.SwapRoute memory aTokenRoute = _uniswapRoute(address(aaveV3Vault), address(usdc));
+        bytes memory aTokenSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(aaveV3Vault), address(usdc), aTokenRoute, positionAmount, uint256(1)));
+        bytes memory aTokenNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(aaveV3Vault), address(usdc));
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), aTokenSale, aTokenNotAllowed);
+
+        assertEq(erc4626Vault.balanceOf(address(wallet)), positionAmount);
+        assertEq(aaveV3Vault.balanceOf(address(wallet)), positionAmount);
+        uniswapV3Router.setBuyAmount(100e6);
+        AWKUniswapV3SwapAdapter.SwapRoute memory rewardRoute = _uniswapRoute(address(rewardToken), address(usdc));
+        bytes memory rewardSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), rewardRoute, 10e18, uint256(1)));
+        uint256 feesBefore = _feesCollected(address(usdc));
+        bytes memory result = _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), rewardSale);
+        assertEq(_decodeUint(result), 100e6);
+        assertEq(rewardToken.balanceOf(address(wallet)), 0);
+        assertEq(usdc.balanceOf(address(wallet)), 90e6);
+        assertEq(_feesCollected(address(usdc)) - feesBefore, 10e6);
+    }
+
     function testUniswapRejectsInvalidRoutesAndRouterTargets() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(rewardToken), 10e18);

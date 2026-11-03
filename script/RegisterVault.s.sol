@@ -83,7 +83,7 @@ contract RegisterVaultScript is Script {
         AdminTimelock timelock = AdminTimelock(payable(timelockAddress));
         uint256 delay = timelock.getMinDelay();
         uint256[] memory values = new uint256[](_targets.length);
-        bytes32 salt = keccak256(abi.encodePacked("set-vault-", vaultAddress, v2Adapter, adapter));
+        bytes32 salt = keccak256(abi.encodePacked("set-vault-", vaultAddress, v2Adapter, adapter, block.number));
         vm.startBroadcast(deployerPrivateKey);
         console2.log("-> Scheduling", _targets.length, "target adapter operations in one batch...");
         timelock.scheduleBatch(_targets, values, _datas, predecessor, salt, delay);

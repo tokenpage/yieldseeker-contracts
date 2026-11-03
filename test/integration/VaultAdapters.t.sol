@@ -12,6 +12,7 @@ import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract VaultAdaptersTest is IntegrationBase {
     function _decodeUint(bytes memory result) private pure returns (uint256) {
@@ -230,7 +231,7 @@ contract VaultAdaptersTest is IntegrationBase {
 
         uint256 heldBefore = principal + yieldAmount;
         uint256 releasedBasis = principal * withdrawal / heldBefore;
-        uint256 expectedFee = (withdrawal - releasedBasis) * YIELD_FEE_BPS / 10_000;
+        uint256 expectedFee = Math.mulDiv(withdrawal - releasedBasis, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (withdrawal)));
 
         assertEq(_feesCollected(address(usdc)), expectedFee);
@@ -260,7 +261,7 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 allShares = compoundV2Vault.balanceOf(address(wallet));
         uint256 expectedAssetsOut = allShares * compoundV2Vault.exchangeRateCurrent() / 1e18;
         uint256 expectedYield = expectedAssetsOut - 2 * principalPerDeposit;
-        uint256 expectedFee = expectedYield * YIELD_FEE_BPS / 10_000;
+        uint256 expectedFee = Math.mulDiv(expectedYield, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         bytes memory withdrawal = _execute(wallet, address(compoundV2Adapter), address(compoundV2Vault), abi.encodeCall(compoundV2Adapter.withdraw, (allShares)));
         assertEq(_decodeUint(withdrawal), expectedAssetsOut);
         assertEq(_feesCollected(address(usdc)), expectedFee);

@@ -6,6 +6,7 @@ import {YieldSeekerERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract MorphoERC4626ForkTest is ForkBase {
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
@@ -56,7 +57,7 @@ contract MorphoERC4626ForkTest is ForkBase {
         assertEq(vault.balanceOf(address(wallet)), 0, "Live vault share balance should be fully withdrawn");
 
         uint256 expectedProfit = assetsReceived - DEPOSIT_AMOUNT;
-        uint256 expectedFee = (expectedProfit * YIELD_FEE_BPS) / 10_000;
+        uint256 expectedFee = Math.mulDiv(expectedProfit, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         costBasis = vaultYieldFeeModule.costBasis(address(wallet), vaultAddress);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
         assertEq(asset.balanceOf(feeCollector) - feeCollectorBalanceBefore, expectedFee, "Live Morpho vault yield fee mismatch");

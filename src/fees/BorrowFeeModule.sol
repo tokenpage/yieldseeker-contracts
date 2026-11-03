@@ -35,11 +35,11 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  *      protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
  *      is charged on min(principal, debt at the start of the period), so repaying directly on the protocol cannot
  *      erase the fee; after a debt change outside the adapters (e.g. a liquidation) the period runs until the next
- *      report, so the operator checkpoints the market. A period whose debt was cleared outside the adapters (the
- *      market has no debt at the report, so no price) is not charged. Repayments pay interest first, then principal.
- *      The fee is converted to the base asset when it is charged, then paid from the base asset at the first reported
- *      action or outflow that finds some. Only the fee tracker reports actions (onAction), for the wallet that
- *      reported them to it.
+ *      report, so the operator checkpoints the market. A report without a price (the market has no debt left, e.g.
+ *      it was repaid outside the adapters) values the period with the market's last reported price. Repayments pay
+ *      interest first, then principal. Fees round up. The fee is converted to the base asset when it is charged, then
+ *      paid from the base asset at the first reported action or outflow that finds some. Only the fee tracker
+ *      reports actions (onAction), for the wallet that reported them to it.
  */
 contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
@@ -58,6 +58,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         uint128 principal;
         uint128 lastDebt;
         uint64 lastAccrual;
+        uint192 lastPrice;
     }
 
     mapping(address wallet => mapping(bytes32 market => DebtPosition)) public debtPositions;
@@ -101,11 +102,13 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     }
 
     /// @dev Charges the period since the last report, valued in the base asset with the market's price at this report
+    ///      (or the last one reported, when this report has none)
     function _accrue(address wallet, FeeActions.DebtChange memory change) internal {
         DebtPosition storage position = debtPositions[wallet][change.market];
         uint256 fee = _pendingFee(wallet, position);
+        if (change.debtPriceInBaseAsset > 0) position.lastPrice = change.debtPriceInBaseAsset.toUint192();
         if (fee > 0) {
-            uint256 feeInBaseAsset = Math.mulDiv(fee, change.debtPriceInBaseAsset, 1e36);
+            uint256 feeInBaseAsset = Math.mulDiv(fee, position.lastPrice, 1e36, Math.Rounding.Ceil);
             feesOwed[wallet] += feeInBaseAsset;
             emit BorrowFeeCharged(wallet, change.market, change.debtToken, fee, feeInBaseAsset);
         }
@@ -117,7 +120,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     function _pendingFee(address wallet, DebtPosition memory position) internal view returns (uint256) {
         if (position.lastAccrual == 0) return 0;
         uint256 accruingPrincipal = position.principal < position.lastDebt ? position.principal : position.lastDebt;
-        return (accruingPrincipal * walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual)) / (SECONDS_PER_YEAR * 1e4);
+        return Math.mulDiv(accruingPrincipal, walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual), SECONDS_PER_YEAR * 1e4, Math.Rounding.Ceil);
     }
 
     /// @notice The fee a market has accrued since its last report, in the debt token (charged at the next report)

@@ -5,6 +5,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {YieldSeekerCompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IMoonwellMarket {
     function mint(uint256 amount) external returns (uint256);
@@ -71,7 +72,7 @@ contract MoonwellCompoundV2ForkTest is ForkBase {
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertApproxEqAbs(assetsReceived, liveBalanceBefore, 1, "Full redemption must return the live underlying balance");
         assertEq(market.balanceOf(address(wallet)), 0, "All redeemed reward shares should leave the wallet");
-        uint256 expectedFee = assetsReceived > depositAmount ? ((assetsReceived - depositAmount) * YIELD_FEE_BPS) / 10_000 : 0;
+        uint256 expectedFee = assetsReceived > depositAmount ? Math.mulDiv(assetsReceived - depositAmount, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil) : 0;
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), marketAddress), 0, "Cost basis should clear after withdrawal");
         assertEq(asset.balanceOf(feeCollector) - feeCollectorBalanceBefore, expectedFee, "Withdrawal fee should be paid immediately");
         uint256 ownerBalanceBefore = asset.balanceOf(owner);
@@ -109,7 +110,7 @@ contract MoonwellCompoundV2ForkTest is ForkBase {
 
         assertApproxEqAbs(assetsReceived, expectedAssets, 1, "Should report assets received for redeemed shares");
         uint256 expectedYield = assetsReceived > releasedBasis ? assetsReceived - releasedBasis : 0;
-        uint256 expectedFee = (expectedYield * YIELD_FEE_BPS) / 10_000;
+        uint256 expectedFee = Math.mulDiv(expectedYield, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         assertApproxEqAbs(weth.balanceOf(address(wallet)), assetsReceived - expectedFee, 1, "Native ETH from live Moonwell mWETH must be wrapped back into WETH");
         assertEq(address(wallet).balance, 0, "Wallet must not be left holding native ETH after withdrawal");
         uint256 remainingShares = market.balanceOf(address(wallet));

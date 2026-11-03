@@ -124,15 +124,15 @@ contract BorrowForkTest is ForkBase {
         vm.roll(block.number + 1);
         deal(USDC, address(wallet), 100_000e6);
 
-        uint256 expectedDebtFee = Math.mulDiv(1_000e6, 50, 10_000);
+        uint256 expectedDebtFee = Math.mulDiv(1_000e6, 50, 10_000, Math.Rounding.Ceil);
         uint256 debtPriceInBaseAsset = _marketDebtPriceInBaseAsset(adapter, market);
-        uint256 expectedBaseAssetFee = Math.mulDiv(expectedDebtFee, debtPriceInBaseAsset, 1e36);
+        uint256 expectedBaseAssetFee = Math.mulDiv(expectedDebtFee, debtPriceInBaseAsset, 1e36, Math.Rounding.Ceil);
         oracle.removeSource(WETH);
         oracle.removeSource(USDC);
 
         _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
         assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
-        (uint256 principal,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
+        (uint256 principal,,,) = borrowFeeModule.debtPositions(address(wallet), keccak256(market));
         assertEq(principal, 0, "principal cleared");
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBaseAssetFee, "Borrow fee is owed in the collateral asset");
 
@@ -140,7 +140,7 @@ contract BorrowForkTest is ForkBase {
         uint256 withdrawn = abi.decode(_execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
         uint256 expectedYieldFee;
         if (adapter == address(aaveAdapter) && withdrawn > 1 ether) {
-            expectedYieldFee = Math.mulDiv(withdrawn - 1 ether, 1_000, 10_000);
+            expectedYieldFee = Math.mulDiv(withdrawn - 1 ether, 1_000, 10_000, Math.Rounding.Ceil);
         }
         uint256 expectedTotalFee = expectedBaseAssetFee + expectedYieldFee;
         uint256 collateralLeft = IERC20(WETH).balanceOf(address(wallet));
@@ -176,7 +176,7 @@ contract BorrowForkTest is ForkBase {
         uint256 withdrawn = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
 
         assertGt(withdrawn, supplied);
-        uint256 expectedFee = Math.mulDiv(withdrawn - supplied, 1_000, 10_000);
+        uint256 expectedFee = Math.mulDiv(withdrawn - supplied, 1_000, 10_000, Math.Rounding.Ceil);
         assertEq(IERC20(WETH).balanceOf(address(wallet)) - walletBalanceBefore, withdrawn - expectedFee);
         assertEq(IERC20(WETH).balanceOf(feeCollector) - collectorBalanceBefore, expectedFee);
         YieldSeekerYieldFeeModule yieldFees = YieldSeekerYieldFeeModule(address(feeTracker.feeModules(YIELD_FEE)));
@@ -186,6 +186,81 @@ contract BorrowForkTest is ForkBase {
     function test_MorphoBlue_BorrowRepayWithdrawChargesBorrowFee() public {
         assertEq(keccak256(abi.encode(_morphoParams())), MORPHO_WETH_USDC_MARKET_ID, "market params match the live market id");
         _runBorrowCycle(address(morphoAdapter), _morphoMarket());
+    }
+
+    function _runExternalRepayRegression(address adapter, bytes memory market) internal {
+        address target = aaveAdapter.marketTarget(market);
+        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
+        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 1_000e6));
+
+        bytes32 marketHash = keccak256(market);
+        (uint128 principal, uint128 lastDebt,, uint192 lastPrice) = borrowFeeModule.debtPositions(address(wallet), marketHash);
+        assertGt(lastPrice, 0);
+        uint256 expectedDebtFee = Math.mulDiv(Math.min(principal, lastDebt), 50 * 365 days, 365 days * 10_000, Math.Rounding.Ceil);
+        uint256 expectedBorrowFee = Math.mulDiv(expectedDebtFee, lastPrice, 1e36, Math.Rounding.Ceil);
+        address externalRepayer = makeAddr("external protocol repayer");
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + 365 days);
+        vm.roll(block.number + 1);
+
+        IMorphoBlue.MarketParams memory morphoParams;
+        bytes32 morphoMarketId;
+        if (adapter == address(aaveAdapter)) {
+            _repayAaveExternally(externalRepayer);
+        } else {
+            (, morphoParams) = abi.decode(market, (IMorphoBlue, IMorphoBlue.MarketParams));
+            morphoMarketId = keccak256(abi.encode(morphoParams));
+            _repayMorphoExternally(externalRepayer, morphoParams);
+            (, uint128 remainingBorrowShares,) = IMorphoBlue(MORPHO).position(morphoMarketId, address(wallet));
+            assertEq(remainingBorrowShares, 0);
+        }
+
+        uint256 feeCollectorBefore = IERC20(WETH).balanceOf(feeCollector);
+        uint256 walletBalanceBefore = IERC20(WETH).balanceOf(address(wallet));
+        bytes memory result = _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max));
+        uint256 withdrawn = abi.decode(result, (uint256));
+        uint256 expectedYieldFee;
+        if (adapter == address(aaveAdapter) && withdrawn > 1 ether) {
+            expectedYieldFee = Math.mulDiv(withdrawn - 1 ether, 1_000, 10_000, Math.Rounding.Ceil);
+        }
+        uint256 expectedTotalFee = expectedBorrowFee + expectedYieldFee;
+        assertEq(IERC20(WETH).balanceOf(feeCollector) - feeCollectorBefore, expectedTotalFee);
+        assertEq(IERC20(WETH).balanceOf(address(wallet)) - walletBalanceBefore, withdrawn - expectedTotalFee);
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
+    }
+
+    function _repayAaveExternally(address externalRepayer) internal {
+        IAaveV3LendingPool pool = IAaveV3LendingPool(AAVE_POOL);
+        uint256 debt = IERC20(pool.getReserveVariableDebtToken(USDC)).balanceOf(address(wallet));
+        deal(USDC, externalRepayer, debt);
+        vm.prank(externalRepayer);
+        IERC20(USDC).approve(AAVE_POOL, debt);
+        vm.prank(externalRepayer);
+        pool.repay(USDC, debt, 2, address(wallet));
+        assertEq(IERC20(pool.getReserveVariableDebtToken(USDC)).balanceOf(address(wallet)), 0);
+    }
+
+    function _repayMorphoExternally(address externalRepayer, IMorphoBlue.MarketParams memory marketParams) internal {
+        IMorphoBlue morpho = IMorphoBlue(MORPHO);
+        bytes32 marketId = keccak256(abi.encode(marketParams));
+        morpho.accrueInterest(marketParams);
+        (, uint128 borrowShares,) = morpho.position(marketId, address(wallet));
+        (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);
+        uint256 debt = Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + 1, uint256(totalBorrowShares) + 1e6, Math.Rounding.Ceil);
+        deal(USDC, externalRepayer, debt);
+        vm.prank(externalRepayer);
+        IERC20(USDC).approve(MORPHO, debt);
+        vm.prank(externalRepayer);
+        morpho.repay(marketParams, 0, borrowShares, address(wallet), "");
+    }
+
+    function test_AaveV3_ExternalRepayUsesLastReportedPrice() public {
+        _runExternalRepayRegression(address(aaveAdapter), _aaveMarket());
+    }
+
+    function test_MorphoBlue_ExternalRepayUsesLastReportedPrice() public {
+        assertEq(keccak256(abi.encode(_morphoParams())), MORPHO_WETH_USDC_MARKET_ID, "market params match the live market id");
+        _runExternalRepayRegression(address(morphoAdapter), _morphoMarket());
     }
 
     function test_PairSwap_SellsCollateralForBorrowedTokenWithinOracleBound() public {

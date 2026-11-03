@@ -58,6 +58,7 @@ contract RegisterBorrowMarketScript is Script {
             console2.log("Aave V3 eMode:", uint256(eMode));
             require(pool == AAVE_V3_POOL, "Aave V3 pool must be the Base Aave V3 pool");
             require(eMode == 0, "Aave V3 eMode variants are not allowed");
+            require(keccak256(market) == keccak256(abi.encode(pool, collateralAsset, debtAsset, eMode)), "Market bytes must be the canonical encoding");
             collateral = collateralAsset;
             debt = debtAsset;
         } else if (keccak256(bytes(protocol)) == keccak256(bytes("aavev4"))) {
@@ -66,6 +67,7 @@ contract RegisterBorrowMarketScript is Script {
             console2.log("Aave V4 collateral reserve ID:", collateralReserveId);
             console2.log("Aave V4 debt reserve ID:", debtReserveId);
             require(spokeAddress == AAVE_V4_SPOKE, "Aave V4 spoke must be the Base Aave V4 spoke");
+            require(keccak256(market) == keccak256(abi.encode(spokeAddress, collateralReserveId, debtReserveId)), "Market bytes must be the canonical encoding");
             IAaveV4Spoke spoke = IAaveV4Spoke(spokeAddress);
             collateral = spoke.getReserve(collateralReserveId).underlying;
             debt = spoke.getReserve(debtReserveId).underlying;
@@ -73,6 +75,7 @@ contract RegisterBorrowMarketScript is Script {
             console2.log("Aave V4 debt underlying:", debt);
         } else {
             (address morphoAddress, IMorphoBlue.MarketParams memory params) = abi.decode(market, (address, IMorphoBlue.MarketParams));
+            require(keccak256(market) == keccak256(abi.encode(morphoAddress, params)), "Market bytes must be the canonical encoding");
             console2.log("Morpho Blue:", morphoAddress);
             console2.log("Morpho loan token:", params.loanToken);
             console2.log("Morpho collateral token:", params.collateralToken);

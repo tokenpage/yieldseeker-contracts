@@ -5,6 +5,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {YieldSeekerCompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IComet {
     function balanceOf(address account) external view returns (uint256);
@@ -48,7 +49,7 @@ contract CompoundV3ForkTest is ForkBase {
         assertEq(comet.balanceOf(address(wallet)), 0, "Live Comet balance should be fully withdrawn");
 
         uint256 expectedProfit = totalVaultBalanceBefore - DEPOSIT_AMOUNT;
-        uint256 expectedFee = (expectedProfit * YIELD_FEE_BPS) / 10_000;
+        uint256 expectedFee = Math.mulDiv(expectedProfit, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         costBasis = vaultYieldFeeModule.costBasis(address(wallet), COMET_USDC);
         assertEq(costBasis, 0, "Cost basis should clear after full withdrawal");
         assertEq(asset.balanceOf(feeCollector) - feeCollectorBalanceBefore, expectedFee, "Live Compound V3 interest fee mismatch");

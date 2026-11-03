@@ -9,6 +9,7 @@ import {FeePlanChoice, InsufficientGasForModules} from "../../src/fees/FeeTracke
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 error FeeModuleActionFailed();
 
@@ -313,16 +314,20 @@ contract FeesIntegrationTest is IntegrationBase {
         erc4626Vault.transfer(address(merklDistributor), rewardShares);
         usdc.mint(address(erc4626Vault), 110 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
+        uint256 partialBasisReleased = Math.mulDiv(1_000 * USDC, 500 * USDC, 1_100 * USDC);
+        uint256 partialFee = Math.mulDiv(550 * USDC - partialBasisReleased, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
+        uint256 remainingBasis = 1_000 * USDC - partialBasisReleased;
+        uint256 finalFee = Math.mulDiv(660 * USDC - remainingBasis, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         _claim(wallet, address(erc4626Vault), rewardShares);
 
         _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
-        assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 9_545_454);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBefore, partialFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 545_454_546);
 
         _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 600 * USDC));
-        assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 20_999_999);
+        assertEq(usdc.balanceOf(feeCollector) - collectorBefore, partialFee + finalFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
-        assertEq(usdc.balanceOf(address(wallet)), 1_189_000_001);
+        assertEq(usdc.balanceOf(address(wallet)), 1_210 * USDC - partialFee - finalFee);
     }
 
     function testFeeModulesRunInOrderAndCapPaymentsToFundsAvailable() public {

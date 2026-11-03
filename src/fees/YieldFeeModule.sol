@@ -76,7 +76,7 @@ contract YieldSeekerYieldFeeModule is IYieldSeekerFeeModule {
         }
         uint256 owed = feesOwed[wallet];
         if (yield > 0) {
-            uint256 fee = (yield * walletPlan(wallet).rateBps) / 1e4;
+            uint256 fee = Math.mulDiv(yield, walletPlan(wallet).rateBps, 1e4, Math.Rounding.Ceil);
             owed += fee;
             emit YieldRecorded(wallet, yield, fee);
         }

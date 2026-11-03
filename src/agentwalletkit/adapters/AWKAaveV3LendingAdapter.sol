@@ -88,9 +88,12 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return amount;
     }
 
+    /// @dev Capped at the wallet's collateral like the other lending adapters (Aave reverts above the balance unless
+    ///      asked for everything)
     function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
-        return pool.withdraw({asset: collateralAsset, amount: amount, to: address(this)});
+        uint256 requested = amount >= _collateralOf(market) ? type(uint256).max : amount;
+        return pool.withdraw({asset: collateralAsset, amount: requested, to: address(this)});
     }
 
     function _borrow(bytes memory market, uint256 amount) internal virtual override returns (uint256) {

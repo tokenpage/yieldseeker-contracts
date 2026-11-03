@@ -40,10 +40,10 @@ This system enforces **parameter-level validation** through protocol-specific ad
 ```
 
 **Key Security Properties:**
-1. **Adapter Validation**: Every adapter function validates that outputs go to `address(this)` (the wallet)
+1. **Adapter Validation**: Adapters constrain outputs to the wallet, except linked-agent transfers which can send accounted assets only to another linked wallet of the same owner
 2. **Target Whitelist**: Adapters can only interact with registered targets (vaults, pools, etc.)
-3. **No Arbitrary Calls**: The `execute()` function is disabled - all operations must go through adapters
-4. **Server Cannot Steal**: Even if the server is compromised, it can only call adapter functions that return assets to the wallet
+3. **No Arbitrary Calls**: The `execute()` function is disabled - all DeFi protocol interactions must go through adapters
+4. **Server Cannot Steal**: Even if compromised, the server cannot send assets to arbitrary external addresses; linked-agent transfers are restricted to the owner's linked wallets
 
 ### Emergency Controls and Stale Cache Mitigation
 
@@ -79,14 +79,14 @@ Without the registry pause, unsynchronized wallets remain able to accept the rev
 - **Immutability**: All registered adapters MUST be immutable. They should not have upgradeability patterns (like `UUPS` or `TransparentProxy`) unless the proxy admin is the same as the `AdapterRegistry` admin.
 - **No Self-Destruct**: Adapters MUST NOT contain the `selfdestruct` opcode.
 - **Validation**: Adapters MUST follow the "Peek and Verify" pattern, taking the `target` address as their first argument to allow the `AgentWallet` to validate the call against the `AdapterRegistry`.
-- **Stateless Design**: Adapters are designed to be **stateless code libraries** that execute via `delegatecall`. They should NEVER hold funds (ETH or tokens). All assets remain in the AgentWallet during adapter execution.
+- **Stateless Design**: Adapters are **stateless code libraries** executed via `delegatecall` and should not hold funds themselves. Assets are controlled by the wallet; protocol interactions may move them temporarily, and linked-agent transfers may move accounted assets to another linked wallet of the same owner.
 
 ### Adapter Fund Handling
 Since adapters execute via `delegatecall` in the wallet's context:
 - All `approve()` calls are made FROM the wallet
 - All `deposit()` calls send funds FROM the wallet
 - All shares/receipts are minted TO the wallet (`address(this)` inside adapter = wallet address)
-- Adapters cannot redirect funds to other addresses
+- Adapter interactions return assets to the wallet; the linked-agent adapter can transfer accounted assets only to another linked wallet of the same owner
 
 ### Technical Stack
 - **Solidity Version**: `0.8.28`
@@ -97,23 +97,23 @@ Since adapters execute via `delegatecall` in the wallet's context:
 
 ## Fee Model
 
-Adapters never decide fees. After every action they report what the wallet did (a deposit, a withdrawal, a swap, a claim, a debt change) to the fee tracker, which passes it to every fee module, and each module decides what that costs and pays what it is owed from the wallet's base asset, in the same transaction. Before any value leaves the wallet (an owner withdrawal, a transfer to a linked agent) the outflow is reported first (`TRANSFER_OUT`), so every module collects what it is owed; the owner still receives exactly the amount requested.
+Adapters report actions to the fee tracker. Before a fee-aware ERC20 owner withdrawal or a transfer to a linked agent, the outflow is reported first (`TRANSFER_OUT`), so modules settle as much as possible from the wallet's base asset. A successful fixed-amount withdrawal sends exactly the requested token amount. Native ETH withdrawals are owner-only but are not fee-tracker-settled.
 
 ### Yield fee (`YIELD_FEE`, all agent types)
 
 1. **On Deposit**: the module adds the base asset deposited to the target's cost basis (a vault, or a lending market's collateral for borrow agents)
 2. **On Withdrawal**: the adapter reports what share of the wallet's position it withdrew (shares, or balance for rebasing vaults and lending collateral); the same share of the cost basis is released, and anything received above it is yield
-   - Fee = `yield * rateBps / 10000`, where `rateBps` comes from the wallet's `YIELD_FEE` plan
+   - Fee = `ceil(yield * rateBps / 10000)`; yield fees round up, where `rateBps` comes from the wallet's `YIELD_FEE` plan
    - If loss: No fee, cost basis reduced for the remaining position
 3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling a reward token (`REWARD_SALE`) is yield; other trades (`SWAP`, e.g. collateral sold for a borrowed token) are not. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
 
 ### Borrow fee (`BORROW_FEE`)
 
-A yearly fee on borrowed principal, counted in the borrowed token per market and reported by the lending adapters on every borrow, repay and collateral withdrawal. Each period is charged on the debt seen at the previous report, so after a debt change outside the adapters (a liquidation, or a repay made directly on the protocol) the server calls the lending adapter's `checkpoint(market)`, which moves no funds and reports the real debt; until then the fee keeps accruing on the old debt. When a period is charged it is converted to the base asset (the collateral) with the lending market's own price (Aave's oracle, the Morpho market's oracle, the Aave V4 spoke's oracle: the price the protocol uses for this position, so no YieldSeeker oracle is involved), and it is paid from the base asset at the first action or outflow that finds some. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet)` (base asset) plus `pendingFee(wallet, market)` (debt token, not yet charged).
+A yearly fee on borrowed principal, tracked in the borrowed token per market and accrued when lending adapters report a borrow, repay, collateral withdrawal or checkpoint. Each period is charged on `min(principal, debt at the previous report)`, so after a debt change outside the adapters (a liquidation or direct protocol repay) the server calls the lending adapter's `checkpoint(market)`, which moves no funds and reports the real debt; until then the fee keeps accruing on the old debt. When charged, the fee is converted to the base asset (the collateral) using the lending market's own price (Aave's oracle, Morpho's oracle or the Aave V4 spoke's oracle), not the YieldSeeker oracle. If a report has no price because debt was cleared outside the adapters, the module values that period at the market's last reported price. Both the fee in the borrowed token and its conversion to the base asset round up. Fees are paid from the base asset at the first reported action or outflow with available balance. Borrowed tokens can be withdrawn in full. The app shows the post-fee value by subtracting `borrowFeeModule.feesOwed(wallet)` (base asset) plus `pendingFee(wallet, market)` (borrowed token, not yet charged). For Aave V3, `withdrawCollateral(market, amount)` withdraws all when `amount >=` the current collateral balance.
 
 ### Key Properties
 - **Loss Protection**: If a withdrawal results in a loss, the cost basis for the remaining position is reduced, and no fees are accrued.
-- **Fees are settled before funds leave**: any reported action or outflow pays the fees owed from the base asset. `withdrawableBalance(asset)` on the wallet is the amount the owner can take out now (the base asset net of `feesOwedInBaseAsset`); "withdraw all" sends the rest after fees, a fixed amount is sent exactly. Settlement at an owner withdrawal is gas-limited and failure-tolerant, so no module or collector failure can block withdrawing what is in the wallet (the fees then stay owed and `FeeSettlementFailed` is emitted). Adapter actions are not isolated the same way: a fee module that reverts, or a collector that can't receive, blocks agent actions (including vault exits and repays) until the timelock replaces it.
+- **Fees are settled before funds leave**: fee-aware ERC20 owner withdrawals and adapter actions report outflows/actions so modules collect fees from the base asset. `withdrawableBalance(asset)` returns the base-asset balance net of `feesOwedInBaseAsset`, the full balance of a fee-tracker-accounted non-base token, or zero for an unaccounted token. A fixed ERC20 amount is sent exactly if the withdrawal succeeds; `withdrawAllAssetToUser` sends the remaining balance after successful fee settlement. Owner ERC20 withdrawal settlement is gas-limited and failure-tolerant, so a module or collector failure does not block the withdrawal; fees remain owed and `FeeSettlementFailed` is emitted. Adapter actions are not isolated the same way: a reverting fee module or a collector that cannot receive blocks agent actions (including vault exits and repays) until the issue is fixed. Native ETH withdrawals are not fee-settled.
 - **Non-Custodial**: Fees are only paid from the wallet's balance; the platform never has direct custody of user funds beyond the earned fees.
 
 ---
@@ -173,14 +173,12 @@ sequenceDiagram
 
 ### Core Contracts
 
-#### AgentWallet (`src/AgentWallet.sol`)
+#### YieldSeekerAgentWalletV3 (`src/AgentWalletV3.sol`; factory alias `AgentWallet`)
 
 The user's smart wallet that holds funds and executes validated operations.
 
-**Inheritance Chain:**
-```
-BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
-```
+**Inheritance:**
+`YieldSeekerAgentWalletV3` extends `AWKAgentWalletV3` and `IAgentWallet`; `AWKAgentWalletV3` implements `IAWKAgentWallet` and inherits `BaseAccount` (ERC-4337), `Initializable`, `UUPSUpgradeable` and `ReentrancyGuardTransient`.
 
 **Storage (ERC-7201 Namespaced):**
 | Field | Type | Description |
@@ -198,14 +196,14 @@ BaseAccount (ERC-4337) → Initializable → UUPSUpgradeable
 
 **Events:**
 ```solidity
-event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker);
+event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTracker, address indexed swapPolicy);
 ```
 
 **Key Functions:**
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `initialize(owner, index, asset)` | Factory only | Sets up wallet and syncs config from Factory |
+| `initialize(owner, index, asset, agentProfile)` | Public initializer (factory creation flow) | Factory calls it atomically during `createAgentWallet` to initialize and sync config |
 | `executeViaAdapter(adapter, target, data)` | Executors | Execute via registered adapter (DELEGATECALL) |
 | `executeViaAdapterBatch(adapters[], targets[], datas[])` | Executors | Execute multiple adapter calls in a batch |
 | `validateUserOp(userOp, hash, funds)` | EntryPoint | ERC-4337 signature validation (owner OR operator) |
@@ -213,40 +211,43 @@ event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTrac
 | `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
 | `blockTarget(target)` | Owner only | Block a target from being used by this wallet |
 | `unblockTarget(target)` | Owner only | Unblock a previously blocked target |
-| `syncFromFactory()` | Anyone | Refresh cached config from Factory |
-| `withdrawToken(token, to, amount)` | Owner only | Withdraw any ERC20 token |
-| `withdrawETH(to, amount)` | Owner only | Withdraw ETH |
-| `upgradeToAndCall(newImpl, data)` | Owner only | UUPS upgrade (validates against Factory) |
+| `syncFromFactory()` | Owner, cached operators or EntryPoint | Refresh cached config from Factory |
+| `withdrawAssetToUser(recipient, asset, amount)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
+| `withdrawAllAssetToUser(recipient, asset)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
+| `withdrawEthToUser(recipient, amount)` | Owner only | Withdraw ETH (not fee-settled) |
+| `withdrawAllEthToUser(recipient)` | Owner only | Withdraw all ETH (not fee-settled) |
+| `upgradeToLatest()` | Owner only | Upgrade to the Factory's current implementation and sync Factory config |
+| `upgradeToAndCall(newImpl, data)` | Owner only | UUPS upgrade; target must be the Factory's current implementation |
 
 **Upgrade Restrictions:**
-The wallet enforces that upgrades can only use implementations approved by the Factory:
-- User calls `upgradeToAndCall(newImplementation, data)`
-- Wallet checks: `factory.isApprovedImplementation(newImplementation)` must be true
-- This prevents users from upgrading to malicious implementations
-- Factory admin controls which implementations are approved
+Wallet implementation upgrades require the owner; the Factory cannot upgrade a deployed wallet:
+- The owner can call `upgradeToLatest()`, which selects `factory.agentWalletImplementation()` and then syncs Factory configuration
+- UUPS validates that an upgrade target equals the Factory's current `agentWalletImplementation()`
+- The Factory admin selects that implementation for new wallets and for owners' later upgrades; wallets do not upgrade automatically
 
 **User Exit Rights:**
-Despite Factory-controlled upgrades, users maintain sovereignty:
-- **Withdrawal**: Owner can always call `withdrawToken()` and `withdrawETH()` to exit completely
-- **Block Adapters**: Owner can block any adapter/target they don't trust
-- **Exit Right**: During the timelock period, owners can withdraw all funds if they reject the upgrade
+Owners control implementation upgrades and can directly withdraw the base asset, fee-tracker-accounted ERC20 tokens and native ETH. Vault shares, aTokens and other position receipts must first be unwound through adapters; non-accounted ERC20 tokens cannot be owner-withdrawn.
+
+- **Withdrawal**: Owner-only token withdrawals are limited to the base asset or tokens the fee tracker accounts for; ERC20 fee settlement is attempted first, and ETH withdrawals are not fee-settled.
+- **Block Adapters**: Owner can block any adapter/target they don't trust.
+- **Factory configuration**: Registry, fee-tracker and swap-policy changes reach existing wallets on their next `syncFromFactory()`; owners, cached operators and EntryPoint can call it.
+- **Timelock**: Factory-admin implementation and profile-configuration updates go through the timelock; owners can decline an upgrade, while position exits still require an active adapter.
 
 This design ensures:
-- Users maintain complete sovereignty over their wallets
-- No third party can force upgrades (aligns with "verify, don't trust")
-- Security through factory approval and timelock notice period
-- Users can choose to upgrade, wait, or exit entirely
+- No third party can force an implementation upgrade; only the owner can upgrade to the Factory's current implementation
+- Factory configuration can affect existing wallets when they sync, and registry contents are read live
+- Owners can choose whether to upgrade; position exits still require a registered, unpaused adapter
 
 **Operator Authorization:**
 The wallet validates UserOperation signatures from either:
 1. The wallet's owner (user's EOA)
 2. Any address in the cached `agentOperators` list (synced from Factory)
 
-**Important**: The operator list is cached locally for gas efficiency. After operator changes at the Factory level, wallets must call `syncFromFactory()` to refresh their cache. See [Emergency Controls](#emergency-controls-and-stale-cache-mitigation) for details on this limitation and mitigations.
+**Important**: The operator list is cached locally for gas efficiency. After operator changes at the Factory level, an owner, cached operator or EntryPoint can call `syncFromFactory()` to refresh the wallet. See [Emergency Controls](#emergency-controls-and-stale-cache-mitigation) for details on this limitation and mitigations.
 
 ---
 
-#### AgentWalletFactory (`src/AgentWalletFactory.sol`)
+#### YieldSeekerAgentWalletFactory (`src/AgentWalletFactory.sol`)
 
 Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 
@@ -268,9 +269,9 @@ Deploys new agent wallets as ERC1967 proxies and manages global configuration.
 | `setSwapPolicy(agentProfile, newPolicy)` | Admin | Updates an agent profile's swap policy (existing wallets pick it up at sync) |
 
 **Features:**
-- **Deterministic Addresses**: Same owner + index = same address across chains (Asset-agnostic)
-- **User Sovereignty**: Factory cannot force-upgrade existing wallets
-- **ERC-4337 Compatible**: Implements `IEntryPoint.getSenderAddress()` pattern
+- **Deterministic Addresses**: Salt is `keccak256(abi.encode(owner, ownerAgentIndex))`; the address is asset-agnostic and deterministic for a given Factory address and proxy init code
+- **User Sovereignty**: The Factory cannot force-upgrade an existing wallet; only its owner can call `upgradeToLatest()`. Registry, fee-tracker and swap-policy changes can reach it at its next `syncFromFactory()`, which cached operators can call
+- **Wallet Creation**: An `AGENT_OPERATOR_ROLE` holder creates and initializes wallets through `createAgentWallet`; the EntryPoint does not deploy wallets via `initCode`
 
 ---
 
@@ -306,20 +307,20 @@ Each agent profile has its own fee tracker (`factory.feeTracker(agentProfile)`),
 
 | Contract | Role |
 |----------|------|
-| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)` (unpaid fees across modules: shown net in `withdrawableBalance`, and must be 0 after a base-asset sale), each module called with a gas limit so a failing one can't block exits |
-| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from reward sales (`REWARD_SALE`); other trades (`SWAP`) are not yield |
-| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`, converted to the base asset with the lending market's own price; fees paid from the base asset; accounts for borrowed tokens |
+| `YieldSeekerFeeTracker` | Modules (`setFeeModule` adds or replaces one), `reportAction`, plans (`createPlan`, `plan`), wallet plans (`initWalletPlans`, wallet factory only; `walletPlanId`, `walletPlan`), `walletFactory`, `feeCollector`; `isAccountedToken(wallet, token)` (the base asset, or a token a module accounts for) and `feesOwedInBaseAsset(wallet)`; module calls for these views are gas-limited and failures count as false/0, while a reverting module can revert action reporting |
+| `YieldSeekerYieldFeeModule` (`YIELD_FEE`) | Cost basis per target; charges on withdrawals above cost basis, base-asset claims and base asset received from reward sales (`REWARD_SALE`); yield fees round up; other trades (`SWAP`) are not yield |
+| `YieldSeekerBorrowFeeModule` (`BORROW_FEE`) | Debt positions per market; charges yearly on principal at every debt change or `checkpoint`, using the last reported market price if a report has none; both fee accrual and base-asset conversion round up; fees are paid from the base asset; accounts for borrowed tokens |
 
 Adding a fee type needs only a new module (`setFeeModule`, then `createPlan` for plan 0 and any others); adapters, the tracker and wallets don't change. Adding an action (for a new agent type's adapters) needs a new `FeeActions` ID and struct; deployed modules ignore actions they don't know, so only modules that should charge for it change.
 
 ### Swap policies
 
-The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: the factory holds one per agent profile (`swapPolicy(agentProfile)`, set by the timelock with `setSwapPolicy`), the wallet copies it at sync (`swapPolicy()`), and the adapter reads it from the wallet at every swap, so a policy can be replaced on its own (then `syncFromFactory` on the profile's wallets). A wallet without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). Whatever the policy, a swap that sells the base asset reverts with `FeesOwed` if fees owed are not fully paid afterwards.
+The swap adapters (Uniswap V3, Aerodrome V2/CL; one contract per DEX, registered in both V3 registries) only do the swap. The rules come from the wallet's swap policy: the factory holds one per agent profile (`swapPolicy(agentProfile)`, set by the timelock with `setSwapPolicy`), the wallet copies it at sync (`swapPolicy()`), and the adapter reads it from the wallet at every swap, so a policy can be replaced on its own (then `syncFromFactory` on the profile's wallets). A wallet without a policy can't swap (`NoSwapPolicy`). The policy checks the swap before it runs (`checkSwap`) and the result after (`checkSwapResult`, which returns the action to report: `REWARD_SALE` or `SWAP`). A reward sale cannot sell any token the wallet's adapter registry maps as a target (a position), regardless of whether `swapSellPolicy` allows it. A swap that sells the base asset reverts with `FeesOwed` if fees owed are not fully paid afterwards.
 
 | Policy | Agent profile | Rules |
 |---|---|---|
-| `YieldSeekerVaultSwapPolicy` | vault | Reward tokens in `swapSellPolicy` → base asset (`REWARD_SALE`), as on `main` |
-| `YieldSeekerBorrowSwapPolicy` | borrow | Vault rules, plus base asset → a token the wallet borrowed (the `BORROW_FEE` module's `isAccountedToken`), at most `MAX_SLIPPAGE_BPS` below `YieldSeekerPriceOracle` (`SWAP`); borrowed tokens can't be sold |
+| `YieldSeekerVaultSwapPolicy` | vault | Sellable reward tokens that are not registry targets → base asset (`REWARD_SALE`), as on `main` |
+| `YieldSeekerBorrowSwapPolicy` | borrow | Vault reward-sale rules, plus base asset → a token the wallet borrowed (the `BORROW_FEE` module's `isAccountedToken`), at most `MAX_SLIPPAGE_BPS` below `YieldSeekerPriceOracle` (`SWAP`); borrowed tokens can't be sold |
 
 ---
 
@@ -462,17 +463,17 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 
 #### AgentWallet
 
-| Action | Owner | Server | Adapter | Anyone |
-|--------|-------|--------|---------|--------|
-| `executeViaAdapter()` | ✅ | ✅ | ❌ | ❌ |
-| `withdrawToken()` | ✅ | ❌ | ❌ | ❌ |
-| `withdrawETH()` | ✅ | ❌ | ❌ | ❌ |
-| `upgradeToAndCall()` | ✅ | ❌ | ❌ | ❌ |
-| `blockAdapter()` | ✅ | ❌ | ❌ | ❌ |
-| `blockTarget()` | ✅ | ❌ | ❌ | ❌ |
-| `syncFromFactory()` | ✅ | ✅ | ✅ | ✅ |
-| `execute()` | ❌ (DISABLED) | ❌ (DISABLED) | ❌ | ❌ |
-| Receive deposits | ✅ | ✅ | ✅ | ✅ |
+| Action | Owner | Cached Operator | EntryPoint | Adapter | Anyone |
+|--------|-------|----------------|------------|---------|--------|
+| `executeViaAdapter()` | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `withdrawAssetToUser()` / `withdrawAllAssetToUser()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `withdrawEthToUser()` / `withdrawAllEthToUser()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `upgradeToLatest()` / `upgradeToAndCall()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `blockAdapter()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `blockTarget()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `syncFromFactory()` | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `execute()` | ❌ (DISABLED) | ❌ (DISABLED) | ❌ (DISABLED) | ❌ | ❌ |
+| Receive deposits | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -519,11 +520,11 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - ❌ Transfer tokens directly (no `execute()`)
 - ❌ Call unregistered adapters
 - ❌ Interact with unregistered targets
-- ❌ Withdraw to external addresses (adapters validate `recipient == wallet`)
+- ❌ Call owner-only withdrawal functions or send assets to an arbitrary external address (linked-agent transfers are limited to another linked wallet of the same owner)
 - ❌ Upgrade wallets (owner only)
 
 **Mitigation:**
-1. Emergency admin calls `AdapterRegistry.pause()` - instantly stops all operations
+1. Emergency admin calls `AdapterRegistry.pause()` - instantly stops adapter execution through that registry, but not direct owner withdrawals of assets already withdrawable from the wallet
 2. Admin removes compromised operator from Factory
 3. Users call `syncFromFactory()` to refresh their wallet's operator cache
 
@@ -543,10 +544,10 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 #### Scenario 3: User Wants to Exit
 
 **User Rights:**
-- Call `withdrawToken(USDC, userAddress, balance)` - always works
-- Call `withdrawETH(userAddress, balance)` - always works
-- No approval from server or platform needed
-- User maintains complete sovereignty
+- Owner can call `withdrawAssetToUser` / `withdrawAllAssetToUser` for the base asset or a fee-tracker-accounted token, and `withdrawEthToUser` / `withdrawAllEthToUser` for ETH
+- ERC20 withdrawals attempt fee settlement first; native ETH withdrawals are not fee-settled
+- Vault shares, aTokens and other positions must be unwound through adapters; non-accounted ERC20 tokens cannot be owner-withdrawn
+- Direct owner withdrawals need no server or platform approval; position exits require an active, unpaused registry
 
 ---
 
@@ -556,7 +557,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 
 **Actors:**
 - User (EOA that will own the wallet)
-- Anyone (can call factory)
+- Operator holding `AGENT_OPERATOR_ROLE` (creates the wallet for the user)
 
 **Pre-requisites:**
 - Factory deployed with implementation
@@ -566,33 +567,34 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 ```mermaid
 sequenceDiagram
     participant User
+    participant Operator
     participant Factory
-    participant Proxy as ERC1967Proxy
+    participant Proxy as AWKAgentWalletProxy (ERC1967Proxy)
     participant Wallet as AgentWallet
     participant Registry
 
-    User->>Factory: createAgentWallet(user, index, asset)
-    Factory->>Factory: Compute address: CREATE2(user, salt)
-    Factory->>Proxy: new ERC1967Proxy{salt}(impl, "")
-    Note over Factory, Proxy: Address depends ONLY on owner + index
-    Proxy->>Wallet: delegatecall initialize(user, index, asset)
-    Wallet->>Wallet: Set owner = user
+    Operator->>Factory: createAgentWallet(owner, index, asset, agentProfile, feePlans)
+    Factory->>Factory: salt = keccak256(abi.encode(owner, ownerAgentIndex))
+    Factory->>Proxy: new AWKAgentWalletProxy{salt: salt}()
+    Note over Factory, Proxy: CREATE2 address also depends on factory address + proxy init code, not the asset
+    Proxy->>Wallet: delegatecall initialize(owner, index, asset, agentProfile)
+    Wallet->>Wallet: Set owner = owner
     Wallet->>Wallet: Set baseAsset = asset
     Wallet->>Wallet: Set adapterRegistry = registry
     Wallet-->>Proxy: ✓
     Proxy-->>Factory: proxy address
-    Factory-->>User: walletAddress
-```
+    Factory-->>Operator: walletAddress
+    Operator-->>User: walletAddress
 
 **Result:**
-- New wallet deployed at deterministic address (Asset-agnostic)
-- User is owner (can withdraw, upgrade)
+- New wallet deployed at an asset-agnostic deterministic address for that Factory and proxy init code
+- User is owner (can withdraw supported assets and authorize upgrades)
 - Wallet ready to receive deposits
 - Server can sign UserOperations for this wallet (no configuration needed)
 
 **Code Example:**
 ```solidity
-// Anyone with AGENT_OPERATOR_ROLE can create wallet for user
+// An AGENT_OPERATOR_ROLE holder creates wallet for user
 address walletAddr = factory.createAgentWallet(
     userAddress,             // Owner
     0,                       // Index
@@ -656,9 +658,9 @@ sequenceDiagram
 ```
 
 **Security Properties:**
-- Server cannot transfer tokens directly out of wallet
-- User retains full control and can withdraw at any time
-- Single server key manages all wallets (no per-wallet configuration)
+- Server cannot withdraw directly to an arbitrary external address; the linked-agent adapter can transfer accounted assets only to another linked wallet of the same owner
+- User retains ownership: base-asset and fee-tracker-accounted balances can be withdrawn directly; vault shares and other positions must be unwound through an active adapter
+- A single server key can manage all wallets, without per-wallet operator configuration
 
 ---
 
@@ -673,9 +675,9 @@ sequenceDiagram
 **Option A: Direct Token Withdrawal**
 ```solidity
 // User withdraws USDC directly from wallet
-AgentWallet(walletAddress).withdrawToken(
-    USDC,           // token
-    userAddress,    // to
+AgentWallet(walletAddress).withdrawAssetToUser(
+    userAddress,    // recipient
+    USDC,           // base asset
     1000e6          // amount
 );
 ```
@@ -712,10 +714,10 @@ sequenceDiagram
     Wallet->>User: Transfer exactly `amount` USDC
 ```
 
-**Security Properties:**
-- Only the owner can call `withdrawToken()` and `withdrawETH()`
-- No server or platform approval needed
-- User can exit at any time regardless of server status
+- Only the owner can call the ERC20 and ETH withdrawal functions
+- ERC20 withdrawals are limited to the base asset or a fee-tracker-accounted token; native ETH is not fee-settled
+- No server or platform approval is needed for direct owner withdrawals
+- Position assets must be exited through adapters, so exits depend on the corresponding registry being unpaused
 
 ---
 
@@ -790,9 +792,9 @@ sequenceDiagram
 ```
 
 **Key Properties:**
-- A single `pause()` call blocks adapter execution through the paused registry.
-- Direct owner withdrawals through `withdrawToken()` / `withdrawETH()` remain available.
-- Pausing the borrow registry also blocks adapter-based repay and collateral withdrawal until the timelock unpauses it.
+- A single `pause()` call blocks adapter execution through the paused registry, including adapter actions submitted by the owner.
+- Direct owner withdrawals of the base asset, fee-tracker-accounted tokens and ETH remain available; ERC20 withdrawals are fee-settled best-effort.
+- Pausing the borrow registry blocks owners' adapter-based repay and collateral withdrawal (and pausing a vault registry blocks position exits) until the timelock unpauses it.
 
 ---
 
@@ -872,7 +874,7 @@ Each `SetPriceSource` run prints the feed decimals, description, and latest roun
 
 ### Register borrow markets
 
-The script validates the Base protocol addresses, requires collateral and debt to differ, and requires price sources for both assets. Market bytes are ABI encodings of protocol and market parameters; `cast abi-encode` produces the `bytes` argument. It prints the raw market bytes and target so the multisig can recompute the registration target.
+The script validates the Base protocol addresses, requires collateral and debt to differ, requires price sources for both assets and rejects market bytes that are not the exact canonical ABI encoding for the selected protocol. `cast abi-encode` produces the `bytes` argument. It prints the raw market bytes and target so the multisig can recompute the registration target.
 
 Configuration rules:
 - Register at most one borrow market per `(pool or spoke, collateral)` pair (collateral is one yield-fee position per market). Aave V3 markets must use eMode 0; the YieldSeeker Aave V3 lending adapter reverts `EModeNotAllowed` otherwise.
@@ -956,18 +958,15 @@ We have comprehensive tests in `test/`:
 
 ### Upgrading a Wallet
 
-1. **Admin approves new implementation** in Factory
-2. **User initiates upgrade**:
-   ```solidity
-   wallet.upgradeToAndCall(newImplementation, "");
-   ```
-3. **Wallet validates** that `factory.isApprovedImplementation(newImpl)` is true
-4. **Upgrade executes** via UUPS pattern
+1. **Admin sets the new implementation** with `factory.setAgentWalletImplementation(newImplementation)`
+2. **Owner upgrades when ready** by calling `wallet.upgradeToLatest()`, which upgrades to the Factory's current implementation and syncs Factory configuration
+3. The UUPS authorization allows only the wallet owner and checks that the target equals `factory.agentWalletImplementation()`
+4. Upgrade executes via UUPS; the Factory cannot upgrade an existing wallet automatically
 
 ### Upgrading Factory Configuration
 
 1. Admin calls `factory.setAdapterRegistry(agentProfile, newRegistry)`, `factory.setFeeTracker(agentProfile, newTracker)` or `factory.setSwapPolicy(agentProfile, newPolicy)`
-2. This affects **NEW wallets** of that profile
+2. New wallets use the updated profile configuration; existing wallets pick up the new registry, fee tracker or swap policy on their next `syncFromFactory()`
 3. Existing wallets must call `syncFromFactory()` to get updated references (operators can call it for every wallet)
 4. A registry's contents (adapters, targets, pause) are read live, so changing them needs no sync; only replacing the registry contract itself does
 
@@ -1089,7 +1088,7 @@ This enables:
 2. **Parameter Validation** - Adapters validate targets, not just function selectors
 3. **Centralized Management** - Single server key manages all wallets
 4. **Easy Key Rotation** - Update server address once, affects all wallets
-5. **User Sovereignty** - Users can always withdraw and upgrade their wallets
+5. **User Sovereignty** - Owners control upgrades and direct withdrawals of base-asset and fee-tracker-accounted balances; position exits require an active, unpaused adapter
 6. **Gas Efficient** - ERC-4337 enables gas sponsorship
 7. **Secure** - Strict validation prevents fund theft even if server is compromised
 8. **Easier to Extend** - Just register new adapters/targets, no per-wallet updates needed
