@@ -67,7 +67,7 @@ V2 wallets keep the V2 factory, where operator removal and sync are not emergenc
 |----------|---------|
 | **ERC-4337** | Account Abstraction - gas sponsorship, UserOperations |
 | **UUPS** | Upgradeable Proxies - user-controlled wallet upgrades |
-| **ERC-7201** | Namespaced Storage - safe upgrades without storage collisions |
+| **Namespaced storage** | Fixed `keccak256` slots per namespace (not the ERC-7201 formula) - safe upgrades without storage collisions |
 
 ---
 
@@ -1094,7 +1094,7 @@ This enables:
 
 ### Gas Optimization Strategies
 1. **Batch Operations**: Use `executeViaAdapterBatch()` for multiple operations
-2. **Paymaster**: Use ERC-4337 paymaster for gas sponsorship
+2. **Paymaster**: Use ERC-4337 paymaster for gas sponsorship. A UserOperation without a paymaster is prepaid from the wallet's ETH, and the unused part stays in the wallet's EntryPoint deposit. The wallet deliberately has no function to withdraw that deposit (so ETH the platform might ever deposit for a wallet can't be taken by its owner), so always sponsor through the paymaster. Owners never need UserOperations: they call the wallet directly.
 3. **Off-peak Timing**: Execute during low gas periods
 
 ---
