@@ -43,7 +43,8 @@ struct FeePlanChoice {
  *      A plan is the module's plan struct (its rates), ABI-encoded and validated by the module. Plans are numbered
  *      per fee type from 0 and never change once created; a replacement module must accept every existing plan, and
  *      can add new ones. The wallet factory sets a wallet's plans when it creates the wallet, and they never change
- *      either: moving to another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0.
+ *      either: moving to another plan means moving to a new wallet. Fee types without a plan for a wallet use plan 0,
+ *      so a fee type given its first plan later applies that plan to every existing wallet.
  *      The admin (timelock) sets modules, creates plans and sets the wallet factory and the fee collector.
  *      Replacing a module drops the fee state the old one holds for wallets unless the new one imports it.
  */
