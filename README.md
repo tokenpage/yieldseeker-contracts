@@ -40,10 +40,10 @@ This system enforces **parameter-level validation** through protocol-specific ad
 ```
 
 **Key Security Properties:**
-1. **Adapter Validation**: Adapters constrain outputs to the wallet, except linked-agent transfers which can send accounted assets only to another linked wallet of the same owner
+1. **Adapter Validation**: Adapters constrain outputs to the wallet, except agent transfers, which can send accounted assets only to another agent wallet of the same owner
 2. **Target Whitelist**: Adapters can only interact with registered targets (vaults, pools, etc.)
 3. **No Arbitrary Calls**: The `execute()` function is disabled - all DeFi protocol interactions must go through adapters
-4. **Server Cannot Steal**: Even if compromised, the server cannot send assets to arbitrary external addresses; linked-agent transfers are restricted to the owner's linked wallets
+4. **Server Cannot Steal**: Even if compromised, the server cannot send assets to arbitrary external addresses; agent transfers are restricted to the owner's other agent wallets from the same factory
 
 ### Emergency Controls and Stale Cache Mitigation
 
@@ -81,14 +81,14 @@ V2 wallets keep the V2 factory, where operator removal and sync are not emergenc
 - **Immutability**: All registered adapters MUST be immutable. They should not have upgradeability patterns (like `UUPS` or `TransparentProxy`) unless the proxy admin is the same as the `AdapterRegistry` admin.
 - **No Self-Destruct**: Adapters MUST NOT contain the `selfdestruct` opcode.
 - **Validation**: Adapters MUST follow the "Peek and Verify" pattern, taking the `target` address as their first argument to allow the `AgentWallet` to validate the call against the `AdapterRegistry`.
-- **Stateless Design**: Adapters are **stateless code libraries** executed via `delegatecall` and should not hold funds themselves. Assets are controlled by the wallet; protocol interactions may move them temporarily, and linked-agent transfers may move accounted assets to another linked wallet of the same owner.
+- **Stateless Design**: Adapters are **stateless code libraries** executed via `delegatecall` and should not hold funds themselves. Assets are controlled by the wallet; protocol interactions may move them temporarily, and agent transfers may move accounted assets to another agent wallet of the same owner.
 
 ### Adapter Fund Handling
 Since adapters execute via `delegatecall` in the wallet's context:
 - All `approve()` calls are made FROM the wallet
 - All `deposit()` calls send funds FROM the wallet
 - All shares/receipts are minted TO the wallet (`address(this)` inside adapter = wallet address)
-- Adapter interactions return assets to the wallet; the linked-agent adapter can transfer accounted assets only to another linked wallet of the same owner
+- Adapter interactions return assets to the wallet; the agent transfer adapter can transfer accounted assets only to another agent wallet of the same owner
 
 ### Technical Stack
 - **Solidity Version**: `0.8.28`
@@ -99,7 +99,7 @@ Since adapters execute via `delegatecall` in the wallet's context:
 
 ## Fee Model
 
-Adapters report actions to the fee tracker. Before a fee-aware ERC20 owner withdrawal or a transfer to a linked agent, the outflow is reported first (`TRANSFER_OUT`), so modules settle as much as possible from the wallet's base asset. A successful fixed-amount withdrawal sends exactly the requested token amount. Native ETH withdrawals are owner-only but are not fee-tracker-settled.
+Adapters report actions to the fee tracker. Before a fee-aware ERC20 owner withdrawal or a transfer to another agent, the outflow is reported first (`TRANSFER_OUT`), so modules settle as much as possible from the wallet's base asset. A successful fixed-amount withdrawal sends exactly the requested token amount. Native ETH withdrawals are owner-only but are not fee-tracker-settled.
 
 ### Yield fee (`YIELD_FEE`, all agent types)
 
@@ -540,7 +540,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - ❌ Transfer tokens directly (no `execute()`)
 - ❌ Call unregistered adapters
 - ❌ Interact with unregistered targets
-- ❌ Call owner-only withdrawal functions or send assets to an arbitrary external address (linked-agent transfers are limited to another linked wallet of the same owner)
+- ❌ Call owner-only withdrawal functions or send assets to an arbitrary external address (agent transfers are limited to another agent wallet of the same owner)
 - ❌ Upgrade wallets (owner only)
 
 **Mitigation:**
@@ -678,7 +678,7 @@ sequenceDiagram
 ```
 
 **Security Properties:**
-- Server cannot withdraw directly to an arbitrary external address; the linked-agent adapter can transfer accounted assets only to another linked wallet of the same owner
+- Server cannot withdraw directly to an arbitrary external address; the agent transfer adapter can transfer accounted assets only to another agent wallet of the same owner
 - User retains ownership: base-asset and fee-tracker-accounted balances can be withdrawn directly; vault shares and other positions must be unwound through an active adapter
 - A single server key can manage all wallets, without per-wallet operator configuration
 
@@ -849,7 +849,7 @@ V2 wallets keep using the V2 vault registry (`agentWalletV2AdapterRegistry`), wh
 - `RegisterVault.s.sol` always registers a vault in both registries in one timelock batch.
 - Sellable tokens live in the one `swapSellPolicy` that both swap policies read, so they can't drift.
 - An emergency `removeTarget` or `unregisterAdapter` on one registry must be repeated on the other.
-- The V3 vault registry also maps the wallet link registry to the agent transfer adapter; the V2 registry doesn't.
+- The V3 vault and borrow registries also map the agent transfer adapter to itself (its own target); the V2 registry doesn't.
 
 ### Configure vaults and sellable tokens
 

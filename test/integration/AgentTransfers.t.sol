@@ -1,12 +1,11 @@
 pragma solidity 0.8.28;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {SameWallet} from "../../src/WalletLinkRegistry.sol";
-import {InvalidTransferTarget, NotLinkedWallet} from "../../src/adapters/AgentTransferAdapter.sol";
+import {InvalidTransferTarget, NotOwnersAgentWallet} from "../../src/adapters/AgentTransferAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 
-contract LinkedTransferSpoofWallet {
+contract AgentTransferSpoofWallet {
     address private immutable _owner;
     uint256 private immutable _index;
 
@@ -24,17 +23,16 @@ contract LinkedTransferSpoofWallet {
     }
 }
 
-contract LinkedTransfersTest is IntegrationBase {
+contract AgentTransfersTest is IntegrationBase {
     address private immutable invalidTarget = address(0xD00D);
 
-    function testOwnerLinksWalletsAndTransfersBaseAssetInBothDirections() public {
+    function testOwnersWalletsTransferBaseAssetInBothDirections() public {
         AgentWallet vaultWallet = _createVaultWallet(owner, 1);
         AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
         uint256 initialVaultBalance = 300e6;
         uint256 initialBorrowBalance = 200e6;
         _fundWallet(vaultWallet, address(usdc), initialVaultBalance);
         _fundWallet(borrowWallet, address(usdc), initialBorrowBalance);
-        _link(vaultWallet, borrowWallet);
 
         uint256 toBorrow = 80e6;
         _transfer(vaultWallet, address(usdc), address(borrowWallet), toBorrow);
@@ -47,14 +45,13 @@ contract LinkedTransfersTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(borrowWallet)), initialBorrowBalance + toBorrow - toVault);
     }
 
-    function testLinkedWalletsTransferBorrowedTokenOnlyWhenBothTrackIt() public {
+    function testOwnersWalletsTransferBorrowedTokenOnlyWhenBothTrackIt() public {
         AgentWallet first = _createBorrowWallet(owner, 1);
         AgentWallet second = _createBorrowWallet(owner, 2);
         uint256 collateral = 100e6;
         uint256 borrowed = 1e18;
         _borrowWeth(first, collateral, borrowed);
         _borrowWeth(second, collateral, borrowed);
-        _link(first, second);
 
         uint256 toSecond = 25e16;
         _transfer(first, address(weth), address(second), toSecond);
@@ -70,7 +67,6 @@ contract LinkedTransfersTest is IntegrationBase {
     function testBorrowProfileFeeSettlesFromBaseAssetBeforeCrossProfileTransfer() public {
         AgentWallet vaultWallet = _createVaultWallet(owner, 1);
         AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
-        _link(vaultWallet, borrowWallet);
         _borrowWeth(borrowWallet, 100e6, 1e18);
 
         uint256 elapsed = 365 days;
@@ -97,7 +93,6 @@ contract LinkedTransfersTest is IntegrationBase {
     function testTransferRollsBackFeeSettlementWhenAmountExceedsPostFeeBalance() public {
         AgentWallet borrowWallet = _createBorrowWallet(owner, 1);
         AgentWallet vaultWallet = _createVaultWallet(owner, 2);
-        _link(vaultWallet, borrowWallet);
         _borrowWeth(borrowWallet, 100e6, 1e18);
 
         uint256 elapsed = 365 days;
@@ -111,7 +106,7 @@ contract LinkedTransfersTest is IntegrationBase {
 
         uint256 collectorBalanceBefore = _feesCollected(address(usdc));
         bytes memory innerError = abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector);
-        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(vaultWallet), 1)), innerError);
+        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(vaultWallet), 1)), innerError);
 
         assertEq(usdc.balanceOf(address(borrowWallet)), expectedFee);
         assertEq(usdc.balanceOf(address(vaultWallet)), 0);
@@ -119,35 +114,7 @@ contract LinkedTransfersTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), expectedFee);
     }
 
-    function testLinkRegistryRequiresSameOwnerAndRejectsSameWallet() public {
-        AgentWallet vaultWallet = _createVaultWallet(owner, 1);
-        AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
-        AgentWallet otherOwnerWallet = _createVaultWallet(makeAddr("otherOwner"), 1);
-        address otherOwner = otherOwnerWallet.owner();
-
-        vm.prank(owner);
-        vm.expectRevert(SameWallet.selector);
-        walletLinkRegistry.setLinked(address(vaultWallet), address(vaultWallet), true);
-
-        bytes memory unauthorizedError = abi.encodeWithSelector(AWKErrors.Unauthorized.selector, otherOwner);
-        vm.expectRevert(unauthorizedError);
-        vm.prank(otherOwner);
-        walletLinkRegistry.setLinked(address(vaultWallet), address(borrowWallet), true);
-
-        vm.expectRevert(unauthorizedError);
-        vm.prank(otherOwner);
-        walletLinkRegistry.setLinked(address(vaultWallet), address(borrowWallet), false);
-
-        vm.prank(owner);
-        walletLinkRegistry.setLinked(address(vaultWallet), address(borrowWallet), true);
-        assertTrue(walletLinkRegistry.isLinked(address(vaultWallet), address(borrowWallet)));
-        assertTrue(walletLinkRegistry.isLinked(address(borrowWallet), address(vaultWallet)));
-        vm.prank(owner);
-        walletLinkRegistry.setLinked(address(vaultWallet), address(borrowWallet), false);
-        assertFalse(walletLinkRegistry.isLinked(address(vaultWallet), address(borrowWallet)));
-    }
-
-    function testTransferRequiresRegisteredLinkedWalletAndRegistryTarget() public {
+    function testTransferRequiresOwnersFactoryWalletAndAdapterAsTarget() public {
         AgentWallet vaultWallet = _createVaultWallet(owner, 1);
         AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
         AgentWallet otherOwnerWallet = _createVaultWallet(makeAddr("otherOwner"), 1);
@@ -156,16 +123,12 @@ contract LinkedTransfersTest is IntegrationBase {
         vaultRegistry.setTargetAdapter(invalidTarget, address(agentTransferAdapter));
         borrowRegistry.setTargetAdapter(invalidTarget, address(agentTransferAdapter));
 
-        bytes memory notLinkedError = abi.encodeWithSelector(NotLinkedWallet.selector, address(borrowWallet));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), notLinkedError);
-        _link(vaultWallet, borrowWallet);
+        AgentTransferSpoofWallet spoof = new AgentTransferSpoofWallet(owner, borrowWallet.ownerAgentIndex());
+        bytes memory spoofError = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(spoof));
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(spoof), 1)), spoofError);
 
-        LinkedTransferSpoofWallet spoof = new LinkedTransferSpoofWallet(owner, borrowWallet.ownerAgentIndex());
-        bytes memory spoofError = abi.encodeWithSelector(NotLinkedWallet.selector, address(spoof));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(spoof), 1)), spoofError);
-
-        bytes memory otherOwnerError = abi.encodeWithSelector(NotLinkedWallet.selector, address(otherOwnerWallet));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(otherOwnerWallet), 1)), otherOwnerError);
+        bytes memory otherOwnerError = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(otherOwnerWallet));
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(otherOwnerWallet), 1)), otherOwnerError);
 
         bytes memory targetError = abi.encodeWithSelector(InvalidTransferTarget.selector, invalidTarget);
         _executeExpectRevert(vaultWallet, address(agentTransferAdapter), invalidTarget, abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), targetError);
@@ -175,15 +138,14 @@ contract LinkedTransfersTest is IntegrationBase {
         AgentWallet vaultWallet = _createVaultWallet(owner, 1);
         AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
         _borrowWeth(borrowWallet, 100e6, 1e18);
-        _link(vaultWallet, borrowWallet);
 
         assertTrue(borrowFeeModule.isAccountedToken(address(borrowWallet), address(weth)));
         assertFalse(vaultFeeTracker.isAccountedToken(address(vaultWallet), address(weth)));
         bytes memory invalidAssetError = abi.encodeWithSelector(InvalidAsset.selector);
-        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(weth), address(vaultWallet), 1)), invalidAssetError);
+        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(weth), address(vaultWallet), 1)), invalidAssetError);
 
         bytes memory zeroAmountError = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(walletLinkRegistry), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 0)), zeroAmountError);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 0)), zeroAmountError);
     }
 
     function _borrowWeth(AgentWallet wallet, uint256 collateral, uint256 borrowed) private {
@@ -194,13 +156,8 @@ contract LinkedTransfersTest is IntegrationBase {
         _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), borrowData);
     }
 
-    function _link(AgentWallet first, AgentWallet second) private {
-        vm.prank(owner);
-        walletLinkRegistry.setLinked(address(first), address(second), true);
-    }
-
     function _transfer(AgentWallet from, address token, address to, uint256 amount) private {
         bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (token, to, amount));
-        _execute(from, address(agentTransferAdapter), address(walletLinkRegistry), data);
+        _execute(from, address(agentTransferAdapter), address(agentTransferAdapter), data);
     }
 }

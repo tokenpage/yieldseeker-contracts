@@ -6,7 +6,6 @@ import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.so
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../src/AgentWalletV3.sol";
 import {YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOracle.sol";
-import {YieldSeekerWalletLinkRegistry as WalletLinkRegistry} from "../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../src/adapters/AaveV4LendingAdapter.sol";
@@ -77,7 +76,6 @@ contract DeployScript is Script {
         address swapSellPolicy;
         address vaultSwapPolicy;
         address borrowSwapPolicy;
-        address walletLinkRegistry;
         address vaultAdapterRegistry;
         address borrowAdapterRegistry;
         address erc4626Adapter;
@@ -229,7 +227,6 @@ contract DeployScript is Script {
             swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
             vaultSwapPolicy: safeReadAddress(deployJson, ".vaultSwapPolicy"),
             borrowSwapPolicy: safeReadAddress(deployJson, ".borrowSwapPolicy"),
-            walletLinkRegistry: safeReadAddress(deployJson, ".walletLinkRegistry"),
             vaultAdapterRegistry: safeReadAddress(deployJson, ".vaultAdapterRegistry"),
             borrowAdapterRegistry: safeReadAddress(deployJson, ".borrowAdapterRegistry"),
             erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
@@ -361,13 +358,6 @@ contract DeployScript is Script {
             console2.log("-> Using existing borrowSwapPolicy:", deployments.borrowSwapPolicy);
         }
 
-        if (deployments.walletLinkRegistry == address(0)) {
-            deployments.walletLinkRegistry = deployCreate2(type(WalletLinkRegistry).creationCode);
-            console2.log("-> WalletLinkRegistry deployed at:", deployments.walletLinkRegistry);
-        } else {
-            console2.log("-> Using existing walletLinkRegistry:", deployments.walletLinkRegistry);
-        }
-
         // Vault adapters
         if (deployments.erc4626Adapter == address(0)) {
             deployments.erc4626Adapter = deployCreate2(abi.encodePacked(type(ERC4626Adapter).creationCode));
@@ -456,8 +446,8 @@ contract DeployScript is Script {
             console2.log("-> Using existing morphoBlueLendingAdapter:", deployments.morphoBlueLendingAdapter);
         }
 
-        if (deployments.agentTransferAdapter == address(0) || address(AgentTransferAdapter(deployments.agentTransferAdapter).LINK_REGISTRY()) != deployments.walletLinkRegistry) {
-            deployments.agentTransferAdapter = deployCreate2(abi.encodePacked(type(AgentTransferAdapter).creationCode, abi.encode(deployments.walletLinkRegistry)));
+        if (deployments.agentTransferAdapter == address(0)) {
+            deployments.agentTransferAdapter = deployCreate2(type(AgentTransferAdapter).creationCode);
             console2.log("-> AgentTransferAdapter deployed at:", deployments.agentTransferAdapter);
         } else {
             console2.log("-> Using existing agentTransferAdapter:", deployments.agentTransferAdapter);
@@ -481,7 +471,6 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "swapSellPolicy", deployments.swapSellPolicy);
         vm.serializeAddress(json, "vaultSwapPolicy", deployments.vaultSwapPolicy);
         vm.serializeAddress(json, "borrowSwapPolicy", deployments.borrowSwapPolicy);
-        vm.serializeAddress(json, "walletLinkRegistry", deployments.walletLinkRegistry);
         vm.serializeAddress(json, "vaultAdapterRegistry", deployments.vaultAdapterRegistry);
         vm.serializeAddress(json, "borrowAdapterRegistry", deployments.borrowAdapterRegistry);
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
@@ -569,15 +558,15 @@ contract DeployScript is Script {
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeV2SwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeClSwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.agentTransferAdapter);
-        // 3. Set Vault Registry Targets: every V2 vault registry target, plus wallet links
+        // 3. Set Vault Registry Targets: every V2 vault registry target, plus agent transfers
         _copyV2VaultTargets(deployJson, vaultAdapterRegistry, deployments);
-        _setTarget(vaultAdapterRegistry, deployments.walletLinkRegistry, deployments.agentTransferAdapter);
+        _setTarget(vaultAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
         // 4. Set Borrow Registry Targets
         _setTarget(borrowAdapterRegistry, uniswapV3Router, deployments.uniswapV3SwapAdapter);
         _setTarget(borrowAdapterRegistry, aerodromeV2Router, deployments.aerodromeV2SwapAdapter);
         _setTarget(borrowAdapterRegistry, aerodromeClRouter, deployments.aerodromeClSwapAdapter);
         _setTarget(borrowAdapterRegistry, MERKL_DISTRIBUTOR, deployments.merklAdapter);
-        _setTarget(borrowAdapterRegistry, deployments.walletLinkRegistry, deployments.agentTransferAdapter);
+        _setTarget(borrowAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
         // 5. Set Agent Operator
         if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
             console2.log("-> Preparing AGENT_OPERATOR_ROLE grant for server:", serverAddress);

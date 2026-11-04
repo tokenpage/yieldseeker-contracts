@@ -4,7 +4,6 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
-import {YieldSeekerWalletLinkRegistry as WalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../../src/adapters/AaveV4LendingAdapter.sol";
@@ -87,7 +86,6 @@ abstract contract IntegrationBase is Test {
     MockERC20WithDecimals public wellToken;
     MockERC4626 public erc4626Vault;
     MockAaveV3Pool public aaveV3VaultPool;
-    WalletLinkRegistry public walletLinkRegistry;
     MockAToken public aaveV3Vault;
     MockCToken public compoundV2Vault;
     MockCompoundV3Comet public compoundV3Market;
@@ -210,8 +208,7 @@ abstract contract IntegrationBase is Test {
         uniswapV3SwapAdapter = new UniswapV3SwapAdapter(address(uniswapV3Router));
         aerodromeV2SwapAdapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
         aerodromeCLSwapAdapter = new AerodromeCLSwapAdapter(address(aerodromeCLRouter));
-        walletLinkRegistry = new WalletLinkRegistry();
-        agentTransferAdapter = new AgentTransferAdapter(walletLinkRegistry);
+        agentTransferAdapter = new AgentTransferAdapter();
         aaveV3LendingAdapter = new AaveV3LendingAdapter();
         aaveV4LendingAdapter = new AaveV4LendingAdapter();
         morphoBlueLendingAdapter = new MorphoBlueLendingAdapter();
@@ -225,7 +222,7 @@ abstract contract IntegrationBase is Test {
         _registerTarget(vaultRegistry, address(uniswapV3Router), address(uniswapV3SwapAdapter));
         _registerTarget(vaultRegistry, address(aerodromeV2Router), address(aerodromeV2SwapAdapter));
         _registerTarget(vaultRegistry, address(aerodromeCLRouter), address(aerodromeCLSwapAdapter));
-        _registerTarget(vaultRegistry, address(walletLinkRegistry), address(agentTransferAdapter));
+        _registerTarget(vaultRegistry, address(agentTransferAdapter), address(agentTransferAdapter));
 
         aaveV3Market = abi.encode(address(aaveV3LendingPool), address(usdc), address(weth), uint8(0));
         aaveV4Market = abi.encode(address(aaveV4Spoke), uint256(1), uint256(2));
@@ -238,7 +235,7 @@ abstract contract IntegrationBase is Test {
         _registerTarget(borrowRegistry, address(uniswapV3Router), address(uniswapV3SwapAdapter));
         _registerTarget(borrowRegistry, address(aerodromeV2Router), address(aerodromeV2SwapAdapter));
         _registerTarget(borrowRegistry, address(aerodromeCLRouter), address(aerodromeCLSwapAdapter));
-        _registerTarget(borrowRegistry, address(walletLinkRegistry), address(agentTransferAdapter));
+        _registerTarget(borrowRegistry, address(agentTransferAdapter), address(agentTransferAdapter));
 
         _fund(address(usdc), address(merklDistributor), 1_000_000e6);
         _fund(address(rewardToken), address(merklDistributor), 1_000_000e18);

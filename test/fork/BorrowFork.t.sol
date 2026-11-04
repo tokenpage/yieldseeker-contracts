@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
-import {YieldSeekerWalletLinkRegistry} from "../../src/WalletLinkRegistry.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerMorphoBlueLendingAdapter} from "../../src/adapters/MorphoBlueLendingAdapter.sol";
@@ -47,7 +46,6 @@ contract BorrowForkTest is ForkBase {
     FeeTracker internal feeTracker;
     YieldSeekerBorrowFeeModule internal borrowFeeModule;
     YieldSeekerPriceOracle internal oracle;
-    YieldSeekerWalletLinkRegistry internal linkRegistry;
     YieldSeekerAaveV3LendingAdapter internal aaveAdapter;
     YieldSeekerMorphoBlueLendingAdapter internal morphoAdapter;
     YieldSeekerUniswapV3SwapAdapter internal swapAdapter;
@@ -75,13 +73,12 @@ contract BorrowForkTest is ForkBase {
         YieldSeekerSwapSellPolicy rewardSellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
         factory.setSwapPolicy(BORROW_AGENT_PROFILE, new YieldSeekerBorrowSwapPolicy(rewardSellPolicy, oracle, 100));
         swapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
-        linkRegistry = new YieldSeekerWalletLinkRegistry();
-        transferAdapter = new YieldSeekerAgentTransferAdapter(linkRegistry);
+        transferAdapter = new YieldSeekerAgentTransferAdapter();
         _register(borrowRegistry, address(aaveAdapter), aaveAdapter.marketTarget(_aaveMarket()));
         _register(borrowRegistry, address(morphoAdapter), morphoAdapter.marketTarget(_morphoMarket()));
         _register(borrowRegistry, address(swapAdapter), UNISWAP_V3_ROUTER);
-        _register(borrowRegistry, address(transferAdapter), address(linkRegistry));
-        _register(vaultRegistry, address(transferAdapter), address(linkRegistry));
+        _register(borrowRegistry, address(transferAdapter), address(transferAdapter));
+        _register(vaultRegistry, address(transferAdapter), address(transferAdapter));
         vm.prank(operator);
         wallet = factory.createAgentWallet(owner, 0, WETH, BORROW_AGENT_PROFILE, new FeePlanChoice[](0));
         deal(WETH, address(wallet), 1 ether);
@@ -318,16 +315,14 @@ contract BorrowForkTest is ForkBase {
         assertLe(IERC20(USDC).balanceOf(address(wallet)), 1, "at most Aave's 1-unit rounding is left over");
     }
 
-    function test_Transfer_MovesBorrowedCashToLinkedVaultAgent() public {
+    function test_Transfer_MovesBorrowedCashToOwnersVaultAgent() public {
         vm.prank(operator);
         AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 500e6));
-        vm.prank(owner);
-        linkRegistry.setLinked(address(wallet), address(vaultWallet), true);
-        _execute(address(transferAdapter), address(linkRegistry), abi.encodeWithSelector(transferAdapter.transfer.selector, USDC, address(vaultWallet), 500e6));
+        _execute(address(transferAdapter), address(transferAdapter), abi.encodeWithSelector(transferAdapter.transfer.selector, USDC, address(vaultWallet), 500e6));
         assertEq(IERC20(USDC).balanceOf(address(vaultWallet)), 500e6, "vault agent received the borrowed cash");
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 0, "borrow agent sent it all");
     }
