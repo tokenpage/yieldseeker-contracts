@@ -693,6 +693,7 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(_wallet)), 900e6);
         assertEq(vaultYieldFeeModule.costBasis(address(_wallet), address(erc4626Vault)), 100e6);
         assertEq(MockAgentWalletV3(payable(address(_wallet))).version(), 3);
+        assertEq(MockAgentWalletV3(payable(address(_wallet))).newImplementationSyncs(), 1);
         vm.prank(_walletOwner);
         _wallet.unblockAdapter(address(erc4626Adapter));
         _fund(address(usdc), address(erc4626Vault), 10e6);

@@ -8,6 +8,7 @@ contract MockAgentWalletV3 is YieldSeekerAgentWalletV3 {
         uint256 v3Counter;
         string v3Message;
         address v3CustomAddress;
+        uint256 newImplementationSyncs;
     }
 
     bytes32 private constant AGENT_WALLET_V3_STORAGE_LOCATION = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd00;
@@ -57,5 +58,14 @@ contract MockAgentWalletV3 is YieldSeekerAgentWalletV3 {
 
     function version() external pure returns (uint256) {
         return 3;
+    }
+
+    function _syncFromFactory() internal override {
+        super._syncFromFactory();
+        _getV3Storage().newImplementationSyncs++;
+    }
+
+    function newImplementationSyncs() external view returns (uint256) {
+        return _getV3Storage().newImplementationSyncs;
     }
 }

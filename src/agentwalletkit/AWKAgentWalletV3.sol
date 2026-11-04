@@ -396,10 +396,10 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /**
      * @notice Upgrade to latest approved implementation from factory and sync registry
+     * @dev The sync runs through the upgrade's call, so it is the new implementation's sync
      */
     function upgradeToLatest() external virtual onlyOwner {
-        upgradeToAndCall(FACTORY.agentWalletImplementation(), "");
-        _syncFromFactory();
+        upgradeToAndCall(FACTORY.agentWalletImplementation(), abi.encodeCall(this.syncFromFactory, ()));
     }
 
     /**

@@ -28,6 +28,7 @@
 - Vault adapters measure every amount from balances: ERC4626 and Aave V3 withdrawals report the base asset actually received (not `redeem` / `withdraw` return values), like Compound V2 and V3. The Comet adapter resets its approval after `supply`, since Comet reads `type(uint256).max` as "supply my borrow balance" and `deposit(max)` used to leave an unlimited approval.
 - Merkl: the adapter's `claim` drops the `users` argument and becomes `claim(tokens, amounts, proofs)`; the adapter claims for the wallet itself (one `users` entry per token, all the wallet). The backend must encode the 3-argument call for V3 wallets; V2 wallets keep the V2 Merkl adapter and its 4-argument call.
 - Owner-signed UserOperations also accept a contract owner's ERC-1271 approval (`isValidSignature`, read-only), so an integrator can sponsor withdrawals for users whose owner is a Safe or smart wallet. ECDSA is checked first, so EOAs (including EIP-7702 ones) are unchanged; operator signatures stay ECDSA-only and limited to adapter execution.
+- `upgradeToLatest` syncs through the upgrade call (`upgradeToAndCall(impl, syncFromFactory())`), so the **new** implementation's sync runs; previously the old code's sync ran after the switch, so fields a new version syncs stayed unset until the next sync.
 
 ### Agent wallet V2
 
