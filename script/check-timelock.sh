@@ -24,13 +24,20 @@ echo "Timelock: $TIMELOCK"
 echo "================================================="
 echo ""
 
-# 1. Get all CallScheduled events in one archive call
+# 1. Get all CallScheduled and CallSalt events in two archive calls; execute calls are rebuilt from them, so an
+#    operation can be executed whoever proposed it (the deployer directly or the Safe through execTransaction)
 LOGS=$(cast logs \
   --rpc-url "$ARCHIVE_RPC" \
   --address "$TIMELOCK" \
   --from-block 0 \
   --json \
   "CallScheduled(bytes32 indexed id, uint256 indexed index, address target, uint256 value, bytes data, bytes32 predecessor, uint256 delay)")
+SALT_LOGS=$(cast logs \
+  --rpc-url "$ARCHIVE_RPC" \
+  --address "$TIMELOCK" \
+  --from-block 0 \
+  --json \
+  "CallSalt(bytes32 indexed id, bytes32 salt)")
 
 TOTAL=$(echo "$LOGS" | jq 'length')
 OPS=$(echo "$LOGS" | jq -r '[.[] | {id: .topics[1], tx: .transactionHash, block: .blockNumber}] | unique_by(.id) | .[] | "\(.id) \(.tx) \(.block)"')
@@ -50,7 +57,7 @@ while IFS=' ' read -r OP_ID TX_HASH BLOCK_NUM; do
   (
     TX_JSON=$(cast tx --rpc-url "$ARCHIVE_RPC" --json "$TX_HASH" 2>/dev/null | jq -c '.data // .')
     echo "$TX_JSON" | jq -r '.from // "unknown"' > "$WORK/$OP_ID.from"
-    echo "$TX_JSON" | jq -r '.input // ""'        > "$WORK/$OP_ID.input"
+    echo "$TX_JSON" | jq -r '.to // ""'          > "$WORK/$OP_ID.to"
   ) &
 
   (
@@ -83,16 +90,20 @@ BUNDLED_IDS=" "
 while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
   TS=$(cat "$WORK/$OP_ID.ts" 2>/dev/null | awk '{print $1}' || echo "0")
   FROM=$(cat "$WORK/$OP_ID.from" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
-  INPUT=$(cat "$WORK/$OP_ID.input" 2>/dev/null | tr -d '[:space:]' || echo "")
+  TO=$(cat "$WORK/$OP_ID.to" 2>/dev/null | tr -d '[:space:]' || echo "")
   PROPOSED_DATE=$(date -r "$PROPOSED" "+%Y-%m-%d %H:%M %Z" 2>/dev/null || echo "?")
 
   # Resolve proposer label
   FROM_L=$(echo "$FROM" | tr '[:upper:]' '[:lower:]')
+  TO_L=$(echo "$TO" | tr '[:upper:]' '[:lower:]')
+  SAFE_L=$(echo "$SAFE" | tr '[:upper:]' '[:lower:]')
   OLD_L=$(echo "$OLD_DEPLOYER" | tr '[:upper:]' '[:lower:]')
   NEW_L=$(echo "$NEW_DEPLOYER" | tr '[:upper:]' '[:lower:]')
   UNKNOWN_PROPOSER=false
 
-  if [ -z "$OLD_DEPLOYER" ] && [ -z "$NEW_DEPLOYER" ]; then
+  if [ "$TO_L" = "$SAFE_L" ]; then
+    PROPOSER_LABEL="Safe"
+  elif [ -z "$OLD_DEPLOYER" ] && [ -z "$NEW_DEPLOYER" ]; then
     PROPOSER_LABEL="$FROM"
   elif [ -n "$OLD_DEPLOYER" ] && [ "$FROM_L" = "$OLD_L" ]; then
     PROPOSER_LABEL="DEPLOYER_ADDRESS_OLD1"
@@ -135,8 +146,9 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
       echo ""
       echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
       echo "  !! ⚠️  WARNING: OPERATION FROM UNKNOWN PROPOSER      !!"
-      echo "  !!   from:     $FROM"
-      [ -n "$OLD_DEPLOYER" ] && echo "  !!   expected: $OLD_DEPLOYER (DEPLOYER_ADDRESS_OLD1)"
+      echo "  !!   from:     $FROM (to $TO)"
+      echo "  !!   expected: the Safe $SAFE"
+      [ -n "$OLD_DEPLOYER" ] && echo "  !!          or $OLD_DEPLOYER (DEPLOYER_ADDRESS_OLD1)"
       [ -n "$NEW_DEPLOYER" ] && echo "  !!          or $NEW_DEPLOYER (DEPLOYER_ADDRESS)"
       echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
       echo ""
@@ -146,57 +158,32 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
     TX_FILE="$WORK/tx-$(printf '%05d' "$READY_COUNT").json"
 
-    if [[ "$INPUT" == 0x8f2a0bb0* ]]; then
-      DECODED=$(cast calldata-decode "scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
-      TARGETS=$(echo "$DECODED" | sed -n '1p')
-      VALUES=$(echo "$DECODED" | sed -n '2p')
-      PAYLOADS=$(echo "$DECODED" | sed -n '3p')
+    CALLS=$(echo "$LOGS" | jq -r --arg id "$OP_ID" '[.[] | select(.topics[1] == $id)] | unique_by(.topics[2]) | sort_by(.topics[2]) | .[].data')
+    TARGETS=()
+    VALUES=()
+    PAYLOADS=()
+    PREDECESSOR=""
+    while read -r CALL_DATA; do
+      DECODED=$(cast abi-decode "f()(address,uint256,bytes,bytes32,uint256)" "$CALL_DATA")
+      TARGETS+=("$(echo "$DECODED" | sed -n '1p' | awk '{print $1}')")
+      VALUES+=("$(echo "$DECODED" | sed -n '2p' | awk '{print $1}')")
+      PAYLOADS+=("$(echo "$DECODED" | sed -n '3p' | awk '{print $1}')")
       PREDECESSOR=$(echo "$DECODED" | sed -n '4p' | awk '{print $1}')
-      SALT=$(echo "$DECODED" | sed -n '5p' | awk '{print $1}')
+    done <<< "$CALLS"
+    SALT=$(echo "$SALT_LOGS" | jq -r --arg id "$OP_ID" '[.[] | select(.topics[1] == $id) | .data][0] // empty')
+    SALT="${SALT:-$ZERO_HASH}"
 
+    SINGLE_ID=""
+    if [ "${#TARGETS[@]}" -eq 1 ]; then
+      SINGLE_ID=$(cast keccak "$(cast abi-encode "f(address,uint256,bytes,bytes32,bytes32)" "${TARGETS[0]}" "${VALUES[0]}" "${PAYLOADS[0]}" "$PREDECESSOR" "$SALT")")
+    fi
+
+    if [ "$SINGLE_ID" = "$OP_ID" ]; then
       jq -n \
         --arg to "$TIMELOCK" \
-        --arg targets "$TARGETS" \
-        --arg values "$VALUES" \
-        --arg payloads "$PAYLOADS" \
-        --arg predecessor "$PREDECESSOR" \
-        --arg salt "$SALT" \
-        '{
-          to: $to,
-          value: "0",
-          data: null,
-          contractMethod: {
-            inputs: [
-              {internalType: "address[]", name: "targets", type: "address[]"},
-              {internalType: "uint256[]", name: "values", type: "uint256[]"},
-              {internalType: "bytes[]", name: "payloads", type: "bytes[]"},
-              {internalType: "bytes32", name: "predecessor", type: "bytes32"},
-              {internalType: "bytes32", name: "salt", type: "bytes32"}
-            ],
-            name: "executeBatch",
-            payable: false
-          },
-          contractInputsValues: {
-            targets: $targets,
-            values: $values,
-            payloads: $payloads,
-            predecessor: $predecessor,
-            salt: $salt
-          }
-        }' > "$TX_FILE"
-    else
-      DECODED=$(cast calldata-decode "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
-      TARGET=$(echo "$DECODED" | sed -n '1p' | awk '{print $1}')
-      VALUE=$(echo "$DECODED" | sed -n '2p' | awk '{print $1}')
-      DATA=$(echo "$DECODED" | sed -n '3p' | awk '{print $1}')
-      PREDECESSOR=$(echo "$DECODED" | sed -n '4p' | awk '{print $1}')
-      SALT=$(echo "$DECODED" | sed -n '5p' | awk '{print $1}')
-
-      jq -n \
-        --arg to "$TIMELOCK" \
-        --arg target "$TARGET" \
-        --arg value "$VALUE" \
-        --arg payload "$DATA" \
+        --arg target "${TARGETS[0]}" \
+        --arg value "${VALUES[0]}" \
+        --arg payload "${PAYLOADS[0]}" \
         --arg predecessor "$PREDECESSOR" \
         --arg salt "$SALT" \
         '{
@@ -218,6 +205,37 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
             target: $target,
             value: $value,
             payload: $payload,
+            predecessor: $predecessor,
+            salt: $salt
+          }
+        }' > "$TX_FILE"
+    else
+      jq -n \
+        --arg to "$TIMELOCK" \
+        --arg targets "[$(printf '%s, ' "${TARGETS[@]}" | sed 's/, $//')]" \
+        --arg values "[$(printf '%s, ' "${VALUES[@]}" | sed 's/, $//')]" \
+        --arg payloads "[$(printf '%s, ' "${PAYLOADS[@]}" | sed 's/, $//')]" \
+        --arg predecessor "$PREDECESSOR" \
+        --arg salt "$SALT" \
+        '{
+          to: $to,
+          value: "0",
+          data: null,
+          contractMethod: {
+            inputs: [
+              {internalType: "address[]", name: "targets", type: "address[]"},
+              {internalType: "uint256[]", name: "values", type: "uint256[]"},
+              {internalType: "bytes[]", name: "payloads", type: "bytes[]"},
+              {internalType: "bytes32", name: "predecessor", type: "bytes32"},
+              {internalType: "bytes32", name: "salt", type: "bytes32"}
+            ],
+            name: "executeBatch",
+            payable: false
+          },
+          contractInputsValues: {
+            targets: $targets,
+            values: $values,
+            payloads: $payloads,
             predecessor: $predecessor,
             salt: $salt
           }

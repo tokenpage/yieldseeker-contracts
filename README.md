@@ -823,14 +823,16 @@ sequenceDiagram
 ### Setup
 
 Set these environment variables before running the scripts:
-- `DEPLOYER_PRIVATE_KEY`: deployer and timelock proposer key
-- `MULTISIG_ADMIN_ADDRESS`: timelock admin and executor
+- `DEPLOYER_PRIVATE_KEY`: deployer key (timelock proposer and canceller, emergency admin)
+- `MULTISIG_ADMIN_ADDRESS`: the Safe (timelock admin, proposer, canceller and only executor)
 - `SERVER_ADDRESS`: backend operator address
 - `FEE_COLLECTOR_ADDRESS`: receives fees
 - `RPC_NODE_URL_8453`: Base RPC endpoint
 - `ETHERSCAN_API_KEY`: optional contract verification key
 
 The scripts target Base (chain ID 8453). `Deploy.s.sol` keeps the deployer as emergency admin.
+
+Timelock roles: the deployer and the Safe can both propose and cancel; only the Safe executes; the Safe is the admin. To add a proposer (e.g. a new deployer key), the Safe calls `grantRole(PROPOSER_ROLE, address)` and `grantRole(CANCELLER_ROLE, address)` on the timelock; they apply at once, and `revokeRole` removes them. Operations proposed by the Safe show as `Safe` in `check-timelock.sh`, which rebuilds every execute call from the timelock's events, so it works whoever proposed.
 
 ### Deploy
 
@@ -939,6 +941,11 @@ In production, scripts schedule timelock operations rather than executing them i
 ### Selective redeployment
 
 To redeploy a contract, set its address to `0x0000000000000000000000000000000000000000` in `deployments.json` and run the deployment script again. This works for stateless contracts (adapters, swap policies, the wallet implementation). `Deploy.s.sol` refuses to replace a registry, fee tracker or fee module that the factory or a tracker already uses (`Refusing to replace …`): they hold per-wallet or per-target state, so a replacement must import it (see "Changing fee logic") and is set deliberately in its own timelock operation.
+
+Redeploying an adapter registers the new one and moves the targets `Deploy.s.sol` knows (V2-copied vault targets, routers, Merkl, agent transfers) onto it. It does not know borrow markets, and it leaves the old adapter registered. So after redeploying an adapter:
+1. Execute the Deploy batch.
+2. For a lending adapter, rerun `RegisterBorrowMarket.s.sol` for every market on it (it schedules the move when a market points at another adapter) and execute those operations.
+3. With the emergency role, `unregisterAdapter(oldAdapter)` on every V3 registry that registered it (it takes effect at once; the V2 registry has its own adapters).
 
 ---
 

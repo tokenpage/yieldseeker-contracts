@@ -184,7 +184,6 @@ contract DeployScript is Script {
         address deployerAddress = vm.addr(deployerPrivateKey);
         address configuredMultisigAdminAddress = vm.envAddress("MULTISIG_ADMIN_ADDRESS");
         address multisigAdminAddress = TESTING_MODE ? deployerAddress : configuredMultisigAdminAddress;
-        address timelockProposerAddress = deployerAddress;
         address timelockExecutorAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
         address timelockAdminAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
         address emergencyAdminAddress = deployerAddress;
@@ -201,7 +200,7 @@ contract DeployScript is Script {
         console2.log("Multisig Admin:", multisigAdminAddress);
         console2.log("Server:", serverAddress);
         console2.log("Fee Collector:", feeCollectorAddress);
-        console2.log("Timelock Proposer:", timelockProposerAddress);
+        console2.log("Timelock Proposers and Cancellers:", deployerAddress, multisigAdminAddress);
         console2.log("Timelock Executor:", timelockExecutorAddress);
         console2.log("Timelock Admin:", timelockAdminAddress);
         console2.log("Emergency Admin:", emergencyAdminAddress);
@@ -248,8 +247,9 @@ contract DeployScript is Script {
 
         // Deploy or reuse AdminTimelock
         if (deployments.adminTimelock == address(0)) {
-            address[] memory proposers = new address[](1);
-            proposers[0] = timelockProposerAddress;
+            address[] memory proposers = new address[](2);
+            proposers[0] = deployerAddress;
+            proposers[1] = multisigAdminAddress;
             address[] memory executors = new address[](1);
             executors[0] = timelockExecutorAddress;
             deployments.adminTimelock = deployCreate2(abi.encodePacked(type(AdminTimelock).creationCode, abi.encode(adminTimelockDelay, proposers, executors, timelockAdminAddress)));
