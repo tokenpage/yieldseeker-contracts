@@ -99,12 +99,7 @@ contract RegisterVaultScript is Script {
             console2.log("-> Delay:", delay, "seconds");
             console2.log("-> Predecessor:", vm.toString(predecessor));
             console2.log("-> Batch operation ID:", vm.toString(timelock.hashOperationBatch(_targets, values, _datas, predecessor, salt)));
-            console2.log("-> Execute after the delay with executeBatch(targets, values, datas, predecessor, salt):");
-            for (uint256 i = 0; i < _targets.length; i++) {
-                console2.log("   target:", _targets[i]);
-                console2.log("   data:", vm.toString(_datas[i]));
-            }
-            console2.log("   salt:", vm.toString(salt));
+            console2.log("-> Execute from the Safe after the delay: ./script/check-timelock.sh");
         }
 
         vm.stopBroadcast();

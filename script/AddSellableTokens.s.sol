@@ -90,17 +90,8 @@ contract AddSellableTokensScript is Script {
             console2.log("-> Scheduled successfully!");
             console2.log("-> Delay:", delay, "seconds");
             console2.log("-> Predecessor:", vm.toString(predecessor));
-            console2.log("-> Execute after delay with:");
-            console2.log("");
-            console2.log("cast send", timelockAddress);
-            console2.log('  "execute(address,uint256,bytes,bytes32,bytes32)"');
-            console2.log("  ", sellPolicyAddress);
-            console2.log("   0");
-            console2.log("  ", vm.toString(data));
-            console2.log("  ", vm.toString(predecessor));
-            console2.log("  ", vm.toString(salt));
-            console2.log("   --rpc-url $RPC_NODE_URL_8453 \\");
-            console2.log("   --private-key $DEPLOYER_PRIVATE_KEY");
+            console2.log("-> Operation ID:", vm.toString(timelock.hashOperation(sellPolicyAddress, 0, data, predecessor, salt)));
+            console2.log("-> Execute from the Safe after the delay: ./script/check-timelock.sh");
         }
 
         vm.stopBroadcast();

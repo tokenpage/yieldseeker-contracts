@@ -866,29 +866,25 @@ Never turn on `allowSellingAllTokens` on the sell list: swap policies only refus
 
 ### Set price sources
 
-Set all collateral and debt asset price sources before registering borrow markets. Staleness limits are in seconds: WETH and cbBTC use one hour (`3600`), USDC uses 25 hours (`90000`), and MAG7 equity feeds use two hours (`7200`). The YieldSeeker oracle only bounds swaps that sell the base asset, so the short MAG7 limit pauses those swaps while the stock market is closed; borrow fees don't use it.
+Set all collateral and debt asset price sources before registering borrow markets. Staleness limits are in seconds: WETH and cbBTC use one hour (`3600`), USDC uses 25 hours (`90000`), and MAG7 equity feeds use 12 hours (`43200`). The MAG7 feeds follow 24/5 trading and update on price moves, so overnight gaps of up to ~7.6 hours are normal (measured on Base in November 2026) and the weekend gap is ~53 hours. The YieldSeeker oracle only bounds swaps that sell the base asset, so the 12-hour limit keeps those swaps working on weekdays and pauses them over the weekend, when the price is unknown; borrow fees don't use it.
 
 ```bash
 WETH=0x4200000000000000000000000000000000000006
 CBBTC=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
 USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
-RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
 
 # WETH, cbBTC, and USDC Chainlink USD feeds
 forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$WETH" 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70 3600
 forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$CBBTC" 0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D 3600
 forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$USDC" 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B 90000
 
-# Configure each MAG7 reserve token from the Aave V4 spoke oracle (excluding USDC reserve 7)
+# MAG7 reserve tokens (Aave V4 reserves 0-6: AAPL, AMZN, GOOGL, META, MSFT, NVDA, TSLA) with the spoke oracle's raw feeds
 AAVE_V4_ORACLE=$(cast call "$AAVE_V4_SPOKE" "ORACLE()(address)" --rpc-url "$RPC_NODE_URL_8453")
-for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
-  [ "$reserveId" -eq 7 ] && continue
-  RESERVE=$(cast call "$AAVE_V4_SPOKE" "getReserve(uint256)((address,address,uint16,uint8,uint24,uint8,uint32))" "$reserveId" --rpc-url "$RPC_NODE_URL_8453" --json)
-  ASSET=$(printf '%s' "$RESERVE" | jq -r '.[0]')
-  case "$ASSET" in "$WETH"|"$CBBTC"|"$USDC") continue ;; esac
+for reserveId in 0 1 2 3 4 5 6; do
+  ASSET=$(cast call "$AAVE_V4_SPOKE" "getReserve(uint256)((address,address,uint16,uint8,uint24,uint8,uint32))" "$reserveId" --rpc-url "$RPC_NODE_URL_8453" --json | jq -r '.[0][0]')
   FEED=$(cast call "$AAVE_V4_ORACLE" "getReserveSource(uint256)(address)" "$reserveId" --rpc-url "$RPC_NODE_URL_8453")
-  forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$ASSET" "$FEED" 7200
+  forge script script/SetPriceSource.s.sol:SetPriceSourceScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(address,address,uint32)" "$ASSET" "$FEED" 43200
 done
 ```
 
@@ -926,11 +922,9 @@ forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-
 MARKET=$(cast abi-encode "f(address,(address,address,address,address,uint256))" "$MORPHO_BLUE" "($USDC,$CBBTC,$MORPHO_CBBTC_USDC_ORACLE,$MORPHO_ADAPTIVE_IRM,$LLTV)")
 forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" morpho "$MARKET"
 
-# Aave V4 MAG7 collateral against USDC reserve 7
+# Aave V4 MAG7 collateral (reserves 0-6) against USDC reserve 7
 AAVE_V4_SPOKE=0x17905Db0e4A3514467539956c084180616AE7B8D
-RESERVE_COUNT=$(cast call "$AAVE_V4_SPOKE" "getReserveCount()(uint256)" --rpc-url "$RPC_NODE_URL_8453")
-for ((reserveId=0; reserveId<RESERVE_COUNT; reserveId++)); do
-  [ "$reserveId" -eq 7 ] && continue
+for reserveId in 0 1 2 3 4 5 6; do
   MARKET=$(cast abi-encode "f(address,uint256,uint256)" "$AAVE_V4_SPOKE" "$reserveId" 7)
   forge script script/RegisterBorrowMarket.s.sol:RegisterBorrowMarketScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --sig "run(string,bytes)" aavev4 "$MARKET"
 done

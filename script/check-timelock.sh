@@ -75,6 +75,10 @@ READY_COUNT=0
 PENDING_COUNT=0
 DONE_COUNT=0
 WARN_COUNT=0
+SKIPPED_COUNT=0
+ERROR_COUNT=0
+ZERO_HASH="0x0000000000000000000000000000000000000000000000000000000000000000"
+BUNDLED_IDS=" "
 
 while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
   TS=$(cat "$WORK/$OP_ID.ts" 2>/dev/null | awk '{print $1}' || echo "0")
@@ -100,7 +104,12 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
     WARN_COUNT=$(( WARN_COUNT + 1 ))
   fi
 
-  if [ "$TS" = "0" ]; then
+  if ! [[ "$TS" =~ ^[0-9]+$ ]]; then
+    ERROR_COUNT=$(( ERROR_COUNT + 1 ))
+    echo "⚠️  $OP_ID — status read failed; not bundled (rerun the script)"
+    echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
+
+  elif [ "$TS" = "0" ]; then
     DONE_COUNT=$(( DONE_COUNT + 1 ))
     echo "❌ $OP_ID"
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
@@ -120,7 +129,6 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
 
   else
-    READY_COUNT=$(( READY_COUNT + 1 ))
     echo ""
 
     if $UNKNOWN_PROPOSER; then
@@ -136,6 +144,7 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
 
     echo "🟢 $OP_ID"
     echo "  proposed: $PROPOSED_DATE  proposer: $PROPOSER_LABEL"
+    TX_FILE="$WORK/tx-$(printf '%05d' "$READY_COUNT").json"
 
     if [[ "$INPUT" == 0x8f2a0bb0* ]]; then
       DECODED=$(cast calldata-decode "scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
@@ -174,7 +183,7 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
             predecessor: $predecessor,
             salt: $salt
           }
-        }' > "$WORK/$OP_ID.tx.json"
+        }' > "$TX_FILE"
     else
       DECODED=$(cast calldata-decode "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" "$INPUT" 2>/dev/null || echo "")
       TARGET=$(echo "$DECODED" | sed -n '1p' | awk '{print $1}')
@@ -212,14 +221,28 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
             predecessor: $predecessor,
             salt: $salt
           }
-        }' > "$WORK/$OP_ID.tx.json"
+        }' > "$TX_FILE"
+    fi
+
+    PREDECESSOR_READY=true
+    if [ -n "$PREDECESSOR" ] && [ "$PREDECESSOR" != "$ZERO_HASH" ] && [[ "$BUNDLED_IDS" != *" $PREDECESSOR "* ]]; then
+      PREDECESSOR_DONE=$(cast call --rpc-url "$RPC" "$TIMELOCK" "isOperationDone(bytes32)(bool)" "$PREDECESSOR" 2>/dev/null || echo "false")
+      [ "$PREDECESSOR_DONE" = "true" ] || PREDECESSOR_READY=false
+    fi
+    if $PREDECESSOR_READY; then
+      READY_COUNT=$(( READY_COUNT + 1 ))
+      BUNDLED_IDS="$BUNDLED_IDS$OP_ID "
+    else
+      SKIPPED_COUNT=$(( SKIPPED_COUNT + 1 ))
+      rm -f "$TX_FILE"
+      echo "  ⏸  not bundled: predecessor $PREDECESSOR is neither done nor earlier in this bundle"
     fi
     echo ""
   fi
 done < "$SORT_FILE"
 
 echo "================================================="
-echo "Done: $DONE_COUNT  |  Pending: $PENDING_COUNT  |  Ready: $READY_COUNT"
+echo "Done: $DONE_COUNT  |  Pending: $PENDING_COUNT  |  Ready: $READY_COUNT  |  Waiting on predecessor: $SKIPPED_COUNT  |  Status unreadable: $ERROR_COUNT"
 if [ "$WARN_COUNT" -gt 0 ]; then
   echo "!! WARNING: $WARN_COUNT operation(s) from UNKNOWN proposer(s) !!"
 fi
@@ -227,7 +250,7 @@ echo "================================================="
 
 if [ "$READY_COUNT" -gt 0 ]; then
   OUTPUT_JSON="timelock-execute-$(date +%Y%m%d-%H%M%S).json"
-  TX_ARRAY=$(ls "$WORK"/*.tx.json 2>/dev/null | xargs cat | jq -s 'sort_by(if .contractMethod.name == "executeBatch" then 0 else 1 end)')
+  TX_ARRAY=$(jq -s '.' "$WORK"/tx-*.json)
   jq -n \
     --argjson transactions "$TX_ARRAY" \
     --argjson createdAt "$(( $(date +%s) * 1000 ))" \
