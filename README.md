@@ -1099,7 +1099,7 @@ This enables:
 
 ### Gas Optimization Strategies
 1. **Batch Operations**: Use `executeViaAdapterBatch()` for multiple operations
-2. **Paymaster**: Use ERC-4337 paymaster for gas sponsorship. A UserOperation without a paymaster is prepaid from the wallet's ETH, and the unused part stays in the wallet's EntryPoint deposit. The wallet deliberately has no function to withdraw that deposit (so ETH the platform might ever deposit for a wallet can't be taken by its owner), so always sponsor through the paymaster. Owners never need UserOperations: they call the wallet directly.
+2. **Paymaster**: Use ERC-4337 paymaster for gas sponsorship. A UserOperation without a paymaster is prepaid from the wallet's ETH, and the unused part stays in the wallet's EntryPoint deposit. The wallet deliberately has no function to withdraw that deposit (so ETH the platform might ever deposit for a wallet can't be taken by its owner), so always sponsor through a paymaster. Owner actions work either as direct calls or as owner-signed UserOperations: the latter exist so integrators can sponsor their users' withdrawals with their own relayer and paymaster (the owner signs, the integrator pays gas). Owner-signed UserOperations need an ECDSA owner key; an owner that is a smart wallet or Safe calls the wallet directly.
 3. **Off-peak Timing**: Execute during low gas periods
 
 ---
