@@ -9,7 +9,7 @@ import {FeesOwed, NoSwapPolicy} from "../../src/adapters/SwapAdapter.sol";
 import {SellTokenNotAllowed} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget, InvalidTickSpacing} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
@@ -286,11 +286,6 @@ contract SwapsTest is IntegrationBase {
         route.tickSpacings[1] = 100;
         data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1)));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, abi.encodeWithSelector(InvalidSwapTokenAddress.selector, address(0)));
-
-        route = _aerodromeCLRoute(address(rewardToken), address(usdc));
-        route.tickSpacings[0] = 10;
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1)));
-        _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, abi.encodeWithSelector(InvalidTickSpacing.selector, int24(10)));
 
         address wrongTarget = address(0x1234);
         vaultRegistry.setTargetAdapter(wrongTarget, address(aerodromeCLSwapAdapter));

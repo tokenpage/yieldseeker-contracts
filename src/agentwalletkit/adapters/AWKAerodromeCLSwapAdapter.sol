@@ -21,7 +21,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 error InvalidAerodromeCLRouterTarget(address target, address expected);
-error InvalidTickSpacing(int24 tickSpacing);
 
 interface IAerodromeCLSwapRouter {
     struct ExactInputParams {
@@ -99,10 +98,6 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
         IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: FAR_FUTURE_DEADLINE, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 
-    function _validateTickSpacing(int24 tickSpacing) internal pure {
-        if (tickSpacing != 1 && tickSpacing != 50 && tickSpacing != 100 && tickSpacing != 200) revert InvalidTickSpacing(tickSpacing);
-    }
-
     function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {
         uint256 pathLength = route.path.length;
         if (pathLength < 2 || pathLength > MAX_HOPS + 1) revert InvalidRouteLength(pathLength);
@@ -110,9 +105,6 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
         _validateRouteEndpoints(sellToken, buyToken, route.path[0], route.path[pathLength - 1]);
         for (uint256 i = 0; i < pathLength; i++) {
             if (route.path[i] == address(0)) revert InvalidSwapTokenAddress(route.path[i]);
-        }
-        for (uint256 i = 0; i < route.tickSpacings.length; i++) {
-            _validateTickSpacing(route.tickSpacings[i]);
         }
     }
 }

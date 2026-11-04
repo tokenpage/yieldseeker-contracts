@@ -103,7 +103,7 @@ contract YieldSeekerPriceOracle is AccessControl, IYieldSeekerPriceOracle {
         if (address(source.feed) == address(0)) revert NoPriceSource(asset);
         (, int256 answer,, uint256 updatedAt,) = source.feed.latestRoundData();
         if (answer <= 0) revert InvalidPrice(asset, answer);
-        if (block.timestamp > updatedAt + source.maxStaleness) revert StalePrice(asset, updatedAt, source.maxStaleness);
+        if (updatedAt > block.timestamp || block.timestamp > updatedAt + source.maxStaleness) revert StalePrice(asset, updatedAt, source.maxStaleness);
         return Math.mulDiv(uint256(answer), 1e18, 10 ** source.feed.decimals());
     }
 }

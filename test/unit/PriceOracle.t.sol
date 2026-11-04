@@ -77,6 +77,11 @@ contract PriceOracleTest is Test {
         vm.warp(updatedAt + 11);
         vm.expectRevert(abi.encodeWithSelector(StalePrice.selector, address(weth), updatedAt, 10));
         oracle.getPrice(address(weth));
+
+        uint256 futureUpdatedAt = vm.getBlockTimestamp() + 1;
+        feed.setPrice(1e8, futureUpdatedAt);
+        vm.expectRevert(abi.encodeWithSelector(StalePrice.selector, address(weth), futureUpdatedAt, 10));
+        oracle.getPrice(address(weth));
     }
 
     function testQuoteConvertsAcrossTokenDecimalsAndUsdPrices() public {

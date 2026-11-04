@@ -211,18 +211,20 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_UserOperationValidationRestrictsOperatorToAdapterSelectors() public {
-        bytes[] memory ownerCalls = new bytes[](11);
+        bytes[] memory ownerCalls = new bytes[](13);
         ownerCalls[0] = abi.encodeWithSelector(_wallet.blockAdapter.selector, address(erc4626Adapter));
         ownerCalls[1] = abi.encodeWithSelector(_wallet.unblockAdapter.selector, address(erc4626Adapter));
         ownerCalls[2] = abi.encodeWithSelector(_wallet.blockTarget.selector, address(erc4626Vault));
         ownerCalls[3] = abi.encodeWithSelector(_wallet.unblockTarget.selector, address(erc4626Vault));
         ownerCalls[4] = abi.encodeWithSelector(_wallet.withdrawAssetToUser.selector, _recipient, address(usdc), 1);
         ownerCalls[5] = abi.encodeWithSelector(_wallet.withdrawAllAssetToUser.selector, _recipient, address(usdc));
-        ownerCalls[6] = abi.encodeWithSelector(_wallet.withdrawEthToUser.selector, _recipient, 1);
-        ownerCalls[7] = abi.encodeWithSelector(_wallet.withdrawAllEthToUser.selector, _recipient);
-        ownerCalls[8] = abi.encodeWithSelector(_wallet.upgradeToLatest.selector);
-        ownerCalls[9] = abi.encodeWithSelector(_wallet.upgradeToAndCall.selector, address(1), bytes(""));
-        ownerCalls[10] = abi.encodeWithSelector(_wallet.syncFromFactory.selector);
+        ownerCalls[6] = abi.encodeWithSelector(_wallet.withdrawAssetsToUser.selector, _recipient, new address[](0), new uint256[](0));
+        ownerCalls[7] = abi.encodeWithSelector(_wallet.withdrawAllAssetsToUser.selector, _recipient, new address[](0));
+        ownerCalls[8] = abi.encodeWithSelector(_wallet.withdrawEthToUser.selector, _recipient, 1);
+        ownerCalls[9] = abi.encodeWithSelector(_wallet.withdrawAllEthToUser.selector, _recipient);
+        ownerCalls[10] = abi.encodeWithSelector(_wallet.upgradeToLatest.selector);
+        ownerCalls[11] = abi.encodeWithSelector(_wallet.upgradeToAndCall.selector, address(1), bytes(""));
+        ownerCalls[12] = abi.encodeWithSelector(_wallet.syncFromFactory.selector);
 
         for (uint256 i; i < ownerCalls.length; ++i) {
             assertEq(_validateWithSigner(_wallet, ownerCalls[i], _ownerKey), SIG_VALIDATION_SUCCESS);
@@ -508,6 +510,76 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(_recipient), 109e6);
         assertEq(usdc.balanceOf(address(yieldWallet)), 0);
         assertEq(usdc.balanceOf(feeCollector), 1e6);
+    }
+
+    function test_BatchWithdrawAllSettlesBorrowFeesAndTransfersBothAssets() public {
+        (AgentWallet borrowWallet, uint256 feeOwed) = _prepareBorrowWalletWithFees(10);
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(weth);
+
+        vm.prank(_walletOwner);
+        borrowWallet.withdrawAllAssetsToUser(_recipient, assets);
+
+        assertEq(usdc.balanceOf(_recipient), 20e6 - feeOwed);
+        assertEq(weth.balanceOf(_recipient), 1e18);
+        assertEq(usdc.balanceOf(address(borrowWallet)), 0);
+        assertEq(weth.balanceOf(address(borrowWallet)), 0);
+        assertEq(usdc.balanceOf(feeCollector), feeOwed);
+        assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 0);
+    }
+
+    function test_BatchWithdrawAssetsTransfersExactAmountsAndRevertsAtomically() public {
+        (AgentWallet borrowWallet, uint256 feeOwed) = _prepareBorrowWalletWithFees(11);
+        MockERC20 unrelated = new MockERC20("Unrelated", "NOPE");
+        _fundWallet(borrowWallet, address(unrelated), 5e6);
+        assertFalse(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(unrelated)));
+
+        address[] memory mismatchAssets = new address[](2);
+        mismatchAssets[0] = address(usdc);
+        mismatchAssets[1] = address(weth);
+        uint256[] memory mismatchAmounts = new uint256[](1);
+        mismatchAmounts[0] = 5e6;
+        vm.expectRevert(InvalidState.selector);
+        vm.prank(_walletOwner);
+        borrowWallet.withdrawAssetsToUser(_recipient, mismatchAssets, mismatchAmounts);
+
+        address[] memory invalidAssets = new address[](2);
+        invalidAssets[0] = address(usdc);
+        invalidAssets[1] = address(unrelated);
+        uint256[] memory invalidAmounts = new uint256[](2);
+        invalidAmounts[0] = 5e6;
+        invalidAmounts[1] = 5e6;
+        vm.expectRevert(InvalidAsset.selector);
+        vm.prank(_walletOwner);
+        borrowWallet.withdrawAssetsToUser(_recipient, invalidAssets, invalidAmounts);
+
+        assertEq(usdc.balanceOf(_recipient), 0);
+        assertEq(weth.balanceOf(_recipient), 0);
+        assertEq(unrelated.balanceOf(_recipient), 0);
+        assertEq(usdc.balanceOf(address(borrowWallet)), 20e6);
+        assertEq(weth.balanceOf(address(borrowWallet)), 1e18);
+        assertEq(unrelated.balanceOf(address(borrowWallet)), 5e6);
+        assertEq(usdc.balanceOf(feeCollector), 0);
+        assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), feeOwed);
+
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(weth);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 5e6;
+        amounts[1] = 1e18;
+        vm.prank(_walletOwner);
+        borrowWallet.withdrawAssetsToUser(_recipient, assets, amounts);
+
+        assertEq(usdc.balanceOf(_recipient), 5e6);
+        assertEq(weth.balanceOf(_recipient), 1e18);
+        assertEq(unrelated.balanceOf(_recipient), 0);
+        assertEq(usdc.balanceOf(address(borrowWallet)), 15e6 - feeOwed);
+        assertEq(weth.balanceOf(address(borrowWallet)), 0);
+        assertEq(unrelated.balanceOf(address(borrowWallet)), 5e6);
+        assertEq(usdc.balanceOf(feeCollector), feeOwed);
+        assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 0);
     }
 
     function test_BorrowedAssetIsAccountedAndWithdrawalSettlesBaseAssetFees() public {

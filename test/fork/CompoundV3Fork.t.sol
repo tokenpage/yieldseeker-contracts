@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerCompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
+import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -60,15 +61,18 @@ contract CompoundV3ForkTest is ForkBase {
         assertEq(asset.balanceOf(address(wallet)), 0);
     }
 
-    function test_CompoundV3USDC_DepositOfMaxSuppliesNothingAndLeavesNoApproval() public {
+    function test_CompoundV3USDC_DepositOfMaxRevertsAndLeavesNoApproval() public {
         AgentWallet wallet = _createVaultWallet(USDC, 2);
         YieldSeekerCompoundV3Adapter adapter = new YieldSeekerCompoundV3Adapter();
         _registerAdapter(address(adapter), COMET_USDC);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
+        bytes memory zeroCredit = abi.encodeWithSignature("Error(string)", "AWKCompoundV3Adapter: zero balance credited");
+        vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, zeroCredit));
         _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, type(uint256).max));
 
         assertEq(IERC20Metadata(USDC).balanceOf(address(wallet)), DEPOSIT_AMOUNT, "Comet reads max as the wallet's (zero) borrow balance");
         assertEq(IERC20Metadata(USDC).allowance(address(wallet), COMET_USDC), 0, "no approval is left");
+        assertEq(vaultYieldFeeModule.costBasis(address(wallet), COMET_USDC), 0, "nothing is recorded as deposited");
     }
 }

@@ -87,6 +87,8 @@ contract DeployScript is Script {
         address uniswapV3SwapAdapter;
         address aerodromeV2SwapAdapter;
         address aerodromeClSwapAdapter;
+        address aerodromeCl2SwapAdapter;
+        address aerodromeCl3SwapAdapter;
         address aaveV3LendingAdapter;
         address aaveV4LendingAdapter;
         address morphoBlueLendingAdapter;
@@ -170,6 +172,20 @@ contract DeployScript is Script {
         revert(string.concat("Unsupported chain id for Aerodrome CL router: ", vm.toString(chainId)));
     }
 
+    function getAerodromeCl2Router(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0xcbBb8035cAc7D4B3Ca7aBb74cF7BdF900215Ce0D;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome CL2 router: ", vm.toString(chainId)));
+    }
+
+    function getAerodromeCl3Router(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome CL3 router: ", vm.toString(chainId)));
+    }
+
     function getWellToken(uint256 chainId) internal pure returns (address) {
         if (chainId == 8453) {
             return 0xA88594D404727625A9437C3f886C7643872296AE;
@@ -192,6 +208,8 @@ contract DeployScript is Script {
         address aerodromeV2Router = getAerodromeV2Router(block.chainid);
         address aerodromeV2Factory = getAerodromeV2Factory(block.chainid);
         address aerodromeClRouter = getAerodromeClRouter(block.chainid);
+        address aerodromeCl2Router = getAerodromeCl2Router(block.chainid);
+        address aerodromeCl3Router = getAerodromeCl3Router(block.chainid);
 
         console2.log("=================================================");
         console2.log("YIELDSEEKER DEPLOYMENT SCRIPT");
@@ -237,6 +255,8 @@ contract DeployScript is Script {
             uniswapV3SwapAdapter: safeReadAddress(deployJson, ".uniswapV3SwapAdapter"),
             aerodromeV2SwapAdapter: safeReadAddress(deployJson, ".aerodromeV2SwapAdapter"),
             aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
+            aerodromeCl2SwapAdapter: safeReadAddress(deployJson, ".aerodromeCL2SwapAdapter"),
+            aerodromeCl3SwapAdapter: safeReadAddress(deployJson, ".aerodromeCL3SwapAdapter"),
             aaveV3LendingAdapter: safeReadAddress(deployJson, ".aaveV3LendingAdapter"),
             aaveV4LendingAdapter: safeReadAddress(deployJson, ".aaveV4LendingAdapter"),
             morphoBlueLendingAdapter: safeReadAddress(deployJson, ".morphoBlueLendingAdapter"),
@@ -423,6 +443,19 @@ contract DeployScript is Script {
         } else {
             console2.log("-> Using existing aerodromeCLSwapAdapter:", deployments.aerodromeClSwapAdapter);
         }
+        if (deployments.aerodromeCl2SwapAdapter == address(0)) {
+            deployments.aerodromeCl2SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeCl2Router)));
+            console2.log("-> AerodromeCL2SwapAdapter deployed at:", deployments.aerodromeCl2SwapAdapter);
+        } else {
+            console2.log("-> Using existing aerodromeCL2SwapAdapter:", deployments.aerodromeCl2SwapAdapter);
+        }
+
+        if (deployments.aerodromeCl3SwapAdapter == address(0)) {
+            deployments.aerodromeCl3SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeCl3Router)));
+            console2.log("-> AerodromeCL3SwapAdapter deployed at:", deployments.aerodromeCl3SwapAdapter);
+        } else {
+            console2.log("-> Using existing aerodromeCL3SwapAdapter:", deployments.aerodromeCl3SwapAdapter);
+        }
 
         // Lending adapters
         if (deployments.aaveV3LendingAdapter == address(0)) {
@@ -482,6 +515,8 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "uniswapV3SwapAdapter", deployments.uniswapV3SwapAdapter);
         vm.serializeAddress(json, "aerodromeV2SwapAdapter", deployments.aerodromeV2SwapAdapter);
         vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
+        vm.serializeAddress(json, "aerodromeCL2SwapAdapter", deployments.aerodromeCl2SwapAdapter);
+        vm.serializeAddress(json, "aerodromeCL3SwapAdapter", deployments.aerodromeCl3SwapAdapter);
         vm.serializeAddress(json, "aaveV3LendingAdapter", deployments.aaveV3LendingAdapter);
         vm.serializeAddress(json, "aaveV4LendingAdapter", deployments.aaveV4LendingAdapter);
         vm.serializeAddress(json, "morphoBlueLendingAdapter", deployments.morphoBlueLendingAdapter);
@@ -532,6 +567,8 @@ contract DeployScript is Script {
         }
         _configureFeeTracker(vaultFeeTracker, deployments.agentWalletFactory, deployments.vaultYieldFeeModule);
         _configureFeeTracker(borrowFeeTracker, deployments.agentWalletFactory, deployments.borrowYieldFeeModule);
+        if (vaultFeeTracker.feeCollector() != feeCollectorAddress) _op(deployments.vaultFeeTracker, abi.encodeCall(vaultFeeTracker.setFeeCollector, (feeCollectorAddress)));
+        if (borrowFeeTracker.feeCollector() != feeCollectorAddress) _op(deployments.borrowFeeTracker, abi.encodeCall(borrowFeeTracker.setFeeCollector, (feeCollectorAddress)));
         if (address(borrowFeeTracker.feeModules(BORROW_FEE)) != deployments.borrowFeeModule) {
             _op(deployments.borrowFeeTracker, abi.encodeCall(borrowFeeTracker.setFeeModule, (BORROW_FEE, BorrowFeeModule(deployments.borrowFeeModule))));
         }
@@ -549,6 +586,8 @@ contract DeployScript is Script {
         _registerAdapter(vaultAdapterRegistry, deployments.uniswapV3SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeV2SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeClSwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl2SwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl3SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.agentTransferAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV3LendingAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV4LendingAdapter);
@@ -558,8 +597,12 @@ contract DeployScript is Script {
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeV2SwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeClSwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.agentTransferAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aerodromeCl2SwapAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aerodromeCl3SwapAdapter);
         // 3. Set Vault Registry Targets: every V2 vault registry target, plus agent transfers
         _copyV2VaultTargets(deployJson, vaultAdapterRegistry, deployments);
+        _setTarget(vaultAdapterRegistry, aerodromeCl2Router, deployments.aerodromeCl2SwapAdapter);
+        _setTarget(vaultAdapterRegistry, aerodromeCl3Router, deployments.aerodromeCl3SwapAdapter);
         _setTarget(vaultAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
         // 4. Set Borrow Registry Targets
         _setTarget(borrowAdapterRegistry, uniswapV3Router, deployments.uniswapV3SwapAdapter);
@@ -567,6 +610,8 @@ contract DeployScript is Script {
         _setTarget(borrowAdapterRegistry, aerodromeClRouter, deployments.aerodromeClSwapAdapter);
         _setTarget(borrowAdapterRegistry, MERKL_DISTRIBUTOR, deployments.merklAdapter);
         _setTarget(borrowAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
+        _setTarget(borrowAdapterRegistry, aerodromeCl2Router, deployments.aerodromeCl2SwapAdapter);
+        _setTarget(borrowAdapterRegistry, aerodromeCl3Router, deployments.aerodromeCl3SwapAdapter);
         // 5. Set Agent Operator
         if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
             console2.log("-> Preparing AGENT_OPERATOR_ROLE grant for server:", serverAddress);

@@ -23,6 +23,7 @@ contract SwapForkTest is ForkBase {
     address internal constant AERODROME_V2_ROUTER = 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43;
     address internal constant AERODROME_V2_FACTORY = 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
     address internal constant AERODROME_CL_ROUTER = 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
+    address internal constant AERODROME_CL_3_ROUTER = 0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F;
     address internal constant ETH_USD_FEED = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
     address internal constant USDC_USD_FEED = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
     address internal constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
@@ -33,6 +34,7 @@ contract SwapForkTest is ForkBase {
     YieldSeekerUniswapV3SwapAdapter internal uniswapAdapter;
     YieldSeekerAerodromeV2SwapAdapter internal aerodromeV2Adapter;
     YieldSeekerAerodromeCLSwapAdapter internal aerodromeCLAdapter;
+    YieldSeekerAerodromeCLSwapAdapter internal aerodromeCL3Adapter;
     AgentWallet internal wallet;
 
     function setUp() public override {
@@ -46,9 +48,11 @@ contract SwapForkTest is ForkBase {
         uniswapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
         aerodromeV2Adapter = new YieldSeekerAerodromeV2SwapAdapter(AERODROME_V2_ROUTER, AERODROME_V2_FACTORY);
         aerodromeCLAdapter = new YieldSeekerAerodromeCLSwapAdapter(AERODROME_CL_ROUTER);
+        aerodromeCL3Adapter = new YieldSeekerAerodromeCLSwapAdapter(AERODROME_CL_3_ROUTER);
         _registerAdapter(address(uniswapAdapter), UNISWAP_V3_ROUTER);
         _registerAdapter(address(aerodromeV2Adapter), AERODROME_V2_ROUTER);
         _registerAdapter(address(aerodromeCLAdapter), AERODROME_CL_ROUTER);
+        _registerAdapter(address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER);
         wallet = _createVaultWallet(USDC, 0);
         deal(WETH, address(wallet), SELL_AMOUNT);
     }
@@ -81,6 +85,31 @@ contract SwapForkTest is ForkBase {
         tickSpacings[0] = 100;
         tickSpacings[1] = 100;
         _assertRewardSale(address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(true), tickSpacings: tickSpacings}), SELL_AMOUNT, 1)));
+    }
+
+    function test_AerodromeCLThirdRouterSpacing10RewardSale() public {
+        int24[] memory tickSpacings = new int24[](1);
+        tickSpacings[0] = 10;
+        uint256 walletUsdcBefore = IERC20(USDC).balanceOf(address(wallet));
+        uint256 collectorUsdcBefore = IERC20(USDC).balanceOf(feeCollector);
+        deal(WETH, address(wallet), SELL_AMOUNT);
+
+        uint256 bought = abi.decode(
+            abi.decode(
+                _execute(
+                    wallet, address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER, abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1))
+                ),
+                (bytes)
+            ),
+            (uint256)
+        );
+        uint256 fee = Math.mulDiv(bought, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
+
+        assertGt(bought, 1, "the router swapped through the real spacing-10 pool");
+        assertEq(IERC20(WETH).balanceOf(address(wallet)), 0);
+        assertEq(IERC20(USDC).balanceOf(address(wallet)) - walletUsdcBefore, bought - fee);
+        assertEq(IERC20(USDC).balanceOf(feeCollector) - collectorUsdcBefore, fee);
+        assertEq(IERC20(WETH).allowance(address(wallet), AERODROME_CL_3_ROUTER), 0);
     }
 
     function _assertRewardSale(address adapter, address router, bytes memory data) internal {

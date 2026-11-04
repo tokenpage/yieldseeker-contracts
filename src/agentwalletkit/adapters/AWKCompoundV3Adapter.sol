@@ -59,6 +59,7 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
         IERC20(asset).forceApprove(vault, 0);
         uint256 balanceAfter = ICompoundV3Comet(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
+        require(shares > 0, "AWKCompoundV3Adapter: zero balance credited");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
     }
 

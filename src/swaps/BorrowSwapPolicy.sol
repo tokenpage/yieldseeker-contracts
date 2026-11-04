@@ -25,6 +25,7 @@ import {FeeActions} from "../fees/FeeActions.sol";
 import {SwapNotAllowed} from "./IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "./VaultSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 error InvalidSlippage(uint256 maxSlippageBps);
 error SwapBelowOraclePrice(uint256 received, uint256 minimum);
@@ -62,7 +63,7 @@ contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
 
     function checkSwapResult(address wallet, address sellToken, uint256 soldAmount, address buyToken, uint256 boughtAmount) public view override returns (bytes32) {
         if (sellToken != address(IAgentWallet(wallet).baseAsset())) return FeeActions.REWARD_SALE;
-        uint256 minimum = (PRICE_ORACLE.quote(sellToken, buyToken, soldAmount) * (1e4 - MAX_SLIPPAGE_BPS)) / 1e4;
+        uint256 minimum = Math.mulDiv(PRICE_ORACLE.quote(sellToken, buyToken, soldAmount), 1e4 - MAX_SLIPPAGE_BPS, 1e4, Math.Rounding.Ceil);
         if (boughtAmount < minimum) revert SwapBelowOraclePrice(boughtAmount, minimum);
         uint256 held = IERC20(buyToken).balanceOf(wallet);
         uint256 debt = _borrowFees(wallet).tokenDebt(wallet, buyToken);

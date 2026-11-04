@@ -80,7 +80,7 @@ library AgentWalletStorageV3 {
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
- *      1. Override withdrawal functions to enforce fee collection (see YieldSeekerAgentWalletV3)
+ *      1. Override token withdrawal hooks to enforce policy (see YieldSeekerAgentWalletV3)
  *      2. Add any protocol-specific storage and logic
  *      3. Ensure the paired Factory calls initialize() atomically during deployment
  */
@@ -423,8 +423,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param asset Address of the ERC20 token to withdraw
      * @param amount Amount to withdraw
      */
-    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual onlyOwner {
-        _withdrawAsset(recipient, asset, amount);
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual onlyOwner nonReentrant {
+        _withdrawAssetToUser(recipient, asset, amount);
     }
 
     /**
@@ -432,9 +432,41 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw
      */
-    function withdrawAllAssetToUser(address recipient, address asset) external virtual onlyOwner {
-        IERC20 token = IERC20(asset);
-        uint256 balance = token.balanceOf(address(this));
+    function withdrawAllAssetToUser(address recipient, address asset) external virtual onlyOwner nonReentrant {
+        _withdrawAllAssetToUser(recipient, asset);
+    }
+
+    /**
+     * @notice User withdraws exact amounts of multiple ERC20 assets from agent wallet
+     * @param recipient Address to send the assets to
+     * @param assets Addresses of the ERC20 tokens to withdraw
+     * @param amounts Amounts of each token to withdraw
+     */
+    function withdrawAssetsToUser(address recipient, address[] calldata assets, uint256[] calldata amounts) external virtual onlyOwner nonReentrant {
+        uint256 length = assets.length;
+        if (length != amounts.length) revert InvalidState();
+        for (uint256 i; i < length; ++i) {
+            _withdrawAssetToUser(recipient, assets[i], amounts[i]);
+        }
+    }
+
+    /**
+     * @notice User withdraws all of multiple ERC20 assets from agent wallet
+     * @param recipient Address to send the assets to
+     * @param assets Addresses of the ERC20 tokens to withdraw
+     */
+    function withdrawAllAssetsToUser(address recipient, address[] calldata assets) external virtual onlyOwner nonReentrant {
+        for (uint256 i; i < assets.length; ++i) {
+            _withdrawAllAssetToUser(recipient, assets[i]);
+        }
+    }
+
+    function _withdrawAssetToUser(address recipient, address asset, uint256 amount) internal virtual {
+        _withdrawAsset(recipient, asset, amount);
+    }
+
+    function _withdrawAllAssetToUser(address recipient, address asset) internal virtual {
+        uint256 balance = IERC20(asset).balanceOf(address(this));
         _withdrawAsset(recipient, asset, balance);
     }
 

@@ -305,9 +305,11 @@ contract BorrowForkTest is ForkBase {
         assertLe(bought, debt, "swap output does not exceed the reported debt");
         assertEq(IERC20(USDC).balanceOf(address(wallet)), bought, "swap buys borrowed token for repayment");
 
+        address variableDebtToken = IAaveV3LendingPool(AAVE_POOL).getReserveVariableDebtToken(USDC);
+        uint256 aaveDebtBeforeRepay = IERC20(variableDebtToken).balanceOf(address(wallet));
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, bought));
         uint256 remainingDebt = borrowFeeModule.tokenDebt(address(wallet), USDC);
-        assertApproxEqAbs(remainingDebt, debt - bought, 1, "reported debt drops by the repayment, Aave rounds interest up by at most 1 unit");
+        assertEq(remainingDebt, aaveDebtBeforeRepay - bought, "reported debt tracks Aave's live balance before repayment");
         vm.prank(owner);
         IERC20(USDC).transfer(address(wallet), remainingDebt + 1);
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));

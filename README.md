@@ -131,7 +131,7 @@ sequenceDiagram
     participant EP as EntryPoint (v0.6)
     participant Wallet as AgentWallet
     participant Registry as AdapterRegistry
-    participant Adapter as Adapter (ERC4626/ZeroX)
+    participant Adapter as Adapter (ERC4626/swap)
     participant Target as Target Contract (Vault/Pool)
 
     Note over Server: Server signs UserOperation<br/>for ANY user's wallet
@@ -183,7 +183,7 @@ The user's smart wallet that holds funds and executes validated operations.
 **Inheritance:**
 `YieldSeekerAgentWalletV3` extends `AWKAgentWalletV3` and `IAgentWallet`; `AWKAgentWalletV3` implements `IAWKAgentWallet` and inherits `BaseAccount` (ERC-4337), `Initializable`, `UUPSUpgradeable` and `ReentrancyGuardTransient`.
 
-**Storage (ERC-7201 Namespaced):**
+**Storage (namespaced, fixed `keccak256` slots):**
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `address` | Wallet owner (can withdraw, upgrade) |
@@ -372,16 +372,16 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 ---
 
-#### ZeroXAdapter (`src/adapters/ZeroXAdapter.sol`)
+#### Swap adapters (`src/adapters/{UniswapV3,AerodromeV2,AerodromeCL}SwapAdapter.sol`)
 
-For 0x Protocol swaps.
+One adapter per DEX router; the registry target is the router.
 
 **Functions:**
-- `swap(zeroXTarget, swapCalldata)` - Execute a 0x swap
+- `swap(sellToken, buyToken, route, sellAmount, minBuyAmount)` - swap through the router along `route`
 
 **Validation:**
-- Decodes swap calldata to verify `recipient` is the wallet
-- Prevents swaps that would send tokens elsewhere
+- The route must start at `sellToken` and end at `buyToken`; amounts sold and bought are measured from the wallet's balances, and `minBuyAmount` is enforced on the measured output
+- What may be swapped, and the price floor, come from the wallet's swap policy (see Swap policies)
 
 ---
 
@@ -534,7 +534,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - Sign UserOperations for any wallet
 - Call `executeViaAdapter()` with registered adapters
 - Deposit funds into registered vaults
-- Swap tokens via registered 0x targets
+- Swap through registered DEX routers as the swap policy allows: reward tokens to the base asset (no price floor, see Known risks), and in borrow wallets the base asset to a borrowed token within 1% of the oracle
 
 **What Attacker CANNOT Do:**
 - ❌ Transfer tokens directly (no `execute()`)
@@ -570,6 +570,24 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - Direct owner withdrawals need no server or platform approval; position exits require an active, unpaused registry
 
 ---
+
+### Known risks (accepted)
+
+Trade-offs we have chosen; each has a reason and, where useful, an operating rule.
+
+- **Operator removal reaches a wallet when it syncs.** `removeAgentOperator` is instant in the factory, but each wallet keeps its cached operator set (ERC-4337 validation can't read the factory) until `syncFromFactory()` runs. Follow the Operator Revocation Procedure; pausing the registries closes the window.
+- **Rotating the server key**: grant the new operator through the timelock, then `removeAgentOperator(old)` and sync every wallet. `Deploy.s.sol` only grants `SERVER_ADDRESS`; it never removes operators.
+- **Reward sales have no price floor.** The operator chooses the route and `minBuyAmount`, so a compromised operator can sell a wallet's reward tokens through a pool it controls. Only reward tokens on the sell list are exposed (never principal, positions or borrowed tokens), and the backend sells them regularly. Base-asset sales in borrow wallets do have an oracle floor.
+- **Fees round up** on every report: at most one raw unit of the base asset per report and fee type.
+- **Deposits have no minimum-output bound**; only vaults reviewed for share-inflation protection are registered.
+- **Fee collection fails closed for agent actions**: a reverting fee module or a collector that can't receive the base asset stops adapter actions until the admin fixes it. Owner exits are fail-open (they never block).
+- **The operator chooses a wallet's fee plans and configuration at creation** (plans are created by the timelock, capped by each module and fixed for life; the wallet address is one per `(owner, index)` and does not commit to the configuration). The backend deploys from the agent record.
+- **Borrow fee timing**: debt changed outside the adapters (a third-party repayment, a liquidation) is charged at the last reported debt until the next report, and the open period is charged at the next report rather than on an owner withdrawal of idle base asset (collateral can only leave through the adapter, which reports). The operator checkpoints every market at least daily. The base → borrowed swap cap uses the same last reported debt.
+- **No on-chain health-factor floor**: the backend sizes borrows.
+- **Swap policies only refuse registry targets**: never enable `allowSellingAllTokens` and never put a position token (a vault share, an aToken) on the sell list.
+- **Base assets must be plain ERC20s** (no fee-on-transfer, no rebasing): fees and cost basis are measured in base-asset units.
+- **A lending market whose own oracle reverts or returns zero** blocks that market's adapter actions; owners can still repay directly on Aave V3 and Morpho.
+- **The Safe holds the timelock's admin role**, so it can change timelock roles without the delay.
 
 ## Example Flows
 
@@ -1061,19 +1079,17 @@ Chosen because:
 - Upgrade logic in implementation (user controls their wallet)
 - Gas savings on every call (no admin slot check)
 
-### ERC-7201 Namespaced Storage
-Implementation contracts use ERC-7201 namespaced storage to:
+### Namespaced Storage
+Implementation contracts keep their state at fixed `keccak256(namespace)` slots (not the ERC-7201 formula; `test_StorageSlotsStayFixedForUpgrades` pins them) to:
 - Prevent storage collisions during upgrades
 - Enable safe addition of new storage variables
 - Support multiple inheritance patterns
-- Follow OpenZeppelin v5 best practices
 
 ### Caching vs Real-time Lookups
-Wallets cache `agentOperators` and `adapterRegistry` references locally because:
-- **ERC-4337 Gas Limits**: External calls during validation would exceed ~50k gas limit
-- **Cost Efficiency**: Saves ~8k gas per operation (local SLOAD vs external CALL)
-- **User Experience**: Enables sponsored transactions and lower fees
-- **Trade-off**: Requires manual `syncFromFactory()` calls after config changes
+Wallets cache `agentOperators` and `adapterRegistry` (and, for YieldSeeker wallets, the fee tracker and swap policy) locally because:
+- **ERC-4337 validation rules**: `validateUserOp` may only read storage associated with the wallet (ERC-7562); reading the factory's role list there would make bundlers reject the wallet's UserOperations
+- **Cost Efficiency**: a local SLOAD instead of an external call per operation
+- **Trade-off**: configuration changes reach a wallet only when it syncs (`syncFromFactory()`, callable by anyone); see Known risks
 
 ### Adapter Base Classes
 The inheritance hierarchy provides:

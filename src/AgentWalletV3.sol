@@ -155,7 +155,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      * @param amount Amount to withdraw
      * @dev Fees owed are collected first, from the base asset; the recipient still receives exactly `amount`.
      */
-    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual override onlyOwner nonReentrant {
+    function _withdrawAssetToUser(address recipient, address asset, uint256 amount) internal virtual override {
         _requireAccountedToken(asset);
         _settleFees(asset, recipient, amount);
         if (IERC20(asset).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();
@@ -167,7 +167,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      * @param recipient Address to send the asset to
      * @param asset Address of the ERC20 token to withdraw (must be accounted for by the fee tracker)
      */
-    function withdrawAllAssetToUser(address recipient, address asset) external virtual override onlyOwner nonReentrant {
+    function _withdrawAllAssetToUser(address recipient, address asset) internal virtual override {
         _requireAccountedToken(asset);
         _settleFees(asset, recipient, IERC20(asset).balanceOf(address(this)));
         _withdrawAsset(recipient, asset, IERC20(asset).balanceOf(address(this)));
