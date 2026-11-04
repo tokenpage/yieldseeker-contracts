@@ -108,6 +108,7 @@ Adapters report actions to the fee tracker. Before a fee-aware ERC20 owner withd
    - Fee = `ceil(yield * rateBps / 10000)`; yield fees round up, where `rateBps` comes from the wallet's `YIELD_FEE` plan
    - If loss: No fee, cost basis reduced for the remaining position
 3. **Rewards**: rewards claimed in the base asset are yield. The base asset received for selling a reward token (`REWARD_SALE`) is yield; other trades (`SWAP`, e.g. collateral sold for a borrowed token) are not. Rewards paid as vault shares or rebasing tokens have no cost basis, so their value is yield when withdrawn.
+4. **Fund wallets with the base asset**: cost basis only comes from deposits made through the adapters. Vault tokens transferred into a wallet directly (e.g. an owner moving an existing vault position in) have no cost basis, so their whole value, principal included, is charged as yield when withdrawn.
 
 ### Borrow fee (`BORROW_FEE`)
 
