@@ -114,6 +114,9 @@ contract FactoryTest is IntegrationBase {
         vm.expectRevert(unauthorizedError);
         vm.prank(stranger);
         factory.setSwapPolicy(VAULT_AGENT_PROFILE, nextPolicy);
+        vm.expectRevert(unauthorizedError);
+        vm.prank(stranger);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, borrowRegistry);
 
         vm.expectRevert(zeroProfileError);
         factory.setFeeTracker(bytes32(0), nextTracker);
