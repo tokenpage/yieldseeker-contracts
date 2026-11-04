@@ -101,6 +101,13 @@ contract VaultAdaptersTest is IntegrationBase {
         _executeExpectRevert(wallet, address(aaveV3Adapter), address(wrongAToken), abi.encodeCall(aaveV3Adapter.deposit, (1e6)), invalidAsset);
         _executeExpectRevert(wallet, address(compoundV2Adapter), address(wrongCToken), abi.encodeCall(compoundV2Adapter.deposit, (1e6)), invalidAsset);
         _executeExpectRevert(wallet, address(compoundV3Adapter), address(wrongComet), abi.encodeCall(compoundV3Adapter.deposit, (1e6)), invalidAsset);
+
+        uint256 foreignShares = 1e18;
+        _fund(address(rewardToken), address(this), foreignShares);
+        rewardToken.approve(address(wrongERC4626), foreignShares);
+        wrongERC4626.deposit(foreignShares, address(wallet));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongERC4626), abi.encodeCall(erc4626Adapter.withdraw, (foreignShares)), invalidAsset);
+        assertEq(wrongERC4626.balanceOf(address(wallet)), foreignShares);
     }
 
     function testERC4626WithdrawalChargesYieldOnAssetsActuallyReceived() public {
