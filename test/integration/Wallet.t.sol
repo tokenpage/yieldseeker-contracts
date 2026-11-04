@@ -393,15 +393,13 @@ contract WalletIntegrationTest is IntegrationBase {
         targets[1] = address(merklDistributor);
         datas[0] = abi.encodeCall(erc4626Adapter.deposit, (50e6));
 
-        address[] memory users = new address[](1);
         address[] memory tokens = new address[](1);
         uint256[] memory amounts = new uint256[](1);
         bytes32[][] memory proofs = new bytes32[][](1);
-        users[0] = address(batchWallet);
         tokens[0] = address(rewardToken);
         amounts[0] = 10e18;
         proofs[0] = new bytes32[](0);
-        datas[1] = abi.encodeCall(merklAdapter.claim, (users, tokens, amounts, proofs));
+        datas[1] = abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs));
 
         vm.prank(operator);
         bytes[] memory results = batchWallet.executeViaAdapterBatch(adapters, targets, datas);

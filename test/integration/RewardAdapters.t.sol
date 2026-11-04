@@ -29,14 +29,12 @@ contract MockMoonwellDualRewardComptroller {
 }
 
 contract RewardAdaptersTest is IntegrationBase {
-    function _merklCall(AgentWallet wallet, address[] memory tokens, uint256[] memory amounts) private view returns (bytes memory) {
-        address[] memory users = new address[](1);
-        users[0] = address(wallet);
+    function _merklCall(address[] memory tokens, uint256[] memory amounts) private view returns (bytes memory) {
         bytes32[][] memory proofs = new bytes32[][](tokens.length);
         for (uint256 i; i < proofs.length; ++i) {
             proofs[i] = new bytes32[](0);
         }
-        return abi.encodeCall(merklAdapter.claim, (users, tokens, amounts, proofs));
+        return abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs));
     }
 
     function testMerklClaimsBaseRewardsImmediatelyAndDeduplicatesRewardTokenAccounting() public {
@@ -50,7 +48,7 @@ contract RewardAdaptersTest is IntegrationBase {
         amounts[1] = 100e18;
         amounts[2] = 25e18;
 
-        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(wallet, tokens, amounts));
+        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts));
 
         uint256 baseFee = amounts[0] * YIELD_FEE_BPS / 10_000;
         assertEq(usdc.balanceOf(address(wallet)), amounts[0] - baseFee);
@@ -74,7 +72,7 @@ contract RewardAdaptersTest is IntegrationBase {
         amounts[1] = 50e18;
         amounts[2] = 25e18;
 
-        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(wallet, tokens, amounts));
+        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts));
 
         assertEq(rewardToken.balanceOf(address(wallet)), amounts[0] + amounts[1] + amounts[2]);
         assertEq(usdc.balanceOf(address(wallet)), 0);
@@ -89,7 +87,7 @@ contract RewardAdaptersTest is IntegrationBase {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 100e6;
         bytes memory expectedError = abi.encodeWithSignature("Error(string)", "claim failed");
-        _executeExpectRevert(wallet, address(merklAdapter), address(merklDistributor), _merklCall(wallet, tokens, amounts), expectedError);
+        _executeExpectRevert(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts), expectedError);
         assertEq(usdc.balanceOf(address(wallet)), 0);
         assertEq(_feesCollected(address(usdc)), 0);
     }

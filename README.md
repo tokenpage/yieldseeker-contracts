@@ -390,7 +390,7 @@ For 0x Protocol swaps.
 For claiming Merkl rewards.
 
 **Functions:**
-- `claim(distributor, users[], tokens[], amounts[], proofs[][])` - Claim rewards
+- `claim(tokens[], amounts[], proofs[][])` (target = the distributor) - Claim the wallet's own rewards; the adapter passes the wallet as the user for every token
 
 **Validation:**
 - Verifies all `users` in the claim are the wallet address

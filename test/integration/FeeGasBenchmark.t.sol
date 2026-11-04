@@ -254,7 +254,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, amount);
         address directUser = address(0xDEAD);
         (address[] memory directUsers, address[] memory directTokens, uint256[] memory directAmounts, bytes32[][] memory directProofs) = _merklArgs(directUser, amount);
-        (address[] memory walletUsers, address[] memory walletTokens, uint256[] memory walletAmounts, bytes32[][] memory walletProofs) = _merklArgs(address(wallet), amount);
+        (, address[] memory walletTokens, uint256[] memory walletAmounts, bytes32[][] memory walletProofs) = _merklArgs(address(wallet), amount);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
         vm.prank(directUser);
@@ -264,7 +264,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
 
         uint256 adapterStart = gasleft();
         vm.prank(operator);
-        wallet.executeViaAdapter(address(merklAdapter), address(merklDistributor), abi.encodeWithSelector(merklAdapter.claim.selector, walletUsers, walletTokens, walletAmounts, walletProofs));
+        wallet.executeViaAdapter(address(merklAdapter), address(merklDistributor), abi.encodeCall(merklAdapter.claim, (walletTokens, walletAmounts, walletProofs)));
         uint256 adapterGas = adapterStart - gasleft();
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, amount / 10);

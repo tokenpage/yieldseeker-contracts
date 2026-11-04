@@ -445,15 +445,13 @@ contract FeesIntegrationTest is IntegrationBase {
     }
 
     function _claim(AgentWallet wallet, address token, uint256 amount) private {
-        address[] memory users = new address[](1);
-        users[0] = address(wallet);
         address[] memory tokens = new address[](1);
         tokens[0] = token;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amount;
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
-        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeWithSelector(merklAdapter.claim.selector, users, tokens, amounts, proofs));
+        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs)));
     }
 
     function _executeLending(AgentWallet wallet, bytes4 selector, uint256 amount) private {

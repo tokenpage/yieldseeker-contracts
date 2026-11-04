@@ -14,10 +14,11 @@ contract MockMerklDistributor {
         shouldRevert = value;
     }
 
-    function claim(address[] calldata, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata) external {
+    function claim(address[] calldata users, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata) external {
         if (shouldRevert) revert("claim failed");
+        require(users.length == tokens.length && amounts.length == tokens.length, "Length mismatch");
         for (uint256 i = 0; i < tokens.length; i++) {
-            require(MockERC20(tokens[i]).transfer(msg.sender, amounts[i]), "Transfer failed");
+            require(MockERC20(tokens[i]).transfer(users[i], amounts[i]), "Transfer failed");
         }
     }
 }
