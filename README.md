@@ -217,6 +217,8 @@ event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTrac
 | `syncFromFactory()` | Anyone | Refresh cached config from Factory (takes no input; not from inside an adapter call) |
 | `withdrawAssetToUser(recipient, asset, amount)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
 | `withdrawAllAssetToUser(recipient, asset)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
+| `withdrawAssetsToUser(recipient, assets, amounts)` | Owner only | `withdrawAssetToUser` for several tokens in one call (equal-length arrays); any rejected token reverts the whole call |
+| `withdrawAllAssetsToUser(recipient, assets)` | Owner only | `withdrawAllAssetToUser` for several tokens in one call |
 | `withdrawEthToUser(recipient, amount)` | Owner only | Withdraw ETH (not fee-settled) |
 | `withdrawAllEthToUser(recipient)` | Owner only | Withdraw all ETH (not fee-settled) |
 | `upgradeToLatest()` | Owner only | Upgrade to the Factory's current implementation and sync Factory config |
@@ -374,7 +376,7 @@ For Yearn V3, MetaMorpho, Morpho Blue, and other ERC4626 vaults.
 
 #### Swap adapters (`src/adapters/{UniswapV3,AerodromeV2,AerodromeCL}SwapAdapter.sol`)
 
-One adapter per DEX router; the registry target is the router.
+One adapter per DEX router; the registry target is the router. Aerodrome Slipstream has three pool factories, each with its own router, so the same CL adapter contract is deployed once per router (`aerodromeCLSwapAdapter`, `aerodromeCL2SwapAdapter`, `aerodromeCL3SwapAdapter`; the tokenized-stock pools are on the third). A CL route may use any tick spacing the router's factory enabled.
 
 **Functions:**
 - `swap(sellToken, buyToken, route, sellAmount, minBuyAmount)` - swap through the router along `route`
@@ -485,7 +487,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 | Action | Owner | Cached Operator | EntryPoint | Adapter | Anyone |
 |--------|-------|----------------|------------|---------|--------|
 | `executeViaAdapter()` | ✅ | ✅ | ✅ | ❌ | ❌ |
-| `withdrawAssetToUser()` / `withdrawAllAssetToUser()` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `withdrawAssetToUser()` / `withdrawAllAssetToUser()` / `withdrawAssetsToUser()` / `withdrawAllAssetsToUser()` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `withdrawEthToUser()` / `withdrawAllEthToUser()` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `upgradeToLatest()` / `upgradeToAndCall()` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `blockAdapter()` | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -564,7 +566,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 #### Scenario 3: User Wants to Exit
 
 **User Rights:**
-- Owner can call `withdrawAssetToUser` / `withdrawAllAssetToUser` for the base asset or a fee-tracker-accounted token, and `withdrawEthToUser` / `withdrawAllEthToUser` for ETH
+- Owner can call `withdrawAssetToUser` / `withdrawAllAssetToUser` (or the batch `withdrawAssetsToUser` / `withdrawAllAssetsToUser`) for the base asset or a fee-tracker-accounted token, and `withdrawEthToUser` / `withdrawAllEthToUser` for ETH
 - ERC20 withdrawals attempt fee settlement first; native ETH withdrawals are not fee-settled
 - Vault shares, aTokens and other positions must be unwound through adapters; non-accounted ERC20 tokens cannot be owner-withdrawn
 - Direct owner withdrawals need no server or platform approval; position exits require an active, unpaused registry
@@ -855,6 +857,8 @@ Timelock roles: the deployer and the Safe can both propose and cancel; only the 
 ### Deploy
 
 `Deploy.s.sol` deploys contracts whose addresses are missing or zero in `deployments.json`. It deploys the V3 vault registry and borrow registry with their adapters, the fee tracker and its vault and borrow fee modules, configures the static borrow targets, copies every V2 vault registry target into the V3 vault registry (see below), wires the factory and fee tracker, grants the operator role, and schedules a configuration batch. It never deploys or changes the V2 system, which stays in `deployments.json` under `agentWalletV2*` keys.
+
+Each run also brings existing configuration back in line with the environment: it schedules `setFeeCollector(FEE_COLLECTOR_ADDRESS)` on a fee tracker whose collector differs, and grants `AGENT_OPERATOR_ROLE` to `SERVER_ADDRESS` if missing (it never removes operators; see Known risks for server-key rotation).
 
 ```bash
 forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify

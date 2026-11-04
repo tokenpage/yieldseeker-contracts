@@ -30,6 +30,11 @@
 - Owner-signed UserOperations also accept a contract owner's ERC-1271 approval (`isValidSignature`, read-only), so an integrator can sponsor withdrawals for users whose owner is a Safe or smart wallet. ECDSA is checked first, so EOAs (including EIP-7702 ones) are unchanged; operator signatures stay ECDSA-only and limited to adapter execution.
 - `upgradeToLatest` syncs through the upgrade call (`upgradeToAndCall(impl, syncFromFactory())`), so the **new** implementation's sync runs; previously the old code's sync ran after the switch, so fields a new version syncs stayed unset until the next sync.
 - `YieldSeekerAgentWalletV3` disables the inherited 3-argument `initialize(owner, index, profile)` (`NotAllowed`); its wallets are only initialized with the base asset. New test: an owner can't skip fee settlement with any gas limit (withdrawal either reverts or pays the full fee, swept from 60k to 3M gas).
+- Owners can withdraw several tokens in one call: `withdrawAssetsToUser(recipient, assets, amounts)` and `withdrawAllAssetsToUser(recipient, assets)`, with the same per-token rules as the single-token functions (accounted tokens only, fees settled first). The per-token logic moved into internal hooks (`_withdrawAssetToUser`, `_withdrawAllAssetToUser`) that `YieldSeekerAgentWalletV3` overrides; the AWK token withdrawals are now `nonReentrant`.
+- Aerodrome Slipstream: CL swap adapters for all three routers (`aerodromeCLSwapAdapter`, `aerodromeCL2SwapAdapter`, `aerodromeCL3SwapAdapter`, registered in both V3 registries), and no tick-spacing allowlist (the router's factory only has pools at spacings it enabled), so tokenized-stock pools (third factory, spacing 10) are reachable.
+- `Deploy.s.sol` schedules `setFeeCollector` when a tracker's collector differs from `FEE_COLLECTOR_ADDRESS`.
+- The price oracle rejects a feed timestamp in the future (`StalePrice`); the borrow swap floor rounds up; a Compound V3 deposit that credits no balance reverts (`deposit(max)` with no borrow used to be a silent no-op).
+- README: a Known risks section, and corrected notes on cached configuration (ERC-7562), namespaced storage and swap adapters (the 0x adapter was removed in #10).
 
 ### Agent wallet V2
 
