@@ -844,6 +844,8 @@ forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --b
 
 New and reused addresses are saved to `deployments.json`. In production, execute the emitted deploy configuration batch and wait for it to complete before setting price sources or registering borrow markets.
 
+Before a real run, `./script/dry-run-deploy.sh` runs the same deployment on a local fork of Base, executes its batch as the Safe and checks that a second run has nothing left to configure; it restores `deployments.json` and `broadcast/Deploy.s.sol` afterwards.
+
 ### Two vault registries
 
 V2 wallets keep using the V2 vault registry (`agentWalletV2AdapterRegistry`), whose adapters record fees on the legacy V2 FeeTracker. V3 vault wallets use the V3 vault registry (`vaultAdapterRegistry`), whose adapters record fees on the V3 vault fee module. A registry maps each target to one adapter, so the two systems can't share one registry. Until every V2 wallet has moved to V3, the two vault registries must hold exactly the same targets:
