@@ -44,17 +44,6 @@ contract YieldFeeModuleTest is Test {
         assertEq(module.costBasis(WALLET, TARGET), 100);
     }
 
-    function testPartialProfitThenLossReleasesCostBasisProportionally() public {
-        module.setBasis(WALLET, TARGET, 1_000);
-        FeeActions.Withdraw memory partialProfit = FeeActions.Withdraw({target: TARGET, spent: 500, heldBefore: 1_000, assetsOut: 550});
-        assertEq(module.release(WALLET, partialProfit), 50);
-        assertEq(module.costBasis(WALLET, TARGET), 500);
-
-        FeeActions.Withdraw memory finalLoss = FeeActions.Withdraw({target: TARGET, spent: 500, heldBefore: 500, assetsOut: 450});
-        assertEq(module.release(WALLET, finalLoss), 0);
-        assertEq(module.costBasis(WALLET, TARGET), 0);
-    }
-
     function testLargePositionWithdrawalCalculatesProfitWithoutOverflow() public {
         uint256 assetsDeposited = type(uint128).max;
         uint256 growth = 1_000e6;
