@@ -47,13 +47,16 @@ abstract contract AWKCompoundV3Adapter is AWKBaseVaultAdapter {
         return ICompoundV3Comet(vault).baseToken();
     }
 
-    /// @dev The amount is the base token amount; shares are the Comet balance received (rebasing, not real shares)
+    /// @dev The amount is the base token amount; shares are the Comet balance received (rebasing, not real shares).
+    ///      The approval is reset after supply: Comet reads type(uint256).max as "supply my borrow balance", which can
+    ///      pull less than approved.
     function _deposit(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = ICompoundV3Comet(vault).baseToken();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         uint256 balanceBefore = ICompoundV3Comet(vault).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         ICompoundV3Comet(vault).supply({asset: asset, amount: amount});
+        IERC20(asset).forceApprove(vault, 0);
         uint256 balanceAfter = ICompoundV3Comet(vault).balanceOf(address(this));
         shares = balanceAfter - balanceBefore;
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));

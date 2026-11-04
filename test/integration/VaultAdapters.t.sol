@@ -103,6 +103,25 @@ contract VaultAdaptersTest is IntegrationBase {
         _executeExpectRevert(wallet, address(compoundV3Adapter), address(wrongComet), abi.encodeCall(compoundV3Adapter.deposit, (1e6)), invalidAsset);
     }
 
+    function testERC4626WithdrawalChargesYieldOnAssetsActuallyReceived() public {
+        AgentWallet wallet = _createVaultWallet(owner, 1);
+        uint256 principal = 1_000e6;
+        uint256 yieldAmount = 100e6;
+        _fundWallet(wallet, address(usdc), principal);
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (principal)));
+        _fund(address(usdc), address(erc4626Vault), yieldAmount);
+        erc4626Vault.setRedeemFee(100);
+        uint256 received = (principal + yieldAmount) * 9_900 / 10_000;
+        uint256 expectedFee = Math.mulDiv(received - principal, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
+        uint256 shares = erc4626Vault.balanceOf(address(wallet));
+
+        bytes memory result = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (shares)));
+
+        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), received);
+        assertEq(_feesCollected(address(usdc)), expectedFee);
+        assertEq(usdc.balanceOf(address(wallet)), received - expectedFee);
+    }
+
     function testERC4626DonationInflationCannotMintZeroShares() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fund(address(usdc), address(this), 1 + 1_000_000e6);

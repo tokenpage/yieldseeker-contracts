@@ -10,6 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract MockERC4626 is ERC20, IERC4626 {
     IERC20 private immutable _ASSET;
     uint256 private _accumulatedYield;
+    uint256 private _redeemFeeBps;
 
     constructor(address asset_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
         _ASSET = IERC20(asset_);
@@ -19,6 +20,11 @@ contract MockERC4626 is ERC20, IERC4626 {
     /// @notice Add yield to the vault (simulates external yield generation)
     function addYield(uint256 amount) external {
         _accumulatedYield += amount;
+    }
+
+    /// @notice Keep a fee on redeem while still returning the gross amount (a non-compliant vault)
+    function setRedeemFee(uint256 feeBps) external {
+        _redeemFeeBps = feeBps;
     }
 
     /// @notice Get total assets including accumulated yield
@@ -167,6 +173,6 @@ contract MockERC4626 is ERC20, IERC4626 {
         }
 
         _burn(owner, shares);
-        require(_ASSET.transfer(receiver, assets), "Transfer failed");
+        require(_ASSET.transfer(receiver, assets - (assets * _redeemFeeBps) / 10_000), "Transfer failed");
     }
 }

@@ -458,6 +458,10 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - Exchange rate = (totalCash + totalBorrows - reserves) / totalSupply
 - Works with Moonwell (mTokens), Venus (vTokens), and other Compound V2 forks
 
+#### MoonwellRewardAdapter (`src/adapters/MoonwellRewardAdapter.sol`)
+
+`claimReward(holder = wallet, mTokens)` claims the wallet's Moonwell rewards and reports what arrived (`CLAIM`): WELL (charged when sold for the base asset) and the base asset when a market pays rewards in it (charged at claim). Moonwell's `claimReward` is permissionless, so anyone, the owner included, can claim for a wallet outside the adapter: WELL claimed that way is still charged when sold, but base-asset rewards arrive uncharged. The backend claims frequently to keep that small; the leak is bounded by the yield fee on base-asset Moonwell rewards.
+
 ---
 
 ## Security Model

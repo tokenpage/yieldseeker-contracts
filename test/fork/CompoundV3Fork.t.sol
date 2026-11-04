@@ -59,4 +59,16 @@ contract CompoundV3ForkTest is ForkBase {
         assertEq(asset.balanceOf(owner) - ownerBalanceBefore, totalVaultBalanceBefore - expectedFee);
         assertEq(asset.balanceOf(address(wallet)), 0);
     }
+
+    function test_CompoundV3USDC_DepositOfMaxSuppliesNothingAndLeavesNoApproval() public {
+        AgentWallet wallet = _createVaultWallet(USDC, 2);
+        YieldSeekerCompoundV3Adapter adapter = new YieldSeekerCompoundV3Adapter();
+        _registerAdapter(address(adapter), COMET_USDC);
+        deal(USDC, address(wallet), DEPOSIT_AMOUNT);
+
+        _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, type(uint256).max));
+
+        assertEq(IERC20Metadata(USDC).balanceOf(address(wallet)), DEPOSIT_AMOUNT, "Comet reads max as the wallet's (zero) borrow balance");
+        assertEq(IERC20Metadata(USDC).allowance(address(wallet), COMET_USDC), 0, "no approval is left");
+    }
 }

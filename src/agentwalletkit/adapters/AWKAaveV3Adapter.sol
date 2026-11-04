@@ -67,10 +67,13 @@ abstract contract AWKAaveV3Adapter is AWKBaseVaultAdapter {
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
     }
 
-    /// @dev The shares parameter is the underlying asset amount, since aTokens rebase 1:1
+    /// @dev The shares parameter is the underlying asset amount, since aTokens rebase 1:1; the result is measured as the
+    ///      change in the wallet's asset balance
     function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         address asset = IAaveAToken(vault).UNDERLYING_ASSET_ADDRESS();
         address pool = IAaveAToken(vault).POOL();
-        assets = IAaveV3Pool(pool).withdraw({asset: asset, amount: shares, to: address(this)});
+        uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
+        IAaveV3Pool(pool).withdraw({asset: asset, amount: shares, to: address(this)});
+        assets = IERC20(asset).balanceOf(address(this)) - balanceBefore;
     }
 }
