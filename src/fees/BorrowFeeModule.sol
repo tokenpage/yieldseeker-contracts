@@ -107,7 +107,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     }
 
     function _pendingFee(address wallet, DebtPosition memory position) internal view returns (uint256) {
-        if (position.lastAccrual == 0) return 0;
+        if (position.lastDebt == 0) return 0;
         return Math.mulDiv(position.lastDebt, walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual), SECONDS_PER_YEAR * 1e4, Math.Rounding.Ceil);
     }
 
