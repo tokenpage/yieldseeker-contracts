@@ -2,8 +2,17 @@ pragma solidity 0.8.28;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {InvalidTransferTarget, NotOwnersAgentWallet} from "../../src/adapters/AgentTransferAdapter.sol";
+import {AgentWalletStorageV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
+
+contract OwnershipTransferWalletV3 is AgentWallet {
+    constructor(address factory) AgentWallet(factory) {}
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        AgentWalletStorageV3.layout().owner = newOwner;
+    }
+}
 
 contract AgentTransferSpoofWallet {
     address private immutable _owner;
@@ -132,6 +141,20 @@ contract AgentTransfersTest is IntegrationBase {
 
         bytes memory targetError = abi.encodeWithSelector(InvalidTransferTarget.selector, invalidTarget);
         _executeExpectRevert(vaultWallet, address(agentTransferAdapter), invalidTarget, abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), targetError);
+    }
+
+    function testTransferRejectsReceiverNoLongerOwnedByTheSameOwner() public {
+        AgentWallet vaultWallet = _createVaultWallet(owner, 1);
+        AgentWallet borrowWallet = _createBorrowWallet(owner, 2);
+        _fundWallet(vaultWallet, address(usdc), 100e6);
+        factory.setAgentWalletImplementation(new OwnershipTransferWalletV3(address(factory)));
+        vm.startPrank(owner);
+        borrowWallet.upgradeToLatest();
+        OwnershipTransferWalletV3(payable(address(borrowWallet))).transferOwnership(makeAddr("newOwner"));
+        vm.stopPrank();
+
+        bytes memory error = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(borrowWallet));
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), error);
     }
 
     function testTransferRejectsTokensNotAccountedByReceiverAndZeroAmounts() public {

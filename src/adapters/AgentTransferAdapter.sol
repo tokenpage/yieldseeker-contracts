@@ -33,7 +33,8 @@ error NotOwnersAgentWallet(address wallet);
  * @title YieldSeekerAgentTransferAdapter
  * @notice Move a token from this wallet to another agent wallet of the same owner
  * @dev Register this adapter as its own target. Both wallets must be the ones this wallet's factory deployed for the
- *      same owner (userWallets(owner, ownerAgentIndex) points back at them, so a look-alike contract cannot pass).
+ *      same owner (userWallets(owner, ownerAgentIndex) points back at them, so a look-alike contract cannot pass), and
+ *      the receiver must still be owned by them.
  *      Both fee trackers must account for the token (so it can always be withdrawn there), and the transfer is
  *      reported first (FeeActions.TRANSFER_OUT) so fees owed are paid before the exact amount leaves.
  */
@@ -55,7 +56,7 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         AWKAgentWalletFactory factory = AWKAgentWalletFactory(address(wallet.FACTORY()));
         address owner = wallet.owner();
         if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotOwnersAgentWallet(address(this));
-        if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to) revert NotOwnersAgentWallet(to);
+        if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to || YieldSeekerAgentWalletV3(payable(to)).owner() != owner) revert NotOwnersAgentWallet(to);
         if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();
         _reportAction(FeeActions.TRANSFER_OUT, abi.encode(FeeActions.TransferOut({token: token, to: to, amount: amount})));
         if (IERC20(token).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();
