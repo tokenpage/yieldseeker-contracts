@@ -262,10 +262,10 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /**
      * @notice Refresh configuration from the factory
-     * @dev On onlyExecutors (not a separate onlySyncers) — with EntryPoint already included in
-     *      onlyExecutors, a distinct owner-or-operator-only modifier would be redundant.
+     * @dev Anyone can call it: it takes no input and only copies the factory's configuration (set by its admin), so the
+     *      platform can apply an operator removal to every wallet without waiting for owners.
      */
-    function syncFromFactory() external virtual onlyExecutors {
+    function syncFromFactory() external virtual nonReentrant {
         _syncFromFactory();
     }
 

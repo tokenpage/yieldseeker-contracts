@@ -47,17 +47,17 @@ This system enforces **parameter-level validation** through protocol-specific ad
 
 ### Emergency Controls and Stale Cache Mitigation
 
-**Important Limitation**: Wallets cache `agentOperators` locally for ERC-4337 gas efficiency. This creates a window where:
-- A removed operator can still sign for wallets that have not called `syncFromFactory()`
-- A Factory role change does not push new authorization state into already deployed wallets
+**Important Limitation**: Wallets cache `agentOperators` locally for ERC-4337 gas efficiency (signature validation can't read the factory). A removed operator can still sign for a wallet until that wallet syncs. Anyone can call `syncFromFactory()` on any wallet (it takes no input and only copies the factory's configuration), so the platform syncs every wallet itself instead of waiting for owners.
 
-**Operator Revocation Procedure:**
-1. **Pause first**: Call `pause()` (`EMERGENCY_ROLE`) on **every** adapter registry in `deployments.json` (the V2 vault registry `agentWalletV2AdapterRegistry`, `vaultAdapterRegistry` and `borrowAdapterRegistry`); each pauses on its own, and together they stop adapter execution across all wallets immediately.
-2. **Revoke globally**: Remove the operator's `AGENT_OPERATOR_ROLE` from every Factory (V2 and V3).
-3. **Synchronize every wallet**: Call `syncFromFactory()` on every existing wallet and verify that the revoked operator is no longer cached. This is a per-wallet operation; revoking the Factory role alone does not update deployed wallets. Calls may be submitted individually or through a batch process, but every wallet must complete synchronization.
-4. **Resume**: Call `unpause()` on every registry only after all wallets have synchronized.
+**Operator Revocation Procedure** (V3 factory; minutes, no user action):
+1. **Optional pause**: `pause()` (`EMERGENCY_ROLE`) on `vaultAdapterRegistry` and `borrowAdapterRegistry` closes the window while steps 2–3 run, at the cost of the timelocked unpause (step 4).
+2. **Remove the operator**: `factory.removeAgentOperator(operator)` (`EMERGENCY_ROLE`, instant). The emergency role can only remove operators; adding one stays with the timelock.
+3. **Sync every wallet**: call `syncFromFactory()` on every V3 wallet (any account, individually or batched) and check `isAgentOperator(operator)` is false on each.
+4. **Resume**: if you paused, schedule `unpause()` on each paused registry through the timelock (at least 4 days).
 
-Without the registry pause, unsynchronized wallets remain able to accept the revoked operator's adapter UserOperations until their local cache is refreshed.
+V2 wallets keep the V2 factory, where operator removal and sync are not emergency powers: pause the V2 vault registry `agentWalletV2AdapterRegistry`, revoke the operator through the timelock, have owners or operators sync, then unpause through the timelock.
+
+**After an emergency target removal**: cancel any scheduled timelock operation that would set that target again (`cancel(id)`, `CANCELLER_ROLE`), and remove it from both vault registries; re-running `Deploy.s.sol` copies every V2 vault registry target into the V3 vault registry.
 
 ### Standards Compliance
 
@@ -211,7 +211,7 @@ event SyncedFromFactory(address indexed adapterRegistry, address indexed feeTrac
 | `unblockAdapter(adapter)` | Owner only | Unblock a previously blocked adapter |
 | `blockTarget(target)` | Owner only | Block a target from being used by this wallet |
 | `unblockTarget(target)` | Owner only | Unblock a previously blocked target |
-| `syncFromFactory()` | Owner, cached operators or EntryPoint | Refresh cached config from Factory |
+| `syncFromFactory()` | Anyone | Refresh cached config from Factory (takes no input; not from inside an adapter call) |
 | `withdrawAssetToUser(recipient, asset, amount)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
 | `withdrawAllAssetToUser(recipient, asset)` | Owner only | Withdraw the base asset or a fee-tracker-accounted ERC20 token; attempts fee settlement first |
 | `withdrawEthToUser(recipient, amount)` | Owner only | Withdraw ETH (not fee-settled) |
@@ -483,7 +483,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 | `upgradeToLatest()` / `upgradeToAndCall()` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `blockAdapter()` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `blockTarget()` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `syncFromFactory()` | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `syncFromFactory()` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `execute()` | ❌ (DISABLED) | ❌ (DISABLED) | ❌ (DISABLED) | ❌ | ❌ |
 | Receive deposits | ✅ | ✅ | ✅ | ✅ | ✅ |
 
@@ -498,6 +498,7 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 | `setAdapterRegistry()` | ✅ | ❌ | ❌ |
 | `setFeeTracker()` / `setSwapPolicy()` | ✅ | ❌ | ❌ |
 | `grantRole()` | ✅ | ❌ | ❌ |
+| `removeAgentOperator()` | ❌ | ❌ | ❌ (`EMERGENCY_ROLE` only, instant) |
 | `getAddress()` | ✅ | ✅ | ✅ |
 
 ---
@@ -536,9 +537,9 @@ For Compound V2 and its forks (Moonwell, Venus, etc.). Handles deposits/withdraw
 - ❌ Upgrade wallets (owner only)
 
 **Mitigation:**
-1. Emergency admin calls `AdapterRegistry.pause()` - instantly stops adapter execution through that registry, but not direct owner withdrawals of assets already withdrawable from the wallet
-2. Admin removes compromised operator from Factory
-3. Users call `syncFromFactory()` to refresh their wallet's operator cache
+1. Emergency admin calls `factory.removeAgentOperator(operator)` (instant), optionally after `AdapterRegistry.pause()`
+2. The platform calls `syncFromFactory()` on every wallet (anyone may), which drops the operator from each wallet's cache
+3. If paused, the timelock unpauses
 
 ---
 
@@ -806,7 +807,7 @@ sequenceDiagram
 **Key Properties:**
 - A single `pause()` call blocks adapter execution through the paused registry, including adapter actions submitted by the owner.
 - Direct owner withdrawals of the base asset, fee-tracker-accounted tokens and ETH remain available; ERC20 withdrawals are fee-settled best-effort.
-- Pausing the borrow registry blocks owners' adapter-based repay and collateral withdrawal (and pausing a vault registry blocks position exits) until the timelock unpauses it.
+- Pausing the borrow registry blocks owners' adapter-based repay and collateral withdrawal (and pausing a vault registry blocks position exits) until the timelock unpauses it, at least `getMinDelay()` (4 days) later; unpausing is deliberately not an emergency power. During a pause an owner can still repay a borrow wallet's debt directly on Aave V3 or Morpho (both accept a repay on behalf of any account; checkpoint the market afterwards), but not on Aave V4, where only the wallet can repay its own debt.
 
 ---
 
@@ -936,7 +937,7 @@ In production, scripts schedule timelock operations rather than executing them i
 
 ### Selective redeployment
 
-To redeploy a contract, set its address to `0x0000000000000000000000000000000000000000` in `deployments.json` and run the deployment script again.
+To redeploy a contract, set its address to `0x0000000000000000000000000000000000000000` in `deployments.json` and run the deployment script again. This works for stateless contracts (adapters, swap policies, the wallet implementation). `Deploy.s.sol` refuses to replace a registry, fee tracker or fee module that the factory or a tracker already uses (`Refusing to replace …`): they hold per-wallet or per-target state, so a replacement must import it (see "Changing fee logic") and is set deliberately in its own timelock operation.
 
 ---
 
@@ -981,7 +982,7 @@ We have comprehensive tests in `test/`:
 
 1. Admin calls `factory.setAdapterRegistry(agentProfile, newRegistry)`, `factory.setFeeTracker(agentProfile, newTracker)` or `factory.setSwapPolicy(agentProfile, newPolicy)`
 2. New wallets use the updated profile configuration; existing wallets pick up the new registry, fee tracker or swap policy on their next `syncFromFactory()`
-3. Existing wallets must call `syncFromFactory()` to get updated references (operators can call it for every wallet)
+3. Existing wallets must call `syncFromFactory()` to get updated references (anyone can call it for every wallet)
 4. A registry's contents (adapters, targets, pause) are read live, so changing them needs no sync; only replacing the registry contract itself does
 
 ---
@@ -1029,7 +1030,7 @@ function _validateSignature(PackedUserOperation calldata userOp, bytes32 userOpH
 1. **No wallet-specific config**: Server doesn't need to be added to each wallet
 2. **Cached for gas**: `isAgentOperator` mapping avoids external calls during validation
 3. **Factory is source of truth**: `syncFromFactory()` refreshes the cache
-4. **Instant revocation via pause**: Even with stale cache, pausing every adapter registry stops all operations
+4. **Fast revocation**: the emergency role removes the operator from the factory at once, and anyone syncs every wallet; pausing every adapter registry stops all operations even before that
 
 ---
 

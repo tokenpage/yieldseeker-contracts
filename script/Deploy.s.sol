@@ -264,7 +264,7 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWalletFactory
         if (deployments.agentWalletFactory == address(0)) {
-            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, serverAddress)));
+            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, serverAddress)));
             console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
             console2.log("   AGENT_OPERATOR_ROLE granted to:", serverAddress);
         } else {
@@ -518,6 +518,11 @@ contract DeployScript is Script {
         if (address(agentWalletFactory.agentWalletImplementation()) != deployments.agentWalletImplementation) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAgentWalletImplementation, (AgentWallet(payable(deployments.agentWalletImplementation)))));
         }
+        _requireNotReplaced(address(agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE)), address(vaultAdapterRegistry), "the vault adapter registry");
+        _requireNotReplaced(address(agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE)), address(borrowAdapterRegistry), "the borrow adapter registry");
+        _requireNotReplaced(address(agentWalletFactory.feeTracker(VAULT_AGENT_PROFILE)), address(vaultFeeTracker), "the vault fee tracker");
+        _requireNotReplaced(address(agentWalletFactory.feeTracker(BORROW_AGENT_PROFILE)), address(borrowFeeTracker), "the borrow fee tracker");
+        _requireNotReplaced(address(borrowFeeTracker.feeModules(BORROW_FEE)), deployments.borrowFeeModule, "the borrow fee module");
         if (agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE) != vaultAdapterRegistry) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, vaultAdapterRegistry)));
         }
@@ -640,9 +645,16 @@ contract DeployScript is Script {
 
     /// @dev The settings every agent profile's tracker shares: the wallet factory and the yield fee with its plan 0
     function _configureFeeTracker(FeeTracker tracker, address agentWalletFactory, address yieldFeeModule) internal {
+        _requireNotReplaced(address(tracker.feeModules(YIELD_FEE)), yieldFeeModule, "a yield fee module");
         if (tracker.walletFactory() != agentWalletFactory) _op(address(tracker), abi.encodeCall(tracker.setWalletFactory, (agentWalletFactory)));
         if (address(tracker.feeModules(YIELD_FEE)) != yieldFeeModule) _op(address(tracker), abi.encodeCall(tracker.setFeeModule, (YIELD_FEE, YieldFeeModule(yieldFeeModule))));
         if (tracker.planCount(YIELD_FEE) == 0) _op(address(tracker), abi.encodeCall(tracker.createPlan, (YIELD_FEE, abi.encode(YieldFeeModule.Plan({rateBps: YIELD_DEFAULT_FEE_BPS})))));
+    }
+
+    /// @dev Registries, fee trackers and fee modules hold per-wallet or per-target state, so replacing one is a migration:
+    ///      the replacement must import that state (see the README), and is set deliberately, not by re-running Deploy
+    function _requireNotReplaced(address current, address next, string memory name) internal pure {
+        require(current == address(0) || current == next, string.concat("Refusing to replace ", name, ": it holds wallet or target state; deploy a replacement that imports it and set it deliberately"));
     }
 
     function _registerAdapter(AdapterRegistry registry, address adapter) internal {

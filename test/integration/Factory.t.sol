@@ -83,7 +83,7 @@ contract FactoryTest is IntegrationBase {
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, notAContract));
         factory.setAgentWalletImplementation(AgentWallet(payable(notAContract)));
 
-        RealFactory otherFactory = new RealFactory(admin, operator);
+        RealFactory otherFactory = new RealFactory(admin, admin, operator);
         AgentWallet foreignImplementation = new AgentWallet(address(otherFactory));
         vm.expectRevert(InvalidImplementationFactory.selector);
         factory.setAgentWalletImplementation(foreignImplementation);
@@ -91,7 +91,7 @@ contract FactoryTest is IntegrationBase {
     }
 
     function testWalletCreationRequiresImplementation() public {
-        RealFactory emptyFactory = new RealFactory(admin, operator);
+        RealFactory emptyFactory = new RealFactory(admin, admin, operator);
         vm.expectRevert(NoAgentWalletImplementationSet.selector);
         vm.prank(operator);
         emptyFactory.createAgentWallet(owner, 1, address(usdc), VAULT_AGENT_PROFILE, new FeePlanChoice[](0));

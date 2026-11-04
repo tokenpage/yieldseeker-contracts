@@ -52,6 +52,7 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
  */
 abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
     uint256 public constant MAX_OPERATORS = 10;
 
     AgentWallet internal _agentWalletImplementation;
@@ -65,12 +66,23 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
     /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
+    /// @param emergencyAdmin Address that can remove agent operators at once (removeAgentOperator)
     /// @param agentOperator Address that can create agent wallets (typically backend server)
-    constructor(address admin, address agentOperator) {
+    constructor(address admin, address emergencyAdmin, address agentOperator) {
         if (admin == address(0)) revert AWKErrors.ZeroAddress();
+        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
         if (agentOperator == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(EMERGENCY_ROLE, emergencyAdmin);
         _grantRole(AGENT_OPERATOR_ROLE, agentOperator);
+    }
+
+    /**
+     * @notice Remove an agent operator at once, e.g. when its key is exposed; adding operators stays with the admin
+     * @dev Wallets drop the operator at their next sync, which anyone can trigger (syncFromFactory)
+     */
+    function removeAgentOperator(address operator) external onlyRole(EMERGENCY_ROLE) {
+        _revokeRole(AGENT_OPERATOR_ROLE, operator);
     }
 
     /**

@@ -164,7 +164,7 @@ abstract contract IntegrationBase is Test {
         rewardPriceFeed = new MockFeePriceFeed(8, 1e8, timestamp);
         wellPriceFeed = new MockFeePriceFeed(8, 1e8, timestamp);
 
-        factory = new AgentWalletFactory(admin, operator);
+        factory = new AgentWalletFactory(admin, admin, operator);
         walletImplementation = new AgentWallet(address(factory));
         factory.setAgentWalletImplementation(walletImplementation);
         vaultRegistry = new AdapterRegistry(admin, admin);

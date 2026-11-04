@@ -32,7 +32,7 @@ abstract contract ForkBase is Test {
         vaultFeeTracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: YIELD_FEE_BPS})));
 
         vaultRegistry = new AdapterRegistry(address(this), address(this));
-        factory = new AgentWalletFactory(address(this), operator);
+        factory = new AgentWalletFactory(address(this), address(this), operator);
         factory.setAgentWalletImplementation(new AgentWallet(address(factory)));
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, vaultRegistry);
         factory.setFeeTracker(VAULT_AGENT_PROFILE, vaultFeeTracker);

@@ -9,6 +9,7 @@ import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -254,17 +255,26 @@ contract WalletIntegrationTest is IntegrationBase {
         _wallet.validateUserOp(userOp, userOpHash, 0);
     }
 
-    function test_SyncRefreshesRevokedOperator() public {
-        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
-        factory.revokeRole(factory.AGENT_OPERATOR_ROLE(), operator);
-        vm.prank(_walletOwner);
+    function test_EmergencyOperatorRemovalReachesWalletsThroughAnyonesSync() public {
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (100e6));
+        address stranger = makeAddr("sync stranger");
+        bytes memory notEmergency = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, factory.EMERGENCY_ROLE());
+        vm.expectRevert(notEmergency);
+        vm.prank(stranger);
+        factory.removeAgentOperator(operator);
+
+        factory.removeAgentOperator(operator);
+        assertFalse(factory.hasRole(factory.AGENT_OPERATOR_ROLE(), operator));
+        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), depositData);
+
+        vm.prank(stranger);
         _wallet.syncFromFactory();
 
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, operator));
         vm.prank(operator);
-        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
+        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), depositData);
         vm.prank(_signedOperator);
-        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
+        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), depositData);
         assertEq(erc4626Vault.balanceOf(address(_wallet)), 200e6);
     }
 
