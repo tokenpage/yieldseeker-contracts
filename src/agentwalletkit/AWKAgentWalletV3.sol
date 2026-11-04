@@ -75,7 +75,7 @@ library AgentWalletStorageV3 {
  *      - ERC-4337 v0.6 Account (BaseAccount)
  *      - Owner and operator ECDSA validation
  *      - UUPS Upgradeability
- *      - ERC-7201 namespaced storage compatible with V1
+ *      - Namespaced storage in the same slot as V1 (AgentWalletStorageV3)
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
