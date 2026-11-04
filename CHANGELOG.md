@@ -27,6 +27,7 @@
 - Wallet signature validation returns `SIG_VALIDATION_FAILED` for a malformed signature instead of reverting (`ECDSA.tryRecover`), as ERC-4337 asks, so bundlers can estimate gas with dummy signatures. The storage libraries' `@custom:storage-location erc7201:` tags are replaced by the real slot formula (a plain `keccak256` of the namespace, unchanged).
 - Vault adapters measure every amount from balances: ERC4626 and Aave V3 withdrawals report the base asset actually received (not `redeem` / `withdraw` return values), like Compound V2 and V3. The Comet adapter resets its approval after `supply`, since Comet reads `type(uint256).max` as "supply my borrow balance" and `deposit(max)` used to leave an unlimited approval.
 - Merkl: the adapter's `claim` drops the `users` argument and becomes `claim(tokens, amounts, proofs)`; the adapter claims for the wallet itself (one `users` entry per token, all the wallet). The backend must encode the 3-argument call for V3 wallets; V2 wallets keep the V2 Merkl adapter and its 4-argument call.
+- Owner-signed UserOperations also accept a contract owner's ERC-1271 approval (`isValidSignature`, read-only), so an integrator can sponsor withdrawals for users whose owner is a Safe or smart wallet. ECDSA is checked first, so EOAs (including EIP-7702 ones) are unchanged; operator signatures stay ECDSA-only and limited to adapter execution.
 
 ### Agent wallet V2
 

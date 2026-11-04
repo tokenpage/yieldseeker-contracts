@@ -15,6 +15,19 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
+/// @notice A contract owner (like a Safe with an on-chain approved message) that approves exactly the hashes it was told to
+contract ApprovedHashOwner {
+    mapping(bytes32 hash => bool) public approved;
+
+    function approve(bytes32 hash) external {
+        approved[hash] = true;
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata) external view returns (bytes4) {
+        return approved[hash] ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+}
+
 contract RevertingFeeQueriesModule is IYieldSeekerFeeModule {
     address public immutable override FEE_TRACKER;
     bytes32 public immutable override FEE_TYPE;
@@ -254,6 +267,30 @@ contract WalletIntegrationTest is IntegrationBase {
 
         vm.expectRevert("account: not from EntryPoint");
         _wallet.validateUserOp(userOp, userOpHash, 0);
+    }
+
+    function test_ContractOwnerAuthorizesUserOperationsThroughERC1271() public {
+        ApprovedHashOwner contractOwner = new ApprovedHashOwner();
+        AgentWallet contractOwnedWallet = _createVaultWallet(address(contractOwner), 1);
+        uint256 amount = 100e6;
+        _fundWallet(contractOwnedWallet, address(usdc), amount);
+        bytes memory withdrawCall = abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), amount));
+        bytes32 userOpHash = keccak256(abi.encode(withdrawCall, vm.getBlockTimestamp()));
+        UserOperation memory userOp = _buildUserOp(contractOwnedWallet, withdrawCall, "");
+
+        vm.prank(ENTRY_POINT);
+        assertEq(contractOwnedWallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+
+        contractOwner.approve(userOpHash.toEthSignedMessageHash());
+        vm.prank(ENTRY_POINT);
+        assertEq(contractOwnedWallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_SUCCESS);
+        vm.prank(ENTRY_POINT);
+        contractOwnedWallet.withdrawAssetToUser(_recipient, address(usdc), amount);
+        assertEq(usdc.balanceOf(_recipient), amount);
+
+        bytes memory adapterCall = abi.encodeCall(contractOwnedWallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
+        assertEq(_validateWithSigner(contractOwnedWallet, abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), 1)), _signedOperatorKey), SIG_VALIDATION_FAILED);
+        assertEq(_validateWithSigner(contractOwnedWallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
     }
 
     function test_StorageSlotsStayFixedForUpgrades() public view {
