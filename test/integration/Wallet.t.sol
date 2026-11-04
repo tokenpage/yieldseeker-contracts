@@ -12,7 +12,6 @@ import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
@@ -235,24 +234,42 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(_recipient), 100e6);
     }
 
-    function test_UserOperationValidationRejectsMalformedSignaturesAndShortOperatorCallData() public {
+    function test_UserOperationValidationFailsMalformedSignaturesAndShortOperatorCallData() public {
         bytes memory callData = abi.encodeWithSelector(_wallet.withdrawAssetToUser.selector, _recipient, address(usdc), 1);
         bytes32 userOpHash = keccak256(abi.encode(callData, vm.getBlockTimestamp()));
         UserOperation memory userOp = _buildUserOp(_wallet, callData, "");
 
-        vm.expectRevert(abi.encodeWithSelector(ECDSA.ECDSAInvalidSignatureLength.selector, 0));
         vm.prank(ENTRY_POINT);
-        _wallet.validateUserOp(userOp, userOpHash, 0);
+        assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
 
         userOp.signature = hex"1234";
-        vm.expectRevert(abi.encodeWithSelector(ECDSA.ECDSAInvalidSignatureLength.selector, 2));
         vm.prank(ENTRY_POINT);
-        _wallet.validateUserOp(userOp, userOpHash, 0);
+        assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+
+        userOp.signature = abi.encodePacked(bytes32(uint256(1)), bytes32(type(uint256).max), uint8(27));
+        vm.prank(ENTRY_POINT);
+        assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
 
         assertEq(_validateWithSigner(_wallet, "", _signedOperatorKey), SIG_VALIDATION_FAILED);
 
         vm.expectRevert("account: not from EntryPoint");
         _wallet.validateUserOp(userOp, userOpHash, 0);
+    }
+
+    function test_StorageSlotsStayFixedForUpgrades() public view {
+        bytes32 walletSlot = keccak256("agentwalletkit.agentwallet.storage.v1");
+        bytes32 extensionSlot = keccak256("yieldseeker.agentwallet.extensions.v1");
+        assertEq(_storedAddress(walletSlot, 0), _walletOwner);
+        assertEq(uint256(vm.load(address(_wallet), bytes32(uint256(walletSlot) + 1))), _wallet.ownerAgentIndex());
+        assertEq(_storedAddress(walletSlot, 2), address(_wallet.adapterRegistry()));
+        assertEq(vm.load(address(_wallet), bytes32(uint256(walletSlot) + 7)), _wallet.agentProfile());
+        assertEq(_storedAddress(extensionSlot, 0), address(usdc));
+        assertEq(_storedAddress(extensionSlot, 1), address(_wallet.feeTracker()));
+        assertEq(_storedAddress(extensionSlot, 2), address(_wallet.swapPolicy()));
+    }
+
+    function _storedAddress(bytes32 base, uint256 offset) private view returns (address) {
+        return address(uint160(uint256(vm.load(address(_wallet), bytes32(uint256(base) + offset)))));
     }
 
     function test_EmergencyOperatorRemovalReachesWalletsThroughAnyonesSync() public {

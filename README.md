@@ -59,6 +59,8 @@ V2 wallets keep the V2 factory, where operator removal and sync are not emergenc
 
 **After an emergency target removal**: cancel any scheduled timelock operation that would set that target again (`cancel(id)`, `CANCELLER_ROLE`), and remove it from both vault registries; re-running `Deploy.s.sol` copies every V2 vault registry target into the V3 vault registry.
 
+**Recovering stuck positions and tokens**: owners can withdraw only the base asset and tokens a fee module accounts for (borrowed tokens), so that position yield and reward sales are charged. A position whose target was removed comes back by registering the target again through the timelock; the operator or owner then withdraws it through the adapter and the yield fee is charged as usual. A reward token that isn't on the sell list comes back by adding it (`AddSellableTokens.s.sol`), after which the operator sells it for the base asset. Other tokens (e.g. unsolicited airdrops) stay in the wallet.
+
 ### Standards Compliance
 
 | Standard | Purpose |

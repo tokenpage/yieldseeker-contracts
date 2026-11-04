@@ -41,11 +41,12 @@ error NotAllowed();
 
 /**
  * @title AgentWalletStorageV3
- * @notice Storage layout for AgentWallet V3 using ERC-7201 namespaced storage pattern
+ * @notice Storage layout for AgentWallet V3 in its own namespaced slot
  * @dev Same slot as V1; V3 only appends agentProfile, so V1/V2 state keeps its position
  */
 library AgentWalletStorageV3 {
-    /// @custom:storage-location erc7201:AWK.agentwallet.storage.v1
+    /// @dev The slot is keccak256("agentwalletkit.agentwallet.storage.v1"), a plain hash rather than the ERC-7201
+    ///      formula; deployed wallets use it, so it never changes
     bytes32 private constant STORAGE_LOCATION = keccak256("agentwalletkit.agentwallet.storage.v1");
 
     struct Layout {
@@ -306,10 +307,12 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     /// @dev Operators may only authorize adapter execution. Every other selector — including
-    ///      every `onlyOwner` function — requires the owner's own signature.
+    ///      every `onlyOwner` function — requires the owner's own signature. A malformed signature fails validation
+    ///      instead of reverting (ERC-4337), so bundlers can estimate gas with dummy signatures.
     function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
-        address signer = hash.recover(userOp.signature);
+        (address signer, ECDSA.RecoverError recoverError,) = hash.tryRecover(userOp.signature);
+        if (recoverError != ECDSA.RecoverError.NoError) return SIG_VALIDATION_FAILED;
         if (signer == owner()) {
             return 0;
         }

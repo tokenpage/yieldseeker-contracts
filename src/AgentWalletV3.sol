@@ -35,7 +35,8 @@ error InvalidFeeTracker();
  * @dev Uses a different namespace than AWK to avoid collisions; V3 appends swapPolicy
  */
 library YieldSeekerStorageV1 {
-    /// @custom:storage-location erc7201:yieldseeker.agentwallet.extensions.v1
+    /// @dev The slot is keccak256("yieldseeker.agentwallet.extensions.v1"), a plain hash rather than the ERC-7201
+    ///      formula; deployed wallets use it, so it never changes
     bytes32 private constant STORAGE_LOCATION = keccak256("yieldseeker.agentwallet.extensions.v1");
 
     struct Layout {
