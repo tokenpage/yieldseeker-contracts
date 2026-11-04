@@ -10,6 +10,7 @@ import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -200,6 +201,13 @@ contract WalletIntegrationTest is IntegrationBase {
         vm.prank(_walletOwner);
         _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertGt(erc4626Vault.balanceOf(address(_wallet)), 100e6);
+    }
+
+    function test_UninitializedProxyCannotUseTheInitializerWithoutBaseAsset() public {
+        AgentWallet uninitialized = AgentWallet(payable(address(new ERC1967Proxy(address(walletImplementation), ""))));
+        vm.expectRevert(NotAllowed.selector);
+        uninitialized.initialize(_walletOwner, 0, VAULT_AGENT_PROFILE);
+        assertEq(uninitialized.owner(), address(0));
     }
 
     function test_UserOperationValidationRestrictsOperatorToAdapterSelectors() public {
@@ -614,6 +622,25 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(borrowWallet)), 20e6);
         assertEq(usdc.balanceOf(feeCollector), 0);
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), feeOwed);
+    }
+
+    function test_OwnerCannotSkipFeeSettlementWithAnyGasLimit() public {
+        (AgentWallet borrowWallet, uint256 feeOwed) = _prepareBorrowWalletWithFees(8);
+        uint256 borrowedBalance = weth.balanceOf(address(borrowWallet));
+        bytes memory withdrawal = abi.encodeCall(borrowWallet.withdrawAssetToUser, (_recipient, address(weth), borrowedBalance));
+        uint256 successes;
+        for (uint256 gasLimit = 60_000; gasLimit <= 3_000_000; gasLimit += 20_000) {
+            uint256 snapshot = vm.snapshotState();
+            vm.prank(_walletOwner);
+            (bool success,) = address(borrowWallet).call{gas: gasLimit}(withdrawal);
+            if (success) {
+                successes++;
+                assertEq(usdc.balanceOf(feeCollector), feeOwed);
+                assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 0);
+            }
+            vm.revertToState(snapshot);
+        }
+        assertGt(successes, 0);
     }
 
     function test_BrokenFeeTrackerCannotBlockBaseAssetExit() public {

@@ -29,6 +29,7 @@
 - Merkl: the adapter's `claim` drops the `users` argument and becomes `claim(tokens, amounts, proofs)`; the adapter claims for the wallet itself (one `users` entry per token, all the wallet). The backend must encode the 3-argument call for V3 wallets; V2 wallets keep the V2 Merkl adapter and its 4-argument call.
 - Owner-signed UserOperations also accept a contract owner's ERC-1271 approval (`isValidSignature`, read-only), so an integrator can sponsor withdrawals for users whose owner is a Safe or smart wallet. ECDSA is checked first, so EOAs (including EIP-7702 ones) are unchanged; operator signatures stay ECDSA-only and limited to adapter execution.
 - `upgradeToLatest` syncs through the upgrade call (`upgradeToAndCall(impl, syncFromFactory())`), so the **new** implementation's sync runs; previously the old code's sync ran after the switch, so fields a new version syncs stayed unset until the next sync.
+- `YieldSeekerAgentWalletV3` disables the inherited 3-argument `initialize(owner, index, profile)` (`NotAllowed`); its wallets are only initialized with the base asset. New test: an owner can't skip fee settlement with any gas limit (withdrawal either reverts or pays the full fee, swept from 60k to 3M gas).
 
 ### Agent wallet V2
 

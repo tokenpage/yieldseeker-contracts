@@ -18,7 +18,7 @@ pragma solidity 0.8.28;
 
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
-import {AWKAgentWalletV3} from "./agentwalletkit/AWKAgentWalletV3.sol";
+import {AWKAgentWalletV3, NotAllowed} from "./agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "./fees/FeeActions.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
@@ -74,6 +74,11 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
 
     function initialize(address _owner, uint256 _ownerAgentIndex, address _baseAsset, bytes32 _agentProfile) public virtual initializer {
         _initializeYieldSeeker(_owner, _ownerAgentIndex, _baseAsset, _agentProfile);
+    }
+
+    /// @dev The AWK initializer has no base asset; YieldSeeker wallets are only initialized with the one above
+    function initialize(address, uint256, bytes32) public virtual override {
+        revert NotAllowed();
     }
 
     function _initializeYieldSeeker(address _owner, uint256 _ownerAgentIndex, address _baseAsset, bytes32 _agentProfile) internal onlyInitializing {
