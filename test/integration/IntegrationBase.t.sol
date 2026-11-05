@@ -229,6 +229,7 @@ abstract contract IntegrationBase is Test {
         IMorphoBlue.MarketParams memory params = IMorphoBlue.MarketParams({loanToken: address(weth), collateralToken: address(usdc), oracle: address(morphoOracle), irm: address(0x1), lltv: 0.8e18});
         morphoMarket = abi.encode(address(morpho), params);
         _registerTarget(borrowRegistry, aaveV3LendingAdapter.marketTarget(aaveV3Market), address(aaveV3LendingAdapter));
+        _registerTarget(borrowRegistry, aaveV3LendingAdapter.collateralReceiptToken(aaveV3Market), address(aaveV3LendingAdapter));
         _registerTarget(borrowRegistry, aaveV4LendingAdapter.marketTarget(aaveV4Market), address(aaveV4LendingAdapter));
         _registerTarget(borrowRegistry, morphoBlueLendingAdapter.marketTarget(morphoMarket), address(morphoBlueLendingAdapter));
         _registerTarget(borrowRegistry, address(merklDistributor), address(merklAdapter));

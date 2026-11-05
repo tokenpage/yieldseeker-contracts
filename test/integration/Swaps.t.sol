@@ -11,6 +11,7 @@ import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapA
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AWKAerodromeCLSwapAdapter, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapter, IAerodromeV2Router, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
@@ -394,6 +395,24 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), 1e18);
         assertEq(usdc.balanceOf(address(wallet)), 0);
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
+    }
+
+    function testBorrowPolicyRejectsSellingCollateralReceiptTokensWhenAllTokensAreSellable() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 1);
+        _borrowWeth(wallet, 1_000e6, 1e18);
+        address aToken = aaveV3LendingAdapter.collateralReceiptToken(aaveV3Market);
+        assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
+        swapSellPolicy.setAllowSellingAllTokens(true);
+        uniswapV3Router.setBuyAmount(1_000e6);
+
+        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(aToken, address(usdc));
+        bytes memory sale = abi.encodeCall(uniswapV3SwapAdapter.swap, (aToken, address(usdc), route, uint256(1_000e6), uint256(1)));
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), sale, abi.encodeWithSelector(SwapNotAllowed.selector, aToken, address(usdc)));
+
+        bytes memory withdrawViaReceipt = abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max));
+        bytes memory notAMarket = abi.encodeWithSelector(MarketTargetMismatch.selector, aToken, aaveV3LendingAdapter.marketTarget(aaveV3Market));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), aToken, withdrawViaReceipt, notAMarket);
+        assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
     }
 
     function testBorrowSwapCannotLeaveHeldBalanceAboveDebt() public {

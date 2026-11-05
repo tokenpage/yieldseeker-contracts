@@ -60,6 +60,12 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         return address(uint160(uint256(keccak256(market))));
     }
 
+    /// @notice The token the wallet holds for its collateral in a market (an Aave V3 aToken), or address(0) when the
+    ///         protocol keeps the collateral itself
+    /// @dev Register it in the registry as a target of this adapter, next to the market: swap policies never sell a
+    ///      registry target, and execute rejects it because it is not a market target
+    function collateralReceiptToken(bytes memory market) public view virtual returns (address);
+
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
         if (selector == this.checkpoint.selector) {

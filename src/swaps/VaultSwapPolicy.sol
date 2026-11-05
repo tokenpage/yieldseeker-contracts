@@ -27,8 +27,8 @@ import {IYieldSeekerSwapPolicy, SwapNotAllowed} from "./IYieldSeekerSwapPolicy.s
  * @title YieldSeekerVaultSwapPolicy
  * @notice Vault agents only sell reward tokens (those in the sell policy) for the base asset
  * @dev Every swap is a reward sale, so the yield fee charges the base asset received. A token the wallet's registry
- *      lists as a target (a vault share, an aToken, a Comet or cToken position) is a position, never a reward, so it
- *      can't be sold whatever the sell policy allows.
+ *      lists as a target (a vault share, an aToken, a Comet or cToken position, or a lending market's collateral
+ *      receipt token) is a position, never a reward, so it can't be sold whatever the sell policy allows.
  */
 contract YieldSeekerVaultSwapPolicy is IYieldSeekerSwapPolicy {
     IYieldSeekerSwapSellPolicy public immutable SELL_POLICY;

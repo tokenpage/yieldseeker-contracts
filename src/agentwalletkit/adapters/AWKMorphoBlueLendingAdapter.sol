@@ -71,6 +71,10 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
         return Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + VIRTUAL_ASSETS, uint256(totalBorrowShares) + VIRTUAL_SHARES, Math.Rounding.Ceil);
     }
 
+    function collateralReceiptToken(bytes memory) public pure virtual override returns (address) {
+        return address(0);
+    }
+
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
         (IMorphoBlue morpho,, bytes32 id) = _decodeMarket(market);
         (,, uint128 collateral) = morpho.position(id, address(this));

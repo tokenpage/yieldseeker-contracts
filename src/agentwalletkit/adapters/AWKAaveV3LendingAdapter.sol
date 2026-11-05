@@ -67,9 +67,13 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return IERC20(pool.getReserveVariableDebtToken(debtAsset)).balanceOf(address(this));
     }
 
-    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+    function collateralReceiptToken(bytes memory market) public view virtual override returns (address) {
         (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
-        return IERC20(pool.getReserveAToken(collateralAsset)).balanceOf(address(this));
+        return pool.getReserveAToken(collateralAsset);
+    }
+
+    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+        return IERC20(collateralReceiptToken(market)).balanceOf(address(this));
     }
 
     /// @dev A zero price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the last

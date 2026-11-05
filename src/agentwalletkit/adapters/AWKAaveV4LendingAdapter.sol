@@ -68,6 +68,10 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         return spoke.getUserTotalDebt(debtReserveId, address(this));
     }
 
+    function collateralReceiptToken(bytes memory) public pure virtual override returns (address) {
+        return address(0);
+    }
+
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
         return spoke.getUserSuppliedAssets(collateralReserveId, address(this));

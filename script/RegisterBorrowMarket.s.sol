@@ -23,6 +23,9 @@ contract RegisterBorrowMarketScript is Script {
     address private constant MORPHO_ADAPTIVE_IRM = 0x46415998764C29aB2a25CbeA6254146D50D22687;
     address private constant AAVE_V4_SPOKE = 0x17905Db0e4A3514467539956c084180616AE7B8D;
 
+    address[] private _targets;
+    bytes[] private _datas;
+
     function run(string memory protocol, bytes memory market) public {
         require(market.length > 0, "Market encoding must not be empty");
 
@@ -100,43 +103,54 @@ contract RegisterBorrowMarketScript is Script {
         require(address(debtFeed) != address(0), "Debt asset has no price source; run SetPriceSource first");
 
         address target = AWKLendingAdapter(adapterAddress).marketTarget(market);
+        address receiptToken = AWKLendingAdapter(adapterAddress).collateralReceiptToken(market);
         console2.log("Protocol:", protocol);
         console2.log("Raw market bytes:", vm.toString(market));
         console2.log("Market target:", target);
+        console2.log("Collateral receipt token (a target too, so it can't be sold):", receiptToken);
 
         require(registry.isRegisteredAdapter(adapterAddress), "Adapter not registered in borrow registry");
         uint256 delay = timelock.getMinDelay();
-        address currentAdapter = registry.getTargetAdapter(target);
         console2.log("Adapter:", adapterAddress);
         console2.log("Registry:", registryAddress);
         console2.log("Timelock:", timelockAddress);
         console2.log("");
 
-        if (currentAdapter == adapterAddress) {
-            console2.log("Market is already registered to this adapter; nothing to do.");
+        _addTargetOperation(registry, target, adapterAddress);
+        if (receiptToken != address(0)) _addTargetOperation(registry, receiptToken, adapterAddress);
+        if (_targets.length == 0) {
+            console2.log("Market and its collateral receipt token are already registered to this adapter; nothing to do.");
             return;
         }
 
         bytes32 predecessor = bytes32(0);
         bytes32 salt = keccak256(abi.encode("set-market-", target, adapterAddress, block.number));
-        bytes memory data = abi.encodeCall(registry.setTargetAdapter, (target, adapterAddress));
+        uint256[] memory values = new uint256[](_targets.length);
         vm.startBroadcast(deployerPrivateKey);
-        console2.log("-> Scheduling market target adapter set...");
+        console2.log("-> Scheduling", _targets.length, "target adapter operations in one batch...");
         console2.log("-> Scheduling block (part of the salt):", block.number);
-        timelock.schedule(registryAddress, 0, data, predecessor, salt, delay);
+        timelock.scheduleBatch(_targets, values, _datas, predecessor, salt, delay);
 
         if (delay == 0) {
             console2.log("-> Executing immediately (testing mode)...");
-            timelock.execute(registryAddress, 0, data, predecessor, salt);
-            console2.log("-> Market target set successfully!");
+            timelock.executeBatch(_targets, values, _datas, predecessor, salt);
+            console2.log("-> Market targets set successfully!");
         } else {
             console2.log("-> Scheduled successfully!");
             console2.log("-> Delay:", delay, "seconds");
-            console2.log("-> Operation ID:", vm.toString(timelock.hashOperation(registryAddress, 0, data, predecessor, salt)));
+            console2.log("-> Batch operation ID:", vm.toString(timelock.hashOperationBatch(_targets, values, _datas, predecessor, salt)));
             console2.log("-> Execute from the Safe after the delay: ./script/check-timelock.sh");
         }
         vm.stopBroadcast();
 
         console2.log("=================================================");
+    }
+
+    function _addTargetOperation(AdapterRegistry registry, address target, address adapter) internal {
+        address currentAdapter = registry.getTargetAdapter(target);
+        if (currentAdapter == adapter) return;
+        if (currentAdapter != address(0)) console2.log("Replacing the adapter of", target, currentAdapter);
+        _targets.push(address(registry));
+        _datas.push(abi.encodeCall(registry.setTargetAdapter, (target, adapter)));
     }
 }
