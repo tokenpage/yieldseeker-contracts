@@ -64,7 +64,7 @@ For a new fee action, add an ID and data struct in `src/fees/FeeActions.sol`, re
 
 ### Action reporting and plans
 
-Adapters report `DEPOSIT`, `WITHDRAW`, `SWAP`, `REWARD_SALE`, `CLAIM` or `DEBT_CHANGE` to the wallet's `YieldSeekerFeeTracker`. The tracker calls its modules in insertion order. Each module records the action and takes what it is owed from the base asset left by earlier modules. The adapter transfers the total to the collector once.
+Adapters report `DEPOSIT`, `WITHDRAW`, `SWAP`, `REWARD_SALE`, `CLAIM`, `DEBT_CHANGE` or `TRANSFER_OUT` to the wallet's `YieldSeekerFeeTracker`; the wallet reports `TRANSFER_OUT` before owner withdrawals. The tracker calls its modules in insertion order. Each module records the action and takes what it is owed from the base asset left by earlier modules. The adapter transfers the total to the collector once.
 
 The tracker holds one module per fee type, ABI-encoded plans per fee type and wallet plan IDs. Only the timelock admin configures modules, plans, wallet factory and collector. Only the factory sets wallet plans at creation. Plans do not change; fee types without an explicit wallet plan use plan `0`. A new plan applies only to wallets assigned to it at creation, except a fee type's first plan `0` is used by wallets without a recorded choice.
 
@@ -101,7 +101,7 @@ Owner ERC20 withdrawal settlement is gas-limited and failure-tolerant. A module 
 | Emergency role | On the factory, removes operators immediately. On a registry, pauses lookups, removes a target or unregisters an adapter. On the price oracle and sell-token policy, removes a source or sell token. It cannot unpause a registry or add operators. |
 | Anyone | Calls `syncFromFactory()` on a wallet. Registry lookups and public views are permissionless. |
 
-The wallet accepts an owner ECDSA signature, or an ERC-1271 approval from a contract owner. ECDSA is checked first, including for EIP-7702 EOAs. Operators use ECDSA and can authorize only `executeViaAdapter` or `executeViaAdapterBatch`. Malformed signatures return ERC-4337 validation failure rather than reverting.
+The wallet accepts an owner ECDSA signature, or an ERC-1271 approval from a contract owner. ECDSA is checked first, including for EIP-7702 EOAs. Operators use ECDSA and can authorize only `executeViaAdapter` or `executeViaAdapterBatch`. Operator signatures are checked before ERC-1271, so operator UserOperations read only the wallet's own storage, as ERC-7562 bundler rules require. An ERC-1271 check reads the owner contract's storage, which those rules forbid, so public bundlers may reject a Safe owner's UserOperations; a Safe owner can call the wallet directly instead. Malformed signatures return ERC-4337 validation failure rather than reverting.
 
 ## Security model
 
@@ -109,13 +109,13 @@ The wallet accepts an owner ECDSA signature, or an ERC-1271 approval from a cont
 
 The wallet checks its local blocklists, then requires `adapterRegistry().getTargetAdapter(target)` to equal the requested adapter. It calls the adapter with `DELEGATECALL`; the adapter receives the wallet as `address(this)`. There is no unrestricted execution path. An owner can block an adapter or target even when the global registry allows it.
 
-The adapters validate their protocol-specific arguments and measure wallet balances for amounts reported to fee modules. DEX adapters validate route endpoints and measured output. Swap policies prevent selling registry targets, which represent positions. Agent transfers can move accounted tokens only to another wallet with the same owner and factory, and both trackers must account for the token.
+The adapters validate their protocol-specific arguments. Vault and swap adapters measure wallet balances for the amounts they report to fee modules; lending adapters report the amount requested or the amount the protocol returns, and measure collateral withdrawn from the position. DEX adapters validate route endpoints and measured output. Swap policies prevent selling registry targets, which represent positions. Agent transfers can move accounted tokens only to another wallet with the same owner and factory, and both trackers must account for the token.
 
 ### Compromised operator
 
 A compromised operator can sign adapter-execution UserOperations for any wallet whose cached operator set includes it. It can use registered targets and adapters to manage or withdraw protocol positions into the wallet, claim rewards and make swaps allowed by the wallet's profile policy. It can transfer accounted assets to the owner's other wallets under the transfer-adapter rules.
 
-It cannot use a direct arbitrary call, use an unregistered adapter or target, call owner-only withdrawals, send funds to an arbitrary external address, or upgrade a wallet. Reward sales have no oracle price floor. In borrow profiles, swaps that sell the base asset use an oracle floor and may buy only an accounted borrowed token, capped at the wallet's last reported debt.
+It cannot use a direct arbitrary call, use an unregistered adapter or target, call owner-only withdrawals, send funds to an arbitrary external address, or upgrade a wallet. Reward sales have no oracle price floor. In borrow profiles, swaps that sell the base asset use an oracle floor and may buy only an accounted borrowed token, and the wallet may hold at most its last reported debt in it after the swap. The cap is on the balance held, not the total bought: the operator can transfer the token to the owner's other wallets and swap again, losing up to 1% each time. In borrow profiles it can also borrow, or withdraw collateral, up to the protocol's limit, so it can push a position into liquidation and collect the liquidation bonus itself.
 
 ### Operator revocation procedure
 
@@ -130,7 +130,7 @@ V2 wallets use the V2 factory and registry. Pause `agentWalletV2AdapterRegistry`
 
 ### Emergency target removal and recovery
 
-After an emergency target removal, cancel any scheduled timelock operation that would restore it with `cancel(id)` and `CANCELLER_ROLE`. Repeat emergency removals in both vault registries. `Deploy.s.sol` copies every V2 vault target into the V3 vault registry, so rerunning it can schedule a target that was removed only from V3.
+After an emergency target removal, cancel any scheduled timelock operation that would restore it with `cancel(id)` and `CANCELLER_ROLE`. Repeat emergency removals in both vault registries. `Deploy.s.sol` copies every V2 vault target into the V3 vault registry, so rerunning it can schedule a target that was removed only from V3. It also re-registers any adapter in `deployments.json` that is not registered, so a rerun undoes an emergency unregistration unless that operation is cancelled or the adapter's key is replaced.
 
 A removed position target can be restored by registering it again through the timelock. The owner or operator can then unwind the position through its adapter; the yield fee uses the target's recorded cost basis. If an adapter was unregistered, registering it again reactivates its previous target mappings. Unregistering an adapter is a pause mechanism, not a permanent target removal.
 
@@ -150,7 +150,7 @@ An unlisted reward token cannot be sold. Add it through `script/AddSellableToken
 - There is no on-chain health-factor floor. Borrow sizing is off-chain; this repository does not verify that policy.
 - Swap policies reject registry targets, but do not generally identify position tokens. Never enable `allowSellingAllTokens` and never add a position token, such as a vault share or aToken, to the sell list. An unaccounted token that is not sellable, such as an unexpected Merkl reward, stays in the wallet until added to the sell list.
 - Base assets must be plain ERC20s without fee-on-transfer or rebasing behavior because fees and cost basis use base-asset units.
-- If a lending market's own oracle reverts or returns zero while a debt report needs its price, the affected adapter action fails. Owners can repay directly on Aave V3 and Morpho.
+- If a lending market's own oracle reverts while a debt report needs its price, the affected adapter action fails. A borrow at a zero debt price reverts with `ZeroDebtPrice`; other actions report zero and the borrow fee module values the debt at its last price. Owners can repay directly on Aave V3 and Morpho. Aave V4 lets only the wallet or its position managers repay, so a reverting Aave V4 oracle also blocks repaying and collateral withdrawal until it recovers.
 - Moonwell `claimReward(holder)` is permissionless, so anyone can claim a wallet's Moonwell rewards outside the adapter. Base-asset rewards claimed that way are never reported and pay no yield fee. The backend claims through the adapter regularly.
 - The Safe holds the timelock's admin role and can change timelock roles without waiting for a delay.
 
@@ -275,10 +275,10 @@ done
 
 Apply these configuration rules:
 
-- Register no more than one market per `(pool or spoke, collateral)` pair. Collateral is one yield-fee position per market, so duplicate collateral markets would create separate cost bases.
+- Register no more than one market per `(pool or spoke, collateral)` pair. Aave markets on the same pool or spoke and collateral share one collateral balance, while each market keeps its own cost basis. Withdrawing everything from one market would take the other markets' collateral too and charge their principal as yield.
 - Aave V3 uses eMode `0`. The script rejects other categories, and `YieldSeekerAaveV3LendingAdapter` reverts with `EModeNotAllowed` if one reaches it.
-- Do not register a base-asset Aave V3 vault in the borrow registry.
-- Do not configure collateral-to-debt cycles, including opposite pairs or longer loops. The script does not detect duplicate collateral pairs or cycles. The base-to-borrowed swap cap limits each wallet to its last reported debt, but a cycle can still lose up to 1% per hop on that amount. The market examples below borrow USDC against non-USDC collateral and do not form a cycle.
+- Do not register a base-asset Aave V3 vault in the borrow registry. It would share the aToken balance with the lending markets on that pool in the same way.
+- Do not configure collateral-to-debt cycles, including opposite pairs or longer loops. The script does not detect duplicate collateral pairs or cycles. Each base-to-borrowed swap can lose up to 1% against the oracle, and a cycle repeats that on every hop. The market examples below borrow USDC against non-USDC collateral and do not form a cycle.
 
 ```bash
 WETH=0x4200000000000000000000000000000000000006
@@ -319,7 +319,7 @@ Aerodrome Slipstream has three pool factories, each with its own router. `YieldS
 
 ### Selective redeployment
 
-Set a contract's address to `0x0000000000000000000000000000000000000000` in `deployments.json` and rerun `Deploy.s.sol` to redeploy a stateless adapter, swap policy or wallet implementation. The script refuses to replace a registry, fee tracker or fee module already used by a factory or tracker. Those contracts hold per-wallet or per-target state; replace them deliberately through the timelock after planning state import.
+Set a contract's address to `0x0000000000000000000000000000000000000000` in `deployments.json` and rerun `Deploy.s.sol` to redeploy a stateless adapter, swap policy or wallet implementation. The script refuses to replace a registry, fee tracker or fee module already used by a factory or tracker. Those contracts hold per-wallet or per-target state; replace them deliberately through the timelock after planning state import. The sell list (`swapSellPolicy`, also used by the V2 swap adapters) and the price oracle hold configuration too: zeroing either deploys an empty one, so add its tokens or sources again before the swap policies use it.
 
 A redeployed adapter is registered and targets known to `Deploy.s.sol` are moved to it. This includes copied V2 vault targets, routers, Merkl and agent transfers. Borrow market targets are not known to that script. After replacing a lending adapter, rerun `RegisterBorrowMarket.s.sol` for every market and execute the emitted operations. The old adapter remains registered until the emergency role unregisters it from each V3 registry that used it. Unregistering preserves target mappings, so re-registering the old adapter would reactivate them.
 
@@ -339,7 +339,7 @@ Fee state lives in modules. Replacing a yield module without importing state los
 - A new action needs a new ID and struct in `FeeActions`, reporting from the adapter and handling in any module that charges for it. Do not change existing action structs.
 - Plans are immutable. A new plan can be assigned only when creating a wallet. Moving an existing wallet to a different plan requires a new wallet. A replacement module can accept old plans and add new plan formats.
 - A replacement module can import state lazily from the previous module. On first use, import the wallet's cost basis, debt positions, fees owed and, for borrow fees, `isBorrowedToken` and `tokenDebt`. Until import, views such as `isAccountedToken` and `feesOwedInBaseAsset` need to fall back to the old module. A replacement tracker must also read old wallet plans until they are imported and use modules built for that tracker. Adding a new fee type avoids replacing existing module state.
-- Yield fees do not charge a reward paid in a borrowed token. The yield module charges base-asset claims and base asset from reward sales, while the borrow policy prevents selling a borrowed token back to the base asset. Do not register reward sources that pay borrowed tokens in a borrow registry unless a fee module values those claims.
+- Yield fees do not charge a reward paid in a borrowed token. The yield module charges base-asset claims and base asset from reward sales, while the borrow policy prevents selling a borrowed token back to the base asset. `Deploy.s.sol` registers Merkl in the borrow registry: the backend must not claim, on borrow wallets, Merkl campaigns that pay a token the wallet borrows. Do not register other reward sources that pay borrowed tokens in a borrow registry unless a fee module values those claims.
 
 ## Development
 

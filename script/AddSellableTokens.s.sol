@@ -74,7 +74,7 @@ contract AddSellableTokensScript is Script {
             console2.log("Token:", tokens[i], alreadySellable ? "(already sellable)" : "(new)");
         }
 
-        bytes32 salt = keccak256(abi.encodePacked("add-sellable-tokens-", abi.encode(tokens)));
+        bytes32 salt = keccak256(abi.encodePacked("add-sellable-tokens-", abi.encode(tokens), block.number));
         bytes memory data = abi.encodeCall(sellPolicy.addSellableTokens, (tokens));
 
         console2.log("");

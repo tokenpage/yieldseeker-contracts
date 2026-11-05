@@ -43,7 +43,7 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
  *      Each agent profile has its own adapter registry. A wallet stores its agent profile at initialization and reads
  *      its registry from adapterRegistry(agentProfile) when it syncs.
  *      Users can create multiple agents with different ownerAgentIndex values
- *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
+ *      Salt formula: keccak256(abi.encode(owner, ownerAgentIndex))
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses must:
  *      1. Implement a public deployment function (e.g., createAgentWallet)

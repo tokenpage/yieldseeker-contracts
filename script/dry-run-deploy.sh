@@ -44,7 +44,7 @@ run_deploy() {
   forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC" --broadcast --skip "test/**" --out "$WORK/out" --cache-path "$WORK/cache" 2>&1
 }
 
-FIRST=$(run_deploy)
+FIRST=$(run_deploy) || { echo "$FIRST"; exit 1; }
 echo "$FIRST" | grep -E "Refusing|Error|revert" && exit 1
 OPS=$(echo "$FIRST" | sed -n 's/.*Executing \([0-9]*\) operations in batch.*/\1/p')
 if [ -z "$OPS" ]; then
@@ -63,6 +63,6 @@ else
   echo "Batch executed as the Safe"
 fi
 
-SECOND=$(run_deploy)
+SECOND=$(run_deploy) || { echo "$SECOND"; exit 1; }
 echo "$SECOND" | grep -q "No configuration needed" || { echo "Second run still has configuration to do:"; echo "$SECOND" | grep -E "Executing|Preparing"; exit 1; }
 echo "Second run: no configuration needed. Dry run passed."

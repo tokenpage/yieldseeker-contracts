@@ -88,8 +88,8 @@ library FeeActions {
 
     bytes32 internal constant TRANSFER_OUT = keccak256("transferOut");
 
-    /// @notice Tokens about to leave the wallet (an owner withdrawal or a transfer to a linked wallet); reported first
-    ///         so every module settles what it is owed before the funds go
+    /// @notice Tokens about to leave the wallet (an owner withdrawal or a transfer to another wallet of the same owner);
+    ///         reported first so every module settles what it is owed before the funds go
     /// @param amount The amount requested; for an owner's withdraw-all, the whole balance before fees are paid
     struct TransferOut {
         address token;

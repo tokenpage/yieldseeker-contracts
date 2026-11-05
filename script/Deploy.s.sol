@@ -370,7 +370,7 @@ contract DeployScript is Script {
 
         if (
             deployments.borrowSwapPolicy == address(0) || address(BorrowSwapPolicy(deployments.borrowSwapPolicy).SELL_POLICY()) != deployments.swapSellPolicy
-                || address(BorrowSwapPolicy(deployments.borrowSwapPolicy).PRICE_ORACLE()) != deployments.priceOracle
+                || address(BorrowSwapPolicy(deployments.borrowSwapPolicy).PRICE_ORACLE()) != deployments.priceOracle || BorrowSwapPolicy(deployments.borrowSwapPolicy).MAX_SLIPPAGE_BPS() != BORROW_SWAP_MAX_SLIPPAGE_BPS
         ) {
             deployments.borrowSwapPolicy = deployCreate2(abi.encodePacked(type(BorrowSwapPolicy).creationCode, abi.encode(deployments.swapSellPolicy, deployments.priceOracle, BORROW_SWAP_MAX_SLIPPAGE_BPS)));
             console2.log("-> BorrowSwapPolicy deployed at:", deployments.borrowSwapPolicy);
@@ -622,7 +622,7 @@ contract DeployScript is Script {
         // Execute batch if there are operations
         if (_targets.length > 0) {
             console2.log("-> Executing", _targets.length, "operations in batch...");
-            scheduleAndExecuteBatch(adminTimelock, _targets, new uint256[](_targets.length), _datas, timelockDelay, bytes32(uint256(1000)));
+            scheduleAndExecuteBatch(adminTimelock, _targets, new uint256[](_targets.length), _datas, timelockDelay, keccak256(abi.encode("deploy-config", block.number)));
             console2.log("-> Configuration complete!");
         } else {
             console2.log("-> No configuration needed, all settings are up to date!");

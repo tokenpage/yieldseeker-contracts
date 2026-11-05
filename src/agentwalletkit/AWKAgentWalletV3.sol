@@ -74,7 +74,7 @@ library AgentWalletStorageV3 {
  * @notice Abstract ERC-4337 v0.6 smart wallet with EntryPoint-relayed owner actions.
  * @dev Implements:
  *      - ERC-4337 v0.6 Account (BaseAccount)
- *      - Owner and operator ECDSA validation
+ *      - Owner ECDSA or ERC-1271 validation; operator ECDSA validation for adapter calls only
  *      - UUPS Upgradeability
  *      - Namespaced storage in the same slot as V1 (AgentWalletStorageV3)
  *      - "Onchain Proof" enforcement (executeViaAdapter only)
@@ -309,18 +309,19 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /// @dev The owner may authorize any call: an ECDSA signature from the owner's key, or, when the owner is a contract
     ///      (a Safe or smart wallet), its ERC-1271 isValidSignature approval. ECDSA is checked first so EOAs with code
-    ///      (EIP-7702) keep signing with their key. Operators may only authorize adapter execution, with ECDSA. A
-    ///      malformed signature fails validation instead of reverting (ERC-4337), so bundlers can estimate gas with dummy
-    ///      signatures.
+    ///      (EIP-7702) keep signing with their key. Operators may only authorize adapter execution, with ECDSA. Operator
+    ///      signatures are checked before ERC-1271, so an operator UserOperation reads only the wallet's own storage and
+    ///      never touches the owner account (ERC-7562 validation rules). A malformed signature fails validation instead
+    ///      of reverting (ERC-4337), so bundlers can estimate gas with dummy signatures.
     function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address walletOwner = owner();
         (address signer,,) = hash.tryRecover(userOp.signature);
         if (signer == walletOwner) return 0;
-        if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, userOp.signature)) return 0;
         bytes4 selector = userOp.callData.length >= 4 ? bytes4(userOp.callData[:4]) : bytes4(0);
         bool isAdapterCall = selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector;
-        if (signer != address(0) && isAgentOperator(signer) && isAdapterCall) return 0;
+        if (signer != address(0) && isAdapterCall && isAgentOperator(signer)) return 0;
+        if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, userOp.signature)) return 0;
         return SIG_VALIDATION_FAILED;
     }
 

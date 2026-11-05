@@ -300,6 +300,7 @@ contract WalletIntegrationTest is IntegrationBase {
 
         bytes memory adapterCall = abi.encodeCall(contractOwnedWallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
         assertEq(_validateWithSigner(contractOwnedWallet, abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), 1)), _signedOperatorKey), SIG_VALIDATION_FAILED);
+        vm.expectCall(address(contractOwner), abi.encodeWithSelector(ApprovedHashOwner.isValidSignature.selector), 0);
         assertEq(_validateWithSigner(contractOwnedWallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
     }
 

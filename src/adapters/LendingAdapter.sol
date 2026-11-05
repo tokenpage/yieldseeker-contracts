@@ -22,6 +22,8 @@ import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+error ZeroDebtPrice();
+
 /**
  * @title YieldSeekerLendingAdapter
  * @notice YieldSeeker rules on top of an AWK lending adapter
@@ -84,9 +86,12 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
     }
 
     /// @dev The market's price is read whenever the market has debt before or after the action, so the borrow fee
-    ///      module always knows a price for open debt (a market with no debt has no fee to value)
+    ///      module always knows a price for open debt (a market with no debt has no fee to value). A borrow needs a
+    ///      non-zero price; other actions may report zero, and the module then values the debt at its last price, so a
+    ///      zero price doesn't block repaying or withdrawing.
     function _reportDebtChange(bytes memory market, address debtAsset, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
         uint256 debtPrice = debtBefore > 0 || borrowed > 0 ? _debtPriceInCollateral(market) : 0;
+        if (borrowed > 0 && debtPrice == 0) revert ZeroDebtPrice();
         _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: marketTarget(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtPrice})));
     }
 }
