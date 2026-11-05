@@ -18,7 +18,10 @@ OPERATOR_ROLE=$(cast keccak AGENT_OPERATOR_ROLE)
 EMERGENCY_ROLE=$(cast keccak EMERGENCY_ROLE)
 same() { [ "$(cast to-check-sum-address "$1")" = "$(cast to-check-sum-address "$2")" ]; }
 
-[ "$(cast call "$FACTORY" "hasRole(bytes32,address)(bool)" "$ADMIN_ROLE" "$SAFE" --rpc-url "$RPC")" = "true" ] || exit 0
+SAFE_HOLDS_ADMIN=$(cast call "$FACTORY" "hasRole(bytes32,address)(bool)" "$ADMIN_ROLE" "$SAFE" --rpc-url "$RPC")
+[ "$SAFE_HOLDS_ADMIN" = "true" ] || exit 0
+TIMELOCK_CODE=$(cast code "$TIMELOCK" --rpc-url "$RPC")
+[ "$TIMELOCK_CODE" != "0x" ] || { echo "The timelock $TIMELOCK has no code on this chain; refusing to hand the factory to it" >&2; exit 1; }
 cast calldata "grantRole(bytes32,address)" "$ADMIN_ROLE" "$TIMELOCK"
 cast calldata "grantRole(bytes32,address)" "$OPERATOR_ROLE" "$SERVER"
 cast calldata "grantRole(bytes32,address)" "$EMERGENCY_ROLE" "$EMERGENCY_ADMIN"

@@ -72,11 +72,14 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return IERC20(pool.getReserveAToken(collateralAsset)).balanceOf(address(this));
     }
 
+    /// @dev A zero price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the last
+    ///      price); the Base AaveOracle itself reverts on a non-positive source answer
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
         IAaveV3Oracle oracle = pool.ADDRESSES_PROVIDER().getPriceOracle();
         uint256 debtValue = oracle.getAssetPrice(debtAsset) * 10 ** IERC20Metadata(collateralAsset).decimals();
         uint256 collateralValue = oracle.getAssetPrice(collateralAsset) * 10 ** IERC20Metadata(debtAsset).decimals();
+        if (collateralValue == 0) return 0;
         return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 

@@ -77,9 +77,13 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
         return collateral;
     }
 
+    /// @dev A zero oracle price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the
+    ///      last price)
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (, IMorphoBlue.MarketParams memory marketParams,) = _decodeMarket(market);
-        return Math.mulDiv(1e36, 1e36, IMorphoOracle(marketParams.oracle).price());
+        uint256 price = IMorphoOracle(marketParams.oracle).price();
+        if (price == 0) return 0;
+        return Math.mulDiv(1e36, 1e36, price);
     }
 
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {

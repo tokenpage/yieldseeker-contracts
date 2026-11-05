@@ -1,5 +1,5 @@
 install:
-	@ foundryup
+	@ foundryup --install v1.9.0
 	@ forge install
 
 install-updates:

@@ -216,15 +216,18 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
     function test_RelayerSubmitsOperatorSignedAdapterExecution_Succeeds() public {
         bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
         bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(vaultAdapter), address(vault), depositData);
-        UserOperation memory userOp = _buildSignedUserOp(callData, operatorKey);
-
         UserOperation[] memory ops = new UserOperation[](1);
-        ops[0] = userOp;
+        ops[0] = _buildSignedUserOp(callData, operatorKey);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA24 signature error"));
+        ENTRY_POINT.handleOps(ops, payable(relayer));
 
+        ops[0] = _buildSignedPaymasterUserOp(callData, operatorKey, _fundedPaymaster());
         vm.prank(relayer);
         ENTRY_POINT.handleOps(ops, payable(relayer));
 
-        assertGt(vault.balanceOf(address(wallet)), 0, "operator-authorized adapter execution must still succeed via a relayed UserOp");
+        assertGt(vault.balanceOf(address(wallet)), 0, "operator-authorized adapter execution must still succeed via a sponsored UserOp");
+        assertEq(address(wallet).balance, 1 ether, "an operator UserOperation must not spend the wallet's ETH");
     }
 
     function test_RelayerCannotReenterOwnerActionThroughOperatorSignedAdapter() public {
@@ -236,7 +239,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
 
         bytes memory nestedCall = abi.encodeWithSelector(wallet.withdrawAssetToUser.selector, recipient, address(usdc), 500e6);
         bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(adapter), address(adapter), nestedCall);
-        UserOperation memory userOp = _buildSignedUserOp(callData, operatorKey);
+        UserOperation memory userOp = _buildSignedPaymasterUserOp(callData, operatorKey, _fundedPaymaster());
 
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = userOp;
@@ -249,6 +252,15 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
     }
 
     // ============ Helpers ============
+
+    function _fundedPaymaster() internal returns (address) {
+        vm.startPrank(admin);
+        LocalAcceptAllPaymaster paymaster = new LocalAcceptAllPaymaster(ENTRY_POINT);
+        paymaster.addStake{value: 1 ether}(1 days);
+        paymaster.deposit{value: 1 ether}();
+        vm.stopPrank();
+        return address(paymaster);
+    }
 
     function _buildSignedUserOp(bytes memory callData, uint256 signerKey) internal view returns (UserOperation memory) {
         UserOperation memory userOp = UserOperation({

@@ -52,11 +52,14 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
     }
 
-    /// @dev Measured as the change in the wallet's asset balance, not redeem's return value
+    /// @dev Measured as the change in the wallet's asset balance, not redeem's return value. A redeem that pays nothing
+    ///      reverts: some vaults (e.g. yo) turn a redemption above their free balance into a queued request that takes
+    ///      the shares and pays later, which would otherwise be reported as a completed withdrawal of zero.
     function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
         IERC20 asset = IERC20(IERC4626(vault).asset());
         uint256 balanceBefore = asset.balanceOf(address(this));
         IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
         assets = asset.balanceOf(address(this)) - balanceBefore;
+        require(assets > 0, "AWKERC4626Adapter: nothing received");
     }
 }

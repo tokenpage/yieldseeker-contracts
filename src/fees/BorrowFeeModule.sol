@@ -36,9 +36,10 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  *      is charged on the debt at the start of the period, so repaying directly on the protocol cannot erase the fee;
  *      after a debt change outside the adapters (e.g. a liquidation) the period runs until the next report, so the
  *      operator checkpoints the market. A report without a price (the market has no debt left, e.g. it was repaid
- *      outside the adapters) values the period with the market's last reported price. Fees round up. The fee is
- *      converted to the base asset when it is charged, then paid from the base asset at the first reported action or
- *      outflow that finds some. Only the fee tracker reports actions (onAction), for the wallet that reported them to
+ *      outside the adapters, or the market's oracle reports zero) values the period with the market's last reported
+ *      price. Fees round up. The fee is converted to the base asset when it is charged, then paid from the base asset
+ *      at the first reported action or outflow that finds some. Only the fee tracker reports actions (onAction), for
+ *      the wallet that reported them to
  *      it.
  */
 contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {

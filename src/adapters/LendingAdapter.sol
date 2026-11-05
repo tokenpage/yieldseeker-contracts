@@ -86,9 +86,9 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
     }
 
     /// @dev The market's price is read whenever the market has debt before or after the action, so the borrow fee
-    ///      module always knows a price for open debt (a market with no debt has no fee to value). A borrow needs a
-    ///      non-zero price; other actions may report zero, and the module then values the debt at its last price, so a
-    ///      zero price doesn't block repaying or withdrawing.
+    ///      module always knows a price for open debt (a market with no debt has no fee to value). A zero market price
+    ///      is reported as 0: a borrow then reverts, and other actions go ahead with the module valuing the debt at its
+    ///      last price. A market oracle that reverts makes the action revert.
     function _reportDebtChange(bytes memory market, address debtAsset, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
         uint256 debtPrice = debtBefore > 0 || borrowed > 0 ? _debtPriceInCollateral(market) : 0;
         if (borrowed > 0 && debtPrice == 0) revert ZeroDebtPrice();

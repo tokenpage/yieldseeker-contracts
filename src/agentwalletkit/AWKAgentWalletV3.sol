@@ -321,16 +321,18 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @notice ERC-4337 validation for the v0.7, v0.8 and v0.9 EntryPoints, with the same signature rules as the v0.6
      *         validateUserOp
      * @dev Each EntryPoint hashes the UserOperation with its own address and the chain id and keeps its own nonces,
-     *      so a signature for one EntryPoint can't be replayed through another.
+     *      so a signature for one EntryPoint can't be replayed through another. The inherited getNonce() reads the
+     *      v0.6 EntryPoint only.
      */
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds) external virtual returns (uint256 validationData) {
         if (!_isPackedEntryPoint(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
-        validationData = _validateUserOpSignature(userOp.signature, userOp.callData, userOpHash);
+        validationData = _validateUserOpSignature(userOp.signature, userOp.callData, userOp.paymasterAndData, userOpHash);
+        _validateNonce(userOp.nonce);
         _payPrefund(missingAccountFunds);
     }
 
     function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
-        return _validateUserOpSignature(userOp.signature, userOp.callData, userOpHash);
+        return _validateUserOpSignature(userOp.signature, userOp.callData, userOp.paymasterAndData, userOpHash);
     }
 
     function _isPackedEntryPoint(address account) private pure returns (bool) {
@@ -339,18 +341,21 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /// @dev The owner may authorize any call: an ECDSA signature from the owner's key, or, when the owner is a contract
     ///      (a Safe or smart wallet), its ERC-1271 isValidSignature approval. ECDSA is checked first so EOAs with code
-    ///      (EIP-7702) keep signing with their key. Operators may only authorize adapter execution, with ECDSA. Operator
-    ///      signatures are checked before ERC-1271, so an operator UserOperation reads only the wallet's own storage and
-    ///      never touches the owner account (ERC-7562 validation rules). A malformed signature fails validation instead
-    ///      of reverting (ERC-4337), so bundlers can estimate gas with dummy signatures.
-    function _validateUserOpSignature(bytes calldata signature, bytes calldata callData, bytes32 userOpHash) internal view virtual returns (uint256 validationData) {
+    ///      (EIP-7702) keep signing with their key.
+    ///      Operators may only authorize adapter execution, with ECDSA, and only with a paymaster: an operator can't
+    ///      spend the wallet's ETH or EntryPoint deposits on gas. Adapter calls are never checked through ERC-1271
+    ///      (contract owners call executeViaAdapter directly), so validating one, even with a dummy signature, reads only
+    ///      the wallet's own storage (ERC-7562 validation rules). A malformed signature fails validation instead of
+    ///      reverting (ERC-4337).
+    function _validateUserOpSignature(bytes calldata signature, bytes calldata callData, bytes calldata paymasterAndData, bytes32 userOpHash) internal view virtual returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address walletOwner = owner();
         (address signer,,) = hash.tryRecover(signature);
         if (signer == walletOwner) return 0;
         bytes4 selector = callData.length >= 4 ? bytes4(callData[:4]) : bytes4(0);
-        bool isAdapterCall = selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector;
-        if (signer != address(0) && isAdapterCall && isAgentOperator(signer)) return 0;
+        if (selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector) {
+            return signer != address(0) && paymasterAndData.length >= 20 && isAgentOperator(signer) ? 0 : SIG_VALIDATION_FAILED;
+        }
         if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, signature)) return 0;
         return SIG_VALIDATION_FAILED;
     }

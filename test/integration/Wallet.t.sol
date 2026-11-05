@@ -134,6 +134,7 @@ contract WalletIntegrationTest is IntegrationBase {
     address private constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
     address private constant ENTRY_POINT_V08 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
     address private constant ENTRY_POINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
+    address private constant SPONSORING_PAYMASTER = 0x9A9A9A9a9A9A9A9a9A9a9a9A9A9a9A9a9A9A9a9a;
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     uint256 private constant SIG_VALIDATION_SUCCESS = 0;
     uint256 private constant SIG_VALIDATION_FAILED = 1;
@@ -306,6 +307,28 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(_validateWithSigner(contractOwnedWallet, abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), 1)), _signedOperatorKey), SIG_VALIDATION_FAILED);
         vm.expectCall(address(contractOwner), abi.encodeWithSelector(ApprovedHashOwner.isValidSignature.selector), 0);
         assertEq(_validateWithSigner(contractOwnedWallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_OperatorUserOperationsNeedAPaymasterAndAdapterCallsNeverReachERC1271() public {
+        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
+        bytes32 userOpHash = keccak256("unsponsored operator op");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_signedOperatorKey, userOpHash.toEthSignedMessageHash());
+        UserOperation memory userOp = _buildUserOp(_wallet, adapterCall, abi.encodePacked(r, s, v));
+        userOp.paymasterAndData = "";
+        vm.prank(ENTRY_POINT);
+        assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+        PackedUserOperation memory packedUserOp = _buildPackedUserOp(adapterCall, abi.encodePacked(r, s, v));
+        packedUserOp.paymasterAndData = "";
+        vm.prank(ENTRY_POINT_V07);
+        assertEq(_wallet.validateUserOp(packedUserOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+
+        ApprovedHashOwner contractOwner = new ApprovedHashOwner();
+        AgentWallet contractOwnedWallet = _createVaultWallet(address(contractOwner), 2);
+        UserOperation memory dummy = _buildUserOp(contractOwnedWallet, adapterCall, new bytes(65));
+        contractOwner.approve(userOpHash.toEthSignedMessageHash());
+        vm.expectCall(address(contractOwner), abi.encodeWithSelector(ApprovedHashOwner.isValidSignature.selector), 0);
+        vm.prank(ENTRY_POINT);
+        assertEq(contractOwnedWallet.validateUserOp(dummy, userOpHash, 0), SIG_VALIDATION_FAILED);
     }
 
     function test_PackedEntryPointsValidateWithTheSameRulesAndActAsEntryPoint() public {
@@ -912,7 +935,7 @@ contract WalletIntegrationTest is IntegrationBase {
             preVerificationGas: 21_000,
             maxFeePerGas: 1 gwei,
             maxPriorityFeePerGas: 1 gwei,
-            paymasterAndData: "",
+            paymasterAndData: abi.encodePacked(SPONSORING_PAYMASTER),
             signature: signature
         });
     }
@@ -933,7 +956,7 @@ contract WalletIntegrationTest is IntegrationBase {
             accountGasLimits: bytes32((uint256(500_000) << 128) | 500_000),
             preVerificationGas: 21_000,
             gasFees: bytes32((uint256(1 gwei) << 128) | 1 gwei),
-            paymasterAndData: "",
+            paymasterAndData: abi.encodePacked(SPONSORING_PAYMASTER),
             signature: signature
         });
     }

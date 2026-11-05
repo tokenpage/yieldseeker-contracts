@@ -271,13 +271,19 @@ echo "================================================="
 HANDOVER_COUNT=0
 FACTORY=$(jq -r '.agentWalletFactory // empty' "$(dirname "$0")/../deployments.json")
 if [ -n "$FACTORY" ] && [ "$FACTORY" != "0x0000000000000000000000000000000000000000" ]; then
-  HANDOVER=$("$(dirname "$0")/factory-handover.sh" "$FACTORY" "$SAFE" "$TIMELOCK" "${DEPLOYER_ADDRESS:?DEPLOYER_ADDRESS (the emergency admin) is required}" "${SERVER_ADDRESS:?SERVER_ADDRESS is required}" "$RPC")
-  while read -r CALL; do
-    [ -n "$CALL" ] || continue
-    jq -n --arg to "$FACTORY" --arg data "$CALL" '{to: $to, value: "0", data: $data, contractMethod: null, contractInputsValues: null}' > "$WORK/handover-$HANDOVER_COUNT.json"
-    HANDOVER_COUNT=$(( HANDOVER_COUNT + 1 ))
-  done <<< "$HANDOVER"
-  if [ "$HANDOVER_COUNT" -gt 0 ]; then
+  SAFE_HOLDS_FACTORY=$(cast call "$FACTORY" "hasRole(bytes32,address)(bool)" "$ZERO_HASH" "$SAFE" --rpc-url "$RPC")
+  if [ "$SAFE_HOLDS_FACTORY" = "true" ]; then
+    : "${DEPLOYER_ADDRESS:?DEPLOYER_ADDRESS (the emergency admin) is required for the V3 factory handover}"
+    : "${SERVER_ADDRESS:?SERVER_ADDRESS is required for the V3 factory handover}"
+    VAULT_REGISTRY=$(jq -r '.vaultAdapterRegistry // empty' "$(dirname "$0")/../deployments.json")
+    IS_EMERGENCY_ADMIN=$(cast call "$VAULT_REGISTRY" "hasRole(bytes32,address)(bool)" "$(cast keccak EMERGENCY_ROLE)" "$DEPLOYER_ADDRESS" --rpc-url "$RPC")
+    [ "$IS_EMERGENCY_ADMIN" = "true" ] || { echo "DEPLOYER_ADDRESS $DEPLOYER_ADDRESS is not the emergency admin of the V3 vault registry; refusing to bundle the factory handover"; exit 1; }
+    HANDOVER=$("$(dirname "$0")/factory-handover.sh" "$FACTORY" "$SAFE" "$TIMELOCK" "$DEPLOYER_ADDRESS" "$SERVER_ADDRESS" "$RPC")
+    while read -r CALL; do
+      [ -n "$CALL" ] || continue
+      jq -n --arg to "$FACTORY" --arg data "$CALL" '{to: $to, value: "0", data: $data, contractMethod: null, contractInputsValues: null}' > "$WORK/handover-$HANDOVER_COUNT.json"
+      HANDOVER_COUNT=$(( HANDOVER_COUNT + 1 ))
+    done <<< "$HANDOVER"
     echo ""
     echo "🟢 V3 factory handover: the Safe still holds the factory roles; $HANDOVER_COUNT calls bundled first"
     echo "  admin → $TIMELOCK, operator → $SERVER_ADDRESS, emergency → $DEPLOYER_ADDRESS"

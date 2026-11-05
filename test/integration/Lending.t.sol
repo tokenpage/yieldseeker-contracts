@@ -174,6 +174,28 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 10e6);
     }
 
+    function test_ZeroMorphoPriceAndZeroAaveCollateralPriceStillLetPositionsUnwind() public {
+        AgentWallet morphoWallet = _createBorrowWallet(owner, 25);
+        address morphoTarget = morphoBlueLendingAdapter.marketTarget(morphoMarket);
+        _fundWallet(morphoWallet, address(usdc), COLLATERAL);
+        _execute(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, COLLATERAL)));
+        _execute(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, BORROWED_WETH / 2)));
+        AgentWallet aaveWallet = _createBorrowWallet(owner, 26);
+        _supplyAndBorrowAaveV3(aaveWallet, COLLATERAL, BORROWED_WETH);
+
+        morphoOracle.setPrice(0);
+        aaveV3Oracle.setAssetPrice(address(usdc), 0);
+        _executeExpectRevert(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, BORROWED_WETH / 2)), abi.encodeWithSelector(ZeroDebtPrice.selector));
+        _executeExpectRevert(aaveWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1)), abi.encodeWithSelector(ZeroDebtPrice.selector));
+
+        vm.warp(vm.getBlockTimestamp() + YEAR);
+        _execute(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, type(uint256).max)));
+        _execute(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+        assertEq(_feesCollected(address(usdc)), 5e6);
+        _execute(aaveWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        assertEq(borrowFeeModule.feesOwed(address(aaveWallet)), 10e6);
+    }
+
     function test_WithdrawnCollateralPaysBorrowAndYieldFees() public {
         AgentWallet wallet = _createBorrowWallet(owner, 5);
         uint256 collateralYield = 100e6;

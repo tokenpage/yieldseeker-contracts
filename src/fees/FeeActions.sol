@@ -76,7 +76,8 @@ library FeeActions {
     /// @param borrowed Debt token received by this borrow
     /// @param repaid Debt token paid back by this repay
     /// @param debtPriceInBaseAsset Base asset units worth one debt unit (raw token units, scaled by 1e36), from the
-    ///        lending market's own oracle; 0 when the market has no debt before or after the action
+    ///        lending market's own oracle; 0 when the market has no debt before or after the action, or when the
+    ///        market's price is zero (never on a borrow)
     struct DebtChange {
         address market;
         address debtToken;

@@ -40,9 +40,6 @@ import {console2} from "forge-std/console2.sol";
  */
 contract DeployScript is Script {
     using stdJson for string;
-    // Canonical ERC-4337 v0.6 EntryPoint
-    address constant ENTRYPOINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
-
     // Deployment Salt for deterministic addresses
     uint256 constant SALT = 0x711;
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
@@ -131,9 +128,15 @@ contract DeployScript is Script {
         return deployCreate2(initCode, bytes32(SALT));
     }
 
+    /// @dev Init code includes the constructor arguments, so code already at the predicted address is this exact contract
+    ///      with the same constructor-assigned roles (for example deployed there by someone else); it is reused
     function deployCreate2(bytes memory initCode, bytes32 salt) internal returns (address deployed) {
         require(CREATE2_DEPLOYER.code.length > 0, "CREATE2 deployer has no code");
         address predicted = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, keccak256(initCode))))));
+        if (predicted.code.length > 0) {
+            console2.log("   (already deployed with this init code, reusing)", predicted);
+            return predicted;
+        }
         (bool success, bytes memory returnData) = CREATE2_DEPLOYER.call(abi.encodePacked(salt, initCode));
         require(success, "CREATE2 deployment failed");
         require(returnData.length == 20, "CREATE2 deployer returned invalid address");

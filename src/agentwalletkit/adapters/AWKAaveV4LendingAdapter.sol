@@ -73,11 +73,14 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         return spoke.getUserSuppliedAssets(collateralReserveId, address(this));
     }
 
+    /// @dev A zero price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the last
+    ///      price)
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
         IAaveV4Oracle oracle = spoke.ORACLE();
         uint256 debtValue = oracle.getReservePrice(debtReserveId) * 10 ** spoke.getReserve(collateralReserveId).decimals;
         uint256 collateralValue = oracle.getReservePrice(collateralReserveId) * 10 ** spoke.getReserve(debtReserveId).decimals;
+        if (collateralValue == 0) return 0;
         return Math.mulDiv(debtValue, 1e36, collateralValue);
     }
 

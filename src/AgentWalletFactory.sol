@@ -39,9 +39,10 @@ contract YieldSeekerAgentWalletFactory is AWKAgentWalletFactory {
     event FeeTrackerUpdated(bytes32 indexed agentProfile, address indexed oldFeeTracker, address indexed newFeeTracker);
     event SwapPolicyUpdated(bytes32 indexed agentProfile, address indexed oldSwapPolicy, address indexed newSwapPolicy);
 
-    /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
+    /// @param admin Holder of the admin role (dangerous operations); the deployment passes the Safe, which hands it to
+    ///        the AdminTimelock, so the factory address doesn't depend on the timelock
     /// @param emergencyAdmin Address that can remove agent operators at once (removeAgentOperator)
-    /// @param agentOperator Address that can create agent wallets (typically backend server)
+    /// @param agentOperator Address that can create agent wallets (the backend server, after the handover)
     constructor(address admin, address emergencyAdmin, address agentOperator) AWKAgentWalletFactory(admin, emergencyAdmin, agentOperator) {}
 
     /// @notice The fee tracker of an agent profile, or address(0) if it has none

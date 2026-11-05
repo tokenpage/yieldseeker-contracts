@@ -17,6 +17,14 @@ interface IPackedEntryPoint {
     function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
     function getNonce(address sender, uint192 key) external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
+    function depositTo(address account) external payable;
+}
+
+/// @notice A v0.7+ paymaster that sponsors every UserOperation, for the fork test only
+contract SponsorAllPaymaster {
+    function validatePaymasterUserOp(PackedUserOperation calldata, bytes32, uint256) external pure returns (bytes memory context, uint256 validationData) {
+        return ("", 0);
+    }
 }
 
 /// @notice Operator, owner and Safe-owner UserOperations run through the real v0.7, v0.8 and v0.9 EntryPoints on Base
@@ -33,6 +41,7 @@ contract PackedEntryPointsForkTest is ForkBase {
     uint256 internal constant BATCH_DEPOSIT_AMOUNT = 200e6;
 
     YieldSeekerERC4626Adapter internal adapter;
+    SponsorAllPaymaster internal paymaster;
     address internal signingOperator;
     uint256 internal signingOperatorKey;
     uint256 internal ownerKey;
@@ -45,6 +54,7 @@ contract PackedEntryPointsForkTest is ForkBase {
         factory.grantRole(factory.AGENT_OPERATOR_ROLE(), signingOperator);
         adapter = new YieldSeekerERC4626Adapter();
         _registerAdapter(address(adapter), STEAKHOUSE_USDC);
+        paymaster = new SponsorAllPaymaster();
     }
 
     function test_V07OperatorAndOwnerUserOperations() public {
@@ -75,9 +85,14 @@ contract PackedEntryPointsForkTest is ForkBase {
         AgentWallet wallet = _createVaultWallet(USDC, 0);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT + 2 * BATCH_DEPOSIT_AMOUNT + 1);
         vm.deal(address(wallet), 1 ether);
+        entryPoint.depositTo{value: 1 ether}(address(paymaster));
         (, uint256 strangerKey) = makeAddrAndKey("stranger");
 
         PackedUserOperation memory deposit = _userOp(entryPoint, address(wallet), abi.encodeCall(wallet.executeViaAdapter, (address(adapter), STEAKHOUSE_USDC, abi.encodeCall(adapter.deposit, (DEPOSIT_AMOUNT)))));
+        deposit.signature = _sign(entryPoint, deposit, signingOperatorKey);
+        _expectFailedOp(entryPoint, deposit, "AA24 signature error");
+
+        _sponsor(deposit);
         deposit.signature = _sign(entryPoint, deposit, strangerKey);
         _expectFailedOp(entryPoint, deposit, "AA24 signature error");
         deposit.signature = _sign(otherEntryPoint, deposit, signingOperatorKey);
@@ -86,7 +101,8 @@ contract PackedEntryPointsForkTest is ForkBase {
         deposit.signature = _sign(entryPoint, deposit, signingOperatorKey);
         _handleOp(entryPoint, deposit);
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 2 * BATCH_DEPOSIT_AMOUNT + 1);
-        assertGt(entryPoint.balanceOf(address(wallet)), 0, "wallet paid its own prefund");
+        assertEq(address(wallet).balance, 1 ether, "the paymaster paid the operator's gas");
+        assertEq(entryPoint.balanceOf(address(wallet)), 0);
         _expectFailedOp(entryPoint, deposit, "AA25 invalid account nonce");
 
         address[] memory adapters = new address[](2);
@@ -98,6 +114,7 @@ contract PackedEntryPointsForkTest is ForkBase {
             datas[i] = abi.encodeCall(adapter.deposit, (BATCH_DEPOSIT_AMOUNT));
         }
         PackedUserOperation memory batch = _userOp(entryPoint, address(wallet), abi.encodeCall(wallet.executeViaAdapterBatch, (adapters, targets, datas)));
+        _sponsor(batch);
         batch.signature = _sign(entryPoint, batch, signingOperatorKey);
         _handleOp(entryPoint, batch);
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 1);
@@ -109,6 +126,7 @@ contract PackedEntryPointsForkTest is ForkBase {
         withdraw.signature = _sign(entryPoint, withdraw, ownerKey);
         _handleOp(entryPoint, withdraw);
         assertEq(IERC20(USDC).balanceOf(recipient), 1);
+        assertGt(entryPoint.balanceOf(address(wallet)), 0, "the owner's own UserOperation paid its own prefund");
     }
 
     function _runSafeOwner(IPackedEntryPoint entryPoint) internal {
@@ -140,6 +158,10 @@ contract PackedEntryPointsForkTest is ForkBase {
             paymasterAndData: "",
             signature: ""
         });
+    }
+
+    function _sponsor(PackedUserOperation memory userOp) internal view {
+        userOp.paymasterAndData = abi.encodePacked(address(paymaster), uint128(200_000), uint128(0));
     }
 
     function _sign(IPackedEntryPoint entryPoint, PackedUserOperation memory userOp, uint256 key) internal view returns (bytes memory) {

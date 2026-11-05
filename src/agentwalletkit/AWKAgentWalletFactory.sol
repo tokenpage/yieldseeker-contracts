@@ -71,9 +71,10 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     event RegistryUpdated(bytes32 indexed agentProfile, address indexed oldRegistry, address indexed newAdapterRegistry);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
-    /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
+    /// @param admin Holder of the admin role (dangerous operations); the deployment passes the Safe, which hands it to
+    ///        the AdminTimelock, so the factory address doesn't depend on the timelock
     /// @param emergencyAdmin Address that can remove agent operators at once (removeAgentOperator)
-    /// @param agentOperator Address that can create agent wallets (typically backend server)
+    /// @param agentOperator Address that can create agent wallets (the backend server, after the handover)
     constructor(address admin, address emergencyAdmin, address agentOperator) {
         if (admin == address(0)) revert AWKErrors.ZeroAddress();
         if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
