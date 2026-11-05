@@ -65,4 +65,17 @@ fi
 
 SECOND=$(run_deploy) || { echo "$SECOND"; exit 1; }
 echo "$SECOND" | grep -q "No configuration needed" || { echo "Second run still has configuration to do:"; echo "$SECOND" | grep -E "Executing|Preparing"; exit 1; }
-echo "Second run: no configuration needed. Dry run passed."
+echo "Second run: no configuration needed."
+
+FACTORY=$(jq -r .agentWalletFactory deployments.json)
+INIT_CODE="$(forge inspect src/AgentWalletFactory.sol:YieldSeekerAgentWalletFactory bytecode)$(cast abi-encode "f(address,address,address)" "$DEPLOYER" "$DEPLOYER" "$DEPLOYER" | sed 's/^0x//')"
+CREATE2_HASH=$(cast keccak "0xff4e59b44847b379578588920cA78FbF26c0B4956C$(cast to-uint256 0x711 | sed 's/^0x//')$(cast keccak "$INIT_CODE" | sed 's/^0x//')")
+EXPECTED_FACTORY=$(cast to-check-sum-address "0x${CREATE2_HASH:26}")
+[ "$(cast to-check-sum-address "$FACTORY")" = "$EXPECTED_FACTORY" ] || { echo "Factory $FACTORY is not at the chain-independent address $EXPECTED_FACTORY"; exit 1; }
+has_role() { cast call "$FACTORY" "hasRole(bytes32,address)(bool)" "$1" "$2" --rpc-url "$RPC"; }
+ADMIN_ROLE=0x0000000000000000000000000000000000000000000000000000000000000000
+OPERATOR_ROLE=$(cast keccak AGENT_OPERATOR_ROLE)
+SERVER="${SERVER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
+[ "$(has_role $ADMIN_ROLE "$TIMELOCK")" = "true" ] && [ "$(has_role $ADMIN_ROLE "$DEPLOYER")" = "false" ] || { echo "Factory admin was not handed to the timelock"; exit 1; }
+[ "$(has_role "$OPERATOR_ROLE" "$SERVER")" = "true" ] && [ "$(has_role "$OPERATOR_ROLE" "$DEPLOYER")" = "false" ] || { echo "Factory operator role was not handed to the server"; exit 1; }
+echo "Factory $FACTORY depends only on the deployer, so it has this address on every chain; its roles are handed over. Dry run passed."

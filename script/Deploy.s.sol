@@ -144,6 +144,20 @@ contract DeployScript is Script {
         require(deployed.code.length > 0, "CREATE2 deployment produced no code");
     }
 
+    /// @dev The factory is created with the deployer in every role, so its CREATE2 address, and with it every wallet's
+    ///      address, is the same on every chain. The admin role then moves to this chain's timelock and the operator role
+    ///      to the server; the deployer keeps only EMERGENCY_ROLE, as on every other contract.
+    function _handOverFactory(AgentWalletFactory factory, address timelock, address deployer, address server) internal {
+        bytes32 adminRole = factory.DEFAULT_ADMIN_ROLE();
+        if (!factory.hasRole(adminRole, deployer)) return;
+        bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
+        factory.grantRole(adminRole, timelock);
+        if (!factory.hasRole(operatorRole, server)) factory.grantRole(operatorRole, server);
+        if (deployer != server && factory.hasRole(operatorRole, deployer)) factory.revokeRole(operatorRole, deployer);
+        factory.renounceRole(adminRole, deployer);
+        console2.log("-> AgentWalletFactory admin handed to the timelock, AGENT_OPERATOR_ROLE to:", server);
+    }
+
     function getUniswapV3Router(uint256 chainId) internal pure returns (address) {
         if (chainId == 8453) {
             return 0x2626664c2603336E57B271c5C0b26F421741e481;
@@ -279,14 +293,14 @@ contract DeployScript is Script {
             console2.log("-> Using existing adminTimelock:", deployments.adminTimelock);
         }
 
-        // Deploy or reuse AgentWalletFactory
+        // Deploy or reuse AgentWalletFactory: constructor arguments are chain-independent (see _handOverFactory)
         if (deployments.agentWalletFactory == address(0)) {
-            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployments.adminTimelock, emergencyAdminAddress, serverAddress)));
+            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployerAddress, deployerAddress, deployerAddress)));
             console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
-            console2.log("   AGENT_OPERATOR_ROLE granted to:", serverAddress);
         } else {
             console2.log("-> Using existing agentWalletFactory:", deployments.agentWalletFactory);
         }
+        _handOverFactory(AgentWalletFactory(deployments.agentWalletFactory), deployments.adminTimelock, deployerAddress, serverAddress);
 
         // Deploy or reuse AgentWallet V3 implementation
         if (deployments.agentWalletImplementation == address(0) || address(AgentWallet(payable(deployments.agentWalletImplementation)).FACTORY()) != deployments.agentWalletFactory) {

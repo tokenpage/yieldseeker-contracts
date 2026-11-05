@@ -216,9 +216,23 @@ The script does not register lending markets. Register them separately after the
 forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify
 ```
 
-Before a production run, use `./script/dry-run-deploy.sh`. It runs `Deploy.s.sol` on a local Base fork, executes the configuration batch as the Safe and confirms a second run has nothing left to configure. It restores `deployments.json` and `broadcast/Deploy.s.sol` afterwards. It requires `anvil`, `cast`, `forge`, `jq` and `RPC_NODE_URL_8453`.
+Before a production run, use `./script/dry-run-deploy.sh`. It runs `Deploy.s.sol` on a local Base fork, executes the configuration batch as the Safe and confirms a second run has nothing left to configure. It also checks that the factory is at its chain-independent address and that its roles were handed over. It restores `deployments.json` and `broadcast/Deploy.s.sol` afterwards. It requires `anvil`, `cast`, `forge`, `jq` and `RPC_NODE_URL_8453`.
 
 In production, the scripts schedule timelock operations. Wait for the four-day delay, then execute the emitted calls from the Safe. Use `./script/check-timelock.sh` to list operations and build Safe Transaction Builder instructions for ready operations. It rebuilds execute calls from timelock events, including operations proposed by the Safe. It requires `cast`, `jq`, `RPC_NODE_URL_8453` and `RPC_ARCHIVE_NODE_URL_8453`.
+
+### Same wallet address on every chain
+
+A wallet's address depends only on the factory address, the owner and the owner's agent index. `Deploy.s.sol` creates the factory through the CREATE2 deployer `0x4e59b44847b379578588920cA78FbF26c0B4956C` with salt `0x711`, passing the deployer as admin, emergency admin and operator. It then grants the admin role to that chain's timelock and the operator role to `SERVER_ADDRESS`, and the deployer renounces both, keeping `EMERGENCY_ROLE`. The factory address therefore depends only on the deployer address and the factory bytecode, not on the chain's timelock, Safe or server. Every chain where the factory is deployed this way gives `(owner, index)` the same wallet address.
+
+To keep that true:
+
+- Deploy every chain with the same deployer key.
+- Deploy from the same factory bytecode: the commit and compiler settings used on Base. A change to `AgentWalletFactory.sol`, `AWKAgentWalletFactory.sol` or their imports, even to a comment, changes the bytecode and so the address. Check the predicted factory address before deploying a new chain.
+- The wallet implementation, registries, trackers and adapters can differ per chain.
+
+If a user sends tokens to their wallet's address on a chain where it doesn't exist yet, deploy the V3 contracts there with the same deployer and create the wallet for the same owner and index, with the stranded token as its base asset. The owner can then withdraw it.
+
+`Deploy.s.sol` only has protocol addresses for Base (routers and the WELL token), and `YieldSeekerPriceOracle` needs an L2 sequencer uptime feed, which Ethereum mainnet doesn't have. zkSync Era is not supported: its CREATE2 addresses and bytecode differ from other EVM chains.
 
 ### Two vault registries
 
