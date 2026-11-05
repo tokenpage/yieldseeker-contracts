@@ -35,9 +35,10 @@ until cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; do sleep 1; done
 cast rpc anvil_impersonateAccount "$SAFE" --rpc-url "$RPC" >/dev/null
 cast rpc anvil_setBalance "$SAFE" 0x56BC75E2D63100000 --rpc-url "$RPC" >/dev/null
 cast send "$TIMELOCK" "grantRole(bytes32,address)" "$(cast keccak PROPOSER_ROLE)" "$DEPLOYER" --from "$SAFE" --unlocked --rpc-url "$RPC" >/dev/null
+SERVER="${SERVER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
 
 run_deploy() {
-  SERVER_ADDRESS="${SERVER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}" \
+  SERVER_ADDRESS="$SERVER" \
   FEE_COLLECTOR_ADDRESS="${FEE_COLLECTOR_ADDRESS:-0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC}" \
   MULTISIG_ADMIN_ADDRESS="$SAFE" \
   DEPLOYER_PRIVATE_KEY="$DEPLOYER_KEY" \
@@ -47,6 +48,15 @@ run_deploy() {
 FIRST=$(run_deploy) || { echo "$FIRST"; exit 1; }
 echo "$FIRST" | grep -E "Refusing|Error|revert" && exit 1
 OPS=$(echo "$FIRST" | sed -n 's/.*Executing \([0-9]*\) operations in batch.*/\1/p')
+FACTORY=$(jq -r .agentWalletFactory deployments.json)
+HANDOVER=$(./script/factory-handover.sh "$FACTORY" "$SAFE" "$TIMELOCK" "$DEPLOYER" "$SERVER" "$RPC")
+if [ -n "$HANDOVER" ]; then
+  while read -r CALL; do
+    echo "$FIRST" | grep -qi "$CALL" || { echo "Deploy.s.sol did not print the handover call $CALL"; exit 1; }
+    cast send "$FACTORY" --data "$CALL" --from "$SAFE" --unlocked --rpc-url "$RPC" >/dev/null
+  done <<< "$HANDOVER"
+  echo "Safe handed the factory over ($(echo "$HANDOVER" | grep -c .) calls)"
+fi
 if [ -z "$OPS" ]; then
   echo "First run: nothing to configure"
 else
@@ -67,15 +77,15 @@ SECOND=$(run_deploy) || { echo "$SECOND"; exit 1; }
 echo "$SECOND" | grep -q "No configuration needed" || { echo "Second run still has configuration to do:"; echo "$SECOND" | grep -E "Executing|Preparing"; exit 1; }
 echo "Second run: no configuration needed."
 
-FACTORY=$(jq -r .agentWalletFactory deployments.json)
-INIT_CODE="$(forge inspect src/AgentWalletFactory.sol:YieldSeekerAgentWalletFactory bytecode)$(cast abi-encode "f(address,address,address)" "$DEPLOYER" "$DEPLOYER" "$DEPLOYER" | sed 's/^0x//')"
+INIT_CODE="$(forge inspect src/AgentWalletFactory.sol:YieldSeekerAgentWalletFactory bytecode)$(cast abi-encode "f(address,address,address)" "$SAFE" "$SAFE" "$SAFE" | sed 's/^0x//')"
 CREATE2_HASH=$(cast keccak "0xff4e59b44847b379578588920cA78FbF26c0B4956C$(cast to-uint256 0x711 | sed 's/^0x//')$(cast keccak "$INIT_CODE" | sed 's/^0x//')")
 EXPECTED_FACTORY=$(cast to-check-sum-address "0x${CREATE2_HASH:26}")
 [ "$(cast to-check-sum-address "$FACTORY")" = "$EXPECTED_FACTORY" ] || { echo "Factory $FACTORY is not at the chain-independent address $EXPECTED_FACTORY"; exit 1; }
 has_role() { cast call "$FACTORY" "hasRole(bytes32,address)(bool)" "$1" "$2" --rpc-url "$RPC"; }
 ADMIN_ROLE=0x0000000000000000000000000000000000000000000000000000000000000000
 OPERATOR_ROLE=$(cast keccak AGENT_OPERATOR_ROLE)
-SERVER="${SERVER_ADDRESS:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
-[ "$(has_role $ADMIN_ROLE "$TIMELOCK")" = "true" ] && [ "$(has_role $ADMIN_ROLE "$DEPLOYER")" = "false" ] || { echo "Factory admin was not handed to the timelock"; exit 1; }
-[ "$(has_role "$OPERATOR_ROLE" "$SERVER")" = "true" ] && [ "$(has_role "$OPERATOR_ROLE" "$DEPLOYER")" = "false" ] || { echo "Factory operator role was not handed to the server"; exit 1; }
-echo "Factory $FACTORY depends only on the deployer, so it has this address on every chain; its roles are handed over. Dry run passed."
+EMERGENCY_ROLE=$(cast keccak EMERGENCY_ROLE)
+[ "$(has_role $ADMIN_ROLE "$TIMELOCK")" = "true" ] && [ "$(has_role $ADMIN_ROLE "$SAFE")" = "false" ] || { echo "Factory admin was not handed to the timelock"; exit 1; }
+[ "$(has_role "$OPERATOR_ROLE" "$SERVER")" = "true" ] && [ "$(has_role "$OPERATOR_ROLE" "$SAFE")" = "false" ] || { echo "Factory operator role was not handed to the server"; exit 1; }
+[ "$(has_role "$EMERGENCY_ROLE" "$DEPLOYER")" = "true" ] && [ "$(has_role "$EMERGENCY_ROLE" "$SAFE")" = "false" ] || { echo "Factory emergency role was not handed to the deployer"; exit 1; }
+echo "Factory $FACTORY depends only on the Safe, so it has this address on every chain where the Safe exists; its roles are handed over. Dry run passed."

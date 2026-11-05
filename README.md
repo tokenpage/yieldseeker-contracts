@@ -216,21 +216,23 @@ The script does not register lending markets. Register them separately after the
 forge script script/Deploy.s.sol:DeployScript --rpc-url "$RPC_NODE_URL_8453" --broadcast --verify
 ```
 
-Before a production run, use `./script/dry-run-deploy.sh`. It runs `Deploy.s.sol` on a local Base fork, executes the configuration batch as the Safe and confirms a second run has nothing left to configure. It also checks that the factory is at its chain-independent address and that its roles were handed over. It restores `deployments.json` and `broadcast/Deploy.s.sol` afterwards. It requires `anvil`, `cast`, `forge`, `jq` and `RPC_NODE_URL_8453`.
+Before a production run, use `./script/dry-run-deploy.sh`. It runs `Deploy.s.sol` on a local Base fork, has the Safe hand the factory over and execute the configuration batch, and confirms a second run has nothing left to configure. It also checks that the factory is at its chain-independent address and that its roles ended with the timelock, the server and the deployer. It restores `deployments.json` and `broadcast/Deploy.s.sol` afterwards. It requires `anvil`, `cast`, `forge`, `jq` and `RPC_NODE_URL_8453`.
 
-In production, the scripts schedule timelock operations. Wait for the four-day delay, then execute the emitted calls from the Safe. Use `./script/check-timelock.sh` to list operations and build Safe Transaction Builder instructions for ready operations. It rebuilds execute calls from timelock events, including operations proposed by the Safe. It requires `cast`, `jq`, `RPC_NODE_URL_8453` and `RPC_ARCHIVE_NODE_URL_8453`.
+In production, the scripts schedule timelock operations. Wait for the four-day delay, then execute the emitted calls from the Safe. Use `./script/check-timelock.sh` to list operations and build Safe Transaction Builder instructions for ready operations. It rebuilds execute calls from timelock events, including operations proposed by the Safe. While the Safe still holds the V3 factory's roles, it puts the factory handover first in the same bundle. It requires `cast`, `jq`, `RPC_NODE_URL_8453`, `RPC_ARCHIVE_NODE_URL_8453`, and for the handover `DEPLOYER_ADDRESS` and `SERVER_ADDRESS`.
 
 ### Same wallet address on every chain
 
-A wallet's address depends only on the factory address, the owner and the owner's agent index. `Deploy.s.sol` creates the factory through the CREATE2 deployer `0x4e59b44847b379578588920cA78FbF26c0B4956C` with salt `0x711`, passing the deployer as admin, emergency admin and operator. It then grants the admin role to that chain's timelock and the operator role to `SERVER_ADDRESS`, and the deployer renounces both, keeping `EMERGENCY_ROLE`. The factory address therefore depends only on the deployer address and the factory bytecode, not on the chain's timelock, Safe or server. Every chain where the factory is deployed this way gives `(owner, index)` the same wallet address.
+A wallet's address depends only on the factory address, the owner and the owner's agent index. `Deploy.s.sol` creates the factory through the CREATE2 deployer `0x4e59b44847b379578588920cA78FbF26c0B4956C` with salt `0x711`, passing the Safe as admin, emergency admin and operator. The factory address therefore depends only on the Safe address and the factory bytecode, not on the deployer key, the chain's timelock or the server. Every chain where the factory is deployed this way gives `(owner, index)` the same wallet address.
+
+The Safe then hands the factory over in one Safe transaction: it grants the admin role to that chain's timelock, the operator role to `SERVER_ADDRESS` and the emergency role to the deployer, and gives up all three (`script/factory-handover.sh` lists the calls). `check-timelock.sh` bundles these calls ahead of the deployment's timelock batch, which needs the timelock to be the factory admin. Wallets can't be created until the handover. Any deployer key can run `Deploy.s.sol` on a new chain.
 
 To keep that true:
 
-- Deploy every chain with the same deployer key.
+- The Safe must exist at the same address on the new chain. Safe{Wallet} can add the Safe to another network: it recreates the Safe from its original setup, with its original owners and threshold. Owners changed on Base afterwards don't carry over, so enough of the original owners to meet the threshold must still be able to sign on the new chain.
 - Deploy from the same factory bytecode: the commit and compiler settings used on Base. A change to `AgentWalletFactory.sol`, `AWKAgentWalletFactory.sol` or their imports, even to a comment, changes the bytecode and so the address. Check the predicted factory address before deploying a new chain.
 - The wallet implementation, registries, trackers and adapters can differ per chain.
 
-If a user sends tokens to their wallet's address on a chain where it doesn't exist yet, deploy the V3 contracts there with the same deployer and create the wallet for the same owner and index, with the stranded token as its base asset. The owner can then withdraw it.
+If a user sends tokens to their wallet's address on a chain where it doesn't exist yet, recreate the Safe there, deploy the V3 contracts, and create the wallet for the same owner and index with the stranded token as its base asset. The owner can then withdraw it.
 
 `Deploy.s.sol` only has protocol addresses for Base (routers and the WELL token), and `YieldSeekerPriceOracle` needs an L2 sequencer uptime feed, which Ethereum mainnet doesn't have. zkSync Era is not supported: its CREATE2 addresses and bytecode differ from other EVM chains.
 

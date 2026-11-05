@@ -266,9 +266,29 @@ if [ "$WARN_COUNT" -gt 0 ]; then
 fi
 echo "================================================="
 
-if [ "$READY_COUNT" -gt 0 ]; then
+# 3. While the Safe still holds the V3 factory roles (Deploy.s.sol creates it that way so its address is the same on
+#    every chain), bundle the handover first: the timelock operations need the timelock to be the factory admin
+HANDOVER_COUNT=0
+FACTORY=$(jq -r '.agentWalletFactory // empty' "$(dirname "$0")/../deployments.json")
+if [ -n "$FACTORY" ] && [ "$FACTORY" != "0x0000000000000000000000000000000000000000" ]; then
+  HANDOVER=$("$(dirname "$0")/factory-handover.sh" "$FACTORY" "$SAFE" "$TIMELOCK" "${DEPLOYER_ADDRESS:?DEPLOYER_ADDRESS (the emergency admin) is required}" "${SERVER_ADDRESS:?SERVER_ADDRESS is required}" "$RPC")
+  while read -r CALL; do
+    [ -n "$CALL" ] || continue
+    jq -n --arg to "$FACTORY" --arg data "$CALL" '{to: $to, value: "0", data: $data, contractMethod: null, contractInputsValues: null}' > "$WORK/handover-$HANDOVER_COUNT.json"
+    HANDOVER_COUNT=$(( HANDOVER_COUNT + 1 ))
+  done <<< "$HANDOVER"
+  if [ "$HANDOVER_COUNT" -gt 0 ]; then
+    echo ""
+    echo "🟢 V3 factory handover: the Safe still holds the factory roles; $HANDOVER_COUNT calls bundled first"
+    echo "  admin → $TIMELOCK, operator → $SERVER_ADDRESS, emergency → $DEPLOYER_ADDRESS"
+  fi
+fi
+
+if [ "$READY_COUNT" -gt 0 ] || [ "$HANDOVER_COUNT" -gt 0 ]; then
   OUTPUT_JSON="timelock-execute-$(date +%Y%m%d-%H%M%S).json"
-  TX_ARRAY=$(jq -s '.' "$WORK"/tx-*.json)
+  HANDOVER_FILES=()
+  for (( i = 0; i < HANDOVER_COUNT; i++ )); do HANDOVER_FILES+=("$WORK/handover-$i.json"); done
+  TX_ARRAY=$(jq -s '.' ${HANDOVER_FILES[@]+"${HANDOVER_FILES[@]}"} $(ls "$WORK"/tx-*.json 2>/dev/null | sort))
   jq -n \
     --argjson transactions "$TX_ARRAY" \
     --argjson createdAt "$(( $(date +%s) * 1000 ))" \

@@ -144,18 +144,28 @@ contract DeployScript is Script {
         require(deployed.code.length > 0, "CREATE2 deployment produced no code");
     }
 
-    /// @dev The factory is created with the deployer in every role, so its CREATE2 address, and with it every wallet's
-    ///      address, is the same on every chain. The admin role then moves to this chain's timelock and the operator role
-    ///      to the server; the deployer keeps only EMERGENCY_ROLE, as on every other contract.
-    function _handOverFactory(AgentWalletFactory factory, address timelock, address deployer, address server) internal {
+    /// @dev The factory is created with the Safe in every role, so its CREATE2 address, and with it every wallet's
+    ///      address, depends only on the Safe and the factory bytecode. The Safe can be recreated at the same address on
+    ///      any chain, so no single key is needed to deploy there. The Safe then hands the admin role to this chain's
+    ///      timelock, the operator role to the server and the emergency role to the emergency admin, and gives up all
+    ///      three; ./script/check-timelock.sh bundles these calls for the Safe. Returns no calls once that is done.
+    function _factoryHandoverCalls(AgentWalletFactory factory, address safe, address timelock, address emergencyAdmin, address server) internal view returns (bytes[] memory calls) {
         bytes32 adminRole = factory.DEFAULT_ADMIN_ROLE();
-        if (!factory.hasRole(adminRole, deployer)) return;
+        if (!factory.hasRole(adminRole, safe)) return new bytes[](0);
         bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
-        factory.grantRole(adminRole, timelock);
-        if (!factory.hasRole(operatorRole, server)) factory.grantRole(operatorRole, server);
-        if (deployer != server && factory.hasRole(operatorRole, deployer)) factory.revokeRole(operatorRole, deployer);
-        factory.renounceRole(adminRole, deployer);
-        console2.log("-> AgentWalletFactory admin handed to the timelock, AGENT_OPERATOR_ROLE to:", server);
+        bytes32 emergencyRole = factory.EMERGENCY_ROLE();
+        bytes[] memory all = new bytes[](6);
+        uint256 count;
+        all[count++] = abi.encodeCall(factory.grantRole, (adminRole, timelock));
+        all[count++] = abi.encodeCall(factory.grantRole, (operatorRole, server));
+        all[count++] = abi.encodeCall(factory.grantRole, (emergencyRole, emergencyAdmin));
+        if (safe != server) all[count++] = abi.encodeCall(factory.revokeRole, (operatorRole, safe));
+        if (safe != emergencyAdmin) all[count++] = abi.encodeCall(factory.revokeRole, (emergencyRole, safe));
+        all[count++] = abi.encodeCall(factory.renounceRole, (adminRole, safe));
+        calls = new bytes[](count);
+        for (uint256 i; i < count; ++i) {
+            calls[i] = all[i];
+        }
     }
 
     function getUniswapV3Router(uint256 chainId) internal pure returns (address) {
@@ -293,14 +303,26 @@ contract DeployScript is Script {
             console2.log("-> Using existing adminTimelock:", deployments.adminTimelock);
         }
 
-        // Deploy or reuse AgentWalletFactory: constructor arguments are chain-independent (see _handOverFactory)
+        // Deploy or reuse AgentWalletFactory: constructor arguments are chain-independent (see _factoryHandoverCalls)
         if (deployments.agentWalletFactory == address(0)) {
-            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(deployerAddress, deployerAddress, deployerAddress)));
+            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(multisigAdminAddress, multisigAdminAddress, multisigAdminAddress)));
             console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
         } else {
             console2.log("-> Using existing agentWalletFactory:", deployments.agentWalletFactory);
         }
-        _handOverFactory(AgentWalletFactory(deployments.agentWalletFactory), deployments.adminTimelock, deployerAddress, serverAddress);
+        bytes[] memory factoryHandover = _factoryHandoverCalls(AgentWalletFactory(deployments.agentWalletFactory), multisigAdminAddress, deployments.adminTimelock, emergencyAdminAddress, serverAddress);
+        if (factoryHandover.length > 0 && multisigAdminAddress == deployerAddress) {
+            for (uint256 i; i < factoryHandover.length; ++i) {
+                (bool success,) = deployments.agentWalletFactory.call(factoryHandover[i]);
+                require(success, "Factory handover failed");
+            }
+            factoryHandover = new bytes[](0);
+        } else if (factoryHandover.length > 0) {
+            console2.log("-> The Safe still holds the factory roles. Before the timelock batch, the Safe must call the factory with (./script/check-timelock.sh bundles these):");
+            for (uint256 i; i < factoryHandover.length; ++i) {
+                console2.logBytes(factoryHandover[i]);
+            }
+        }
 
         // Deploy or reuse AgentWallet V3 implementation
         if (deployments.agentWalletImplementation == address(0) || address(AgentWallet(payable(deployments.agentWalletImplementation)).FACTORY()) != deployments.agentWalletFactory) {
@@ -627,7 +649,9 @@ contract DeployScript is Script {
         _setTarget(borrowAdapterRegistry, aerodromeCl2Router, deployments.aerodromeCl2SwapAdapter);
         _setTarget(borrowAdapterRegistry, aerodromeCl3Router, deployments.aerodromeCl3SwapAdapter);
         // 5. Set Agent Operator
-        if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
+        if (factoryHandover.length > 0) {
+            console2.log("-> Server gets AGENT_OPERATOR_ROLE in the Safe's factory handover");
+        } else if (!agentWalletFactory.hasRole(agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)) {
             console2.log("-> Preparing AGENT_OPERATOR_ROLE grant for server:", serverAddress);
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.grantRole, (agentWalletFactory.AGENT_OPERATOR_ROLE(), serverAddress)));
         } else {
