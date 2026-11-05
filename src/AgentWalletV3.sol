@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IAgentWallet} from "./IAgentWallet.sol";
 import {IAgentWalletFactory} from "./IAgentWalletFactory.sol";
@@ -45,7 +45,7 @@ library YieldSeekerStorageV1 {
         IYieldSeekerSwapPolicy swapPolicy;
     }
 
-    function layout() internal pure returns (Layout storage l) {
+    function getLayout() internal pure returns (Layout storage l) {
         bytes32 slot = STORAGE_LOCATION;
         assembly {
             l.slot := slot
@@ -85,7 +85,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         if (_baseAsset == address(0)) revert AWKErrors.ZeroAddress();
         if (_baseAsset.code.length == 0) revert AWKErrors.NotAContract(_baseAsset);
 
-        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.getLayout();
         ys.baseAsset = IERC20(_baseAsset);
 
         // Call parent initializer
@@ -99,7 +99,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      * @return Base asset token
      */
     function baseAsset() public view virtual returns (IERC20) {
-        return YieldSeekerStorageV1.layout().baseAsset;
+        return YieldSeekerStorageV1.getLayout().baseAsset;
     }
 
     /**
@@ -107,12 +107,12 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
      * @return FeeTracker instance
      */
     function feeTracker() public view virtual returns (FeeTracker) {
-        return YieldSeekerStorageV1.layout().feeTracker;
+        return YieldSeekerStorageV1.getLayout().feeTracker;
     }
 
     /// @notice Get the swap policy (its agent profile's, copied from the factory at sync; address(0): it can't swap)
     function swapPolicy() public view virtual returns (IYieldSeekerSwapPolicy) {
-        return YieldSeekerStorageV1.layout().swapPolicy;
+        return YieldSeekerStorageV1.getLayout().swapPolicy;
     }
 
     // ============ Synchronization ============
@@ -120,7 +120,7 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
     function _syncFromFactory() internal virtual override {
         super._syncFromFactory();
 
-        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.layout();
+        YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.getLayout();
         IAgentWalletFactory factory = IAgentWalletFactory(address(FACTORY));
         bytes32 profile = agentProfile();
 

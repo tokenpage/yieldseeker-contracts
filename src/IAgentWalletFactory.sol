@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IAWKAgentWalletFactory} from "./agentwalletkit/IAWKAgentWalletFactory.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";

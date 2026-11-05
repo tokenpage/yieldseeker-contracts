@@ -1,4 +1,4 @@
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
@@ -71,7 +71,7 @@ contract AaveV4ForkTest is ForkBase {
         wallet = factory.createAgentWallet(owner, 0, COLLATERAL_ASSET, BORROW_AGENT_PROFILE, noFeePlans);
     }
 
-    function test_AaveV4ReserveLayoutMatchesEveryReserve() public {
+    function test_AaveV4ReserveLayoutMatchesEveryReserve() public view {
         address[9] memory expectedAssets = [
             address(0xb200000000000000000000C2e324d24d7eEcd1fb),
             address(0xb200000000000000000000d9192b6B456483C2E8),

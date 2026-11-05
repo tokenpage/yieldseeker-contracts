@@ -51,6 +51,12 @@
 - `RegisterBorrowMarket.s.sol` requires canonical market bytes. `RegisterVault.s.sol`, `AddSellableTokens.s.sol` and the `Deploy.s.sol` configuration batch salt their timelock operations with the block number, so the same operations can be scheduled again later. `Deploy.s.sol` redeploys the borrow swap policy when `MAX_SLIPPAGE_BPS` changes. `dry-run-deploy.sh` prints the forge output when a run fails.
 - Operator revocation uses the factory's `emergencyAdmin` and `EMERGENCY_ROLE`; `removeAgentOperator(operator)` is immediate, while adding an operator stays with the admin. Anyone can call input-free `syncFromFactory()` so the platform can sync every wallet. Registry pause and target or adapter removal are emergency operations; unpause is timelocked.
 
+### Toolchain
+
+- Solidity `0.8.28` → `0.8.38`, OpenZeppelin Contracts and Contracts Upgradeable `5.5.0` → `5.7.0`, forge-std `1.12.0` → `1.17.0`. CI pins Foundry `v1.9.0` instead of nightly.
+- OpenZeppelin `5.6` makes `ERC1967Proxy` revert when created without init data. `AWKAgentWalletProxy` overrides `_unsafeAllowUninitialized()` to keep its fixed creation code, so wallet addresses still depend only on `(owner, ownerAgentIndex)`; the factory initializes the wallet in the same transaction.
+- The storage libraries' `layout()` is renamed `getLayout()` because `layout` is becoming a keyword. Virtual modifiers and contract-type comparisons, deprecated in Solidity `0.8.31`, were removed.
+
 ### Documentation
 
 - README rewritten: shared machinery, agent profiles as peers, roles, security model with a Known risks list, deployment and operations, upgrades and fee changes, with paths to code. Stale sections (the removed 0x adapter, an ERC-7201 claim, the cache rationale) were corrected.

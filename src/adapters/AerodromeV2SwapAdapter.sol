@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAerodromeV2SwapAdapter} from "../agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";

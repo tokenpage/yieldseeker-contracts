@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAaveV4LendingAdapter} from "../agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
 import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";

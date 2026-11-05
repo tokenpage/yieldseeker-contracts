@@ -1,4 +1,4 @@
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {AdapterExecutionFailed, AdapterIsBlocked, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -10,7 +10,7 @@ import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967ProxyUnsafe} from "@openzeppelin/contracts/mocks/proxy/ERC1967ProxyUnsafe.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -204,7 +204,7 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_UninitializedProxyCannotUseTheInitializerWithoutBaseAsset() public {
-        AgentWallet uninitialized = AgentWallet(payable(address(new ERC1967Proxy(address(walletImplementation), ""))));
+        AgentWallet uninitialized = AgentWallet(payable(address(new ERC1967ProxyUnsafe(address(walletImplementation), ""))));
         vm.expectRevert(NotAllowed.selector);
         uninitialized.initialize(_walletOwner, 0, VAULT_AGENT_PROFILE);
         assertEq(uninitialized.owner(), address(0));

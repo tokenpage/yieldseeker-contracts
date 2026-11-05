@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IAgentWallet} from "../IAgentWallet.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
@@ -97,7 +97,7 @@ contract YieldSeekerFeeTracker is AccessControl {
             _modules.push(module);
         } else {
             for (uint256 i = 0; i < _modules.length; i++) {
-                if (_modules[i] == current) _modules[i] = module;
+                if (address(_modules[i]) == address(current)) _modules[i] = module;
             }
         }
         feeModules[feeType] = module;

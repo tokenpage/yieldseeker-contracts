@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3} from "../AgentWalletV3.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";

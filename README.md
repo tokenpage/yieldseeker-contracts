@@ -6,7 +6,7 @@ YieldSeeker contracts run owner-controlled smart wallets for several agent types
 
 Wallets accept owner-authorized actions and operator-authorized adapter execution. A wallet checks the adapter and target against its registry, then calls the adapter with `DELEGATECALL`. The adapter runs in wallet context and validates protocol inputs. Standard arbitrary `execute` and `executeBatch` calls revert.
 
-The contracts target Base, chain ID `8453`, and use ERC-4337 v0.6 with EntryPoint `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`. Solidity is `0.8.28`. Deployment and market-registration scripts contain Base addresses.
+The contracts target Base, chain ID `8453`, and use ERC-4337 v0.6 with EntryPoint `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`. They build with Solidity `0.8.38` (EVM `cancun`, via IR), OpenZeppelin Contracts `5.7.0` and Foundry `1.9.0`. Deployment and market-registration scripts contain Base addresses.
 
 ## Architecture
 

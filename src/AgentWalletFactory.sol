@@ -14,7 +14,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "./AgentWalletV3.sol";
 import {AWKAgentWalletFactory, UnknownAgentProfile} from "./agentwalletkit/AWKAgentWalletFactory.sol";

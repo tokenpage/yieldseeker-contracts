@@ -12,7 +12,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
 import {AWKAgentWalletV3 as AgentWallet} from "./AWKAgentWalletV3.sol";
@@ -30,10 +30,16 @@ error TooManyOperators();
 /**
  * @title AWKAgentWalletProxy
  * @notice A custom ERC1967Proxy that queries the Factory for its implementation.
- * @dev This ensures the init-code hash is constant regardless of the implementation address.
+ * @dev This ensures the init-code hash is constant regardless of the implementation address. The proxy is created
+ *      without init data, so the wallet address depends only on (owner, ownerAgentIndex); the factory calls
+ *      initialize() in the same transaction (_deployWallet callers must do so).
  */
 contract AWKAgentWalletProxy is ERC1967Proxy {
     constructor() ERC1967Proxy(address(AWKAgentWalletFactory(msg.sender).agentWalletImplementation()), "") {}
+
+    function _unsafeAllowUninitialized() internal pure override returns (bool) {
+        return true;
+    }
 }
 
 /**

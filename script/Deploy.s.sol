@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegistry.sol";
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
@@ -547,16 +547,16 @@ contract DeployScript is Script {
         _requireNotReplaced(address(agentWalletFactory.feeTracker(VAULT_AGENT_PROFILE)), address(vaultFeeTracker), "the vault fee tracker");
         _requireNotReplaced(address(agentWalletFactory.feeTracker(BORROW_AGENT_PROFILE)), address(borrowFeeTracker), "the borrow fee tracker");
         _requireNotReplaced(address(borrowFeeTracker.feeModules(BORROW_FEE)), deployments.borrowFeeModule, "the borrow fee module");
-        if (agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE) != vaultAdapterRegistry) {
+        if (address(agentWalletFactory.adapterRegistry(VAULT_AGENT_PROFILE)) != address(vaultAdapterRegistry)) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (VAULT_AGENT_PROFILE, vaultAdapterRegistry)));
         }
-        if (agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE) != borrowAdapterRegistry) {
+        if (address(agentWalletFactory.adapterRegistry(BORROW_AGENT_PROFILE)) != address(borrowAdapterRegistry)) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setAdapterRegistry, (BORROW_AGENT_PROFILE, borrowAdapterRegistry)));
         }
-        if (agentWalletFactory.feeTracker(VAULT_AGENT_PROFILE) != vaultFeeTracker) {
+        if (address(agentWalletFactory.feeTracker(VAULT_AGENT_PROFILE)) != address(vaultFeeTracker)) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (VAULT_AGENT_PROFILE, vaultFeeTracker)));
         }
-        if (agentWalletFactory.feeTracker(BORROW_AGENT_PROFILE) != borrowFeeTracker) {
+        if (address(agentWalletFactory.feeTracker(BORROW_AGENT_PROFILE)) != address(borrowFeeTracker)) {
             _op(deployments.agentWalletFactory, abi.encodeCall(agentWalletFactory.setFeeTracker, (BORROW_AGENT_PROFILE, borrowFeeTracker)));
         }
         if (address(agentWalletFactory.swapPolicy(VAULT_AGENT_PROFILE)) != deployments.vaultSwapPolicy) {

@@ -12,7 +12,7 @@
 //
 //  For technical queries or guidance contact @krishan711
 //
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
 import {AWKAgentWalletV3, AgentWalletStorageV3, NotAllowed} from "./AWKAgentWalletV3.sol";
@@ -35,7 +35,7 @@ abstract contract AWKSelfManagedAgentWalletV3 is AWKAgentWalletV3 {
 
     function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external virtual onlyOwner {
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AgentWalletStorageV3.layout().adapterRegistry = newAdapterRegistry;
+        AgentWalletStorageV3.getLayout().adapterRegistry = newAdapterRegistry;
         emit AdapterRegistrySet(address(newAdapterRegistry));
     }
 

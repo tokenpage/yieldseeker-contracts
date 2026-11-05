@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {FeeActions} from "../../src/fees/FeeActions.sol";
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IAaveV3AddressesProvider, IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
 import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";

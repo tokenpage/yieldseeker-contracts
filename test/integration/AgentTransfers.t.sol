@@ -1,4 +1,4 @@
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {InvalidTransferTarget, NotOwnersAgentWallet} from "../../src/adapters/AgentTransferAdapter.sol";
@@ -10,7 +10,7 @@ contract OwnershipTransferWalletV3 is AgentWallet {
     constructor(address factory) AgentWallet(factory) {}
 
     function transferOwnership(address newOwner) external onlyOwner {
-        AgentWalletStorageV3.layout().owner = newOwner;
+        AgentWalletStorageV3.getLayout().owner = newOwner;
     }
 }
 
@@ -153,8 +153,8 @@ contract AgentTransfersTest is IntegrationBase {
         OwnershipTransferWalletV3(payable(address(borrowWallet))).transferOwnership(makeAddr("newOwner"));
         vm.stopPrank();
 
-        bytes memory error = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(borrowWallet));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), error);
+        bytes memory notOwnersWallet = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(borrowWallet));
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), notOwnersWallet);
     }
 
     function testTransferRejectsTokensNotAccountedByReceiverAndZeroAmounts() public {

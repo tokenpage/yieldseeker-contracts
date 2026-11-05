@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {IPriceFeed, InvalidPrice, NoPriceSource, SequencerDown, StalePrice, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
