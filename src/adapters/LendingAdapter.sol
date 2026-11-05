@@ -22,7 +22,7 @@ import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-error ZeroDebtPrice();
+error UnusableDebtPrice();
 
 /**
  * @title YieldSeekerLendingAdapter
@@ -87,11 +87,12 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
 
     /// @dev The market's price is read whenever the market has debt before or after the action, so the borrow fee
     ///      module always knows a price for open debt (a market with no debt has no fee to value). A zero market price
-    ///      is reported as 0: a borrow then reverts, and other actions go ahead with the module valuing the debt at its
-    ///      last price. A market oracle that reverts makes the action revert.
+    ///      is reported as 0. A borrow needs a price the module can store (non-zero and at most uint192), or it
+    ///      reverts; other actions go ahead and the module values the debt at its last price. A market oracle that
+    ///      reverts makes the action revert.
     function _reportDebtChange(bytes memory market, address debtAsset, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
         uint256 debtPrice = debtBefore > 0 || borrowed > 0 ? _debtPriceInCollateral(market) : 0;
-        if (borrowed > 0 && debtPrice == 0) revert ZeroDebtPrice();
+        if (borrowed > 0 && (debtPrice == 0 || debtPrice > type(uint192).max)) revert UnusableDebtPrice();
         _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: marketTarget(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtPrice})));
     }
 }

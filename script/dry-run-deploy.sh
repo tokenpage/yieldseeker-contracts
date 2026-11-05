@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT=8546
 RPC="http://127.0.0.1:$PORT"
-SAFE="${MULTISIG_ADMIN_ADDRESS:-0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa}"
+SAFE=0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa
 TIMELOCK=$(jq -r .adminTimelock deployments.json)
 # anvil's well-known default accounts, only ever used on the local fork
 DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80

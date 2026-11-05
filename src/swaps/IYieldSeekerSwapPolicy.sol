@@ -22,7 +22,8 @@ error SwapNotAllowed(address sellToken, address buyToken);
  * @title IYieldSeekerSwapPolicy
  * @notice The swap rules of one agent type: which swaps its wallets may make, and what each one counts as for fees
  * @dev The wallet factory holds one policy per agent profile (swapPolicy), set by the timelock and replaceable on its
- *      own. Swap adapters (one per DEX, shared by every agent type) ask the wallet's policy before and after a swap.
+ *      own. Swap adapters (one per DEX router, shared by every agent type) ask the wallet's policy before and after a
+ *      swap.
  */
 interface IYieldSeekerSwapPolicy {
     /// @notice Reverts unless `wallet` may sell `sellToken` for `buyToken`

@@ -35,12 +35,11 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  *      protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
  *      is charged on the debt at the start of the period, so repaying directly on the protocol cannot erase the fee;
  *      after a debt change outside the adapters (e.g. a liquidation) the period runs until the next report, so the
- *      operator checkpoints the market. A report without a price (the market has no debt left, e.g. it was repaid
- *      outside the adapters, or the market's oracle reports zero) values the period with the market's last reported
- *      price. Fees round up. The fee is converted to the base asset when it is charged, then paid from the base asset
- *      at the first reported action or outflow that finds some. Only the fee tracker reports actions (onAction), for
- *      the wallet that reported them to
- *      it.
+ *      operator checkpoints the market. A report without a usable price (the market has no debt left, e.g. it was
+ *      repaid outside the adapters, or the market's oracle reports zero or a degenerate price too large to store)
+ *      values the period with the market's last reported price. Fees round up. The fee is converted to the base asset
+ *      when it is charged, then paid from the base asset at the first reported action or outflow that finds some. Only
+ *      the fee tracker reports actions (onAction), for the wallet that reported them to it.
  */
 contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     using SafeCast for uint256;
@@ -93,7 +92,8 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     function _recordDebtChange(address wallet, FeeActions.DebtChange memory change) internal {
         DebtPosition storage position = debtPositions[wallet][change.market];
         uint256 fee = _pendingFee(wallet, position);
-        if (change.debtPriceInBaseAsset > 0) position.lastPrice = change.debtPriceInBaseAsset.toUint192();
+        uint256 price = change.debtPriceInBaseAsset;
+        if (price > 0 && price <= type(uint192).max) position.lastPrice = uint192(price);
         if (fee > 0) {
             uint256 feeInBaseAsset = Math.mulDiv(fee, position.lastPrice, 1e36, Math.Rounding.Ceil);
             feesOwed[wallet] += feeInBaseAsset;

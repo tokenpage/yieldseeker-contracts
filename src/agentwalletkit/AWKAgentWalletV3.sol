@@ -351,10 +351,11 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address walletOwner = owner();
         (address signer,,) = hash.tryRecover(signature);
-        if (signer == walletOwner) return 0;
+        if (signer != address(0) && signer == walletOwner) return 0;
         bytes4 selector = callData.length >= 4 ? bytes4(callData[:4]) : bytes4(0);
         if (selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector) {
-            return signer != address(0) && paymasterAndData.length >= 20 && isAgentOperator(signer) ? 0 : SIG_VALIDATION_FAILED;
+            bool sponsored = paymasterAndData.length >= 20 && address(bytes20(paymasterAndData[:20])) != address(0);
+            return signer != address(0) && sponsored && isAgentOperator(signer) ? 0 : SIG_VALIDATION_FAILED;
         }
         if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, signature)) return 0;
         return SIG_VALIDATION_FAILED;

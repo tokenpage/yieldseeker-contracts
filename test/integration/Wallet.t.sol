@@ -314,13 +314,21 @@ contract WalletIntegrationTest is IntegrationBase {
         bytes32 userOpHash = keccak256("unsponsored operator op");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(_signedOperatorKey, userOpHash.toEthSignedMessageHash());
         UserOperation memory userOp = _buildUserOp(_wallet, adapterCall, abi.encodePacked(r, s, v));
-        userOp.paymasterAndData = "";
+        bytes[2] memory unsponsored = [bytes(""), abi.encodePacked(address(0))];
+        bytes[2] memory packedUnsponsored = [bytes(""), abi.encodePacked(address(0), uint128(100_000), uint128(0))];
+        for (uint256 i; i < 2; ++i) {
+            userOp.paymasterAndData = unsponsored[i];
+            vm.prank(ENTRY_POINT);
+            assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+            PackedUserOperation memory packedUserOp = _buildPackedUserOp(adapterCall, abi.encodePacked(r, s, v));
+            packedUserOp.paymasterAndData = packedUnsponsored[i];
+            vm.prank(ENTRY_POINT_V07);
+            assertEq(_wallet.validateUserOp(packedUserOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+        }
+
+        UserOperation memory onImplementation = _buildUserOp(AgentWallet(payable(address(walletImplementation))), abi.encodeCall(_wallet.withdrawAllEthToUser, (_recipient)), hex"1234");
         vm.prank(ENTRY_POINT);
-        assertEq(_wallet.validateUserOp(userOp, userOpHash, 0), SIG_VALIDATION_FAILED);
-        PackedUserOperation memory packedUserOp = _buildPackedUserOp(adapterCall, abi.encodePacked(r, s, v));
-        packedUserOp.paymasterAndData = "";
-        vm.prank(ENTRY_POINT_V07);
-        assertEq(_wallet.validateUserOp(packedUserOp, userOpHash, 0), SIG_VALIDATION_FAILED);
+        assertEq(AgentWallet(payable(address(walletImplementation))).validateUserOp(onImplementation, userOpHash, 0), SIG_VALIDATION_FAILED);
 
         ApprovedHashOwner contractOwner = new ApprovedHashOwner();
         AgentWallet contractOwnedWallet = _createVaultWallet(address(contractOwner), 2);

@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {EModeNotAllowed, YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
-import {ZeroDebtPrice} from "../../src/adapters/LendingAdapter.sol";
+import {UnusableDebtPrice} from "../../src/adapters/LendingAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
@@ -164,7 +164,7 @@ contract LendingIntegrationTest is IntegrationBase {
         _fundWallet(wallet, address(usdc), COLLATERAL);
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, COLLATERAL)));
         aaveV3Oracle.setAssetPrice(address(weth), 0);
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, BORROWED_WETH)), abi.encodeWithSelector(ZeroDebtPrice.selector));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, BORROWED_WETH)), abi.encodeWithSelector(UnusableDebtPrice.selector));
 
         aaveV3Oracle.setAssetPrice(address(weth), 2_000e8);
         _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, BORROWED_WETH)));
@@ -185,8 +185,8 @@ contract LendingIntegrationTest is IntegrationBase {
 
         morphoOracle.setPrice(0);
         aaveV3Oracle.setAssetPrice(address(usdc), 0);
-        _executeExpectRevert(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, BORROWED_WETH / 2)), abi.encodeWithSelector(ZeroDebtPrice.selector));
-        _executeExpectRevert(aaveWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1)), abi.encodeWithSelector(ZeroDebtPrice.selector));
+        _executeExpectRevert(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, BORROWED_WETH / 2)), abi.encodeWithSelector(UnusableDebtPrice.selector));
+        _executeExpectRevert(aaveWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1)), abi.encodeWithSelector(UnusableDebtPrice.selector));
 
         vm.warp(vm.getBlockTimestamp() + YEAR);
         _execute(morphoWallet, address(morphoBlueLendingAdapter), morphoTarget, abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, type(uint256).max)));
@@ -194,6 +194,21 @@ contract LendingIntegrationTest is IntegrationBase {
         assertEq(_feesCollected(address(usdc)), 5e6);
         _execute(aaveWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.feesOwed(address(aaveWallet)), 10e6);
+    }
+
+    function test_DegenerateMorphoPriceTooLargeToStoreStillLetsThePositionUnwind() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 27);
+        address target = morphoBlueLendingAdapter.marketTarget(morphoMarket);
+        _fundWallet(wallet, address(usdc), COLLATERAL);
+        _execute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, COLLATERAL)));
+        _execute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, BORROWED_WETH / 2)));
+
+        morphoOracle.setPrice(1);
+        _executeExpectRevert(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, 1)), abi.encodeWithSelector(UnusableDebtPrice.selector));
+        vm.warp(vm.getBlockTimestamp() + YEAR);
+        _execute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, type(uint256).max)));
+        _execute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+        assertEq(_feesCollected(address(usdc)), 5e6);
     }
 
     function test_WithdrawnCollateralPaysBorrowAndYieldFees() public {

@@ -278,6 +278,9 @@ if [ -n "$FACTORY" ] && [ "$FACTORY" != "0x0000000000000000000000000000000000000
     VAULT_REGISTRY=$(jq -r '.vaultAdapterRegistry // empty' "$(dirname "$0")/../deployments.json")
     IS_EMERGENCY_ADMIN=$(cast call "$VAULT_REGISTRY" "hasRole(bytes32,address)(bool)" "$(cast keccak EMERGENCY_ROLE)" "$DEPLOYER_ADDRESS" --rpc-url "$RPC")
     [ "$IS_EMERGENCY_ADMIN" = "true" ] || { echo "DEPLOYER_ADDRESS $DEPLOYER_ADDRESS is not the emergency admin of the V3 vault registry; refusing to bundle the factory handover"; exit 1; }
+    V2_FACTORY=$(jq -r '.agentWalletV2Factory // empty' "$(dirname "$0")/../deployments.json")
+    IS_LIVE_OPERATOR=$(cast call "$V2_FACTORY" "hasRole(bytes32,address)(bool)" "$(cast keccak AGENT_OPERATOR_ROLE)" "$SERVER_ADDRESS" --rpc-url "$RPC")
+    [ "$IS_LIVE_OPERATOR" = "true" ] || { echo "SERVER_ADDRESS $SERVER_ADDRESS is not an operator of the V2 factory; refusing to bundle the factory handover"; exit 1; }
     HANDOVER=$("$(dirname "$0")/factory-handover.sh" "$FACTORY" "$SAFE" "$TIMELOCK" "$DEPLOYER_ADDRESS" "$SERVER_ADDRESS" "$RPC")
     while read -r CALL; do
       [ -n "$CALL" ] || continue

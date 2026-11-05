@@ -43,6 +43,9 @@ contract DeployScript is Script {
     // Deployment Salt for deterministic addresses
     uint256 constant SALT = 0x711;
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    // The Safe in the factory's constructor: it fixes the factory's address, and so every wallet address, on every
+    // chain; recreate it on a new chain from its original setup (README, "The Safe's original setup")
+    address constant FACTORY_ROOT_SAFE = 0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa;
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 4-day delay)
@@ -230,6 +233,7 @@ contract DeployScript is Script {
         address timelockExecutorAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
         address timelockAdminAddress = TESTING_MODE ? deployerAddress : multisigAdminAddress;
         address emergencyAdminAddress = deployerAddress;
+        address factoryRootSafe = TESTING_MODE ? deployerAddress : FACTORY_ROOT_SAFE;
         uint256 adminTimelockDelay = TESTING_MODE ? 0 : 4 days;
         address uniswapV3Router = getUniswapV3Router(block.chainid);
         address aerodromeV2Router = getAerodromeV2Router(block.chainid);
@@ -243,6 +247,7 @@ contract DeployScript is Script {
         console2.log("=================================================");
         console2.log("Deployer:", deployerAddress);
         console2.log("Multisig Admin:", multisigAdminAddress);
+        console2.log("Factory Root Safe:", factoryRootSafe);
         console2.log("Server:", serverAddress);
         console2.log("Fee Collector:", feeCollectorAddress);
         console2.log("Timelock Proposers and Cancellers:", deployerAddress, multisigAdminAddress);
@@ -308,13 +313,13 @@ contract DeployScript is Script {
 
         // Deploy or reuse AgentWalletFactory: constructor arguments are chain-independent (see _factoryHandoverCalls)
         if (deployments.agentWalletFactory == address(0)) {
-            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(multisigAdminAddress, multisigAdminAddress, multisigAdminAddress)));
+            deployments.agentWalletFactory = deployCreate2(abi.encodePacked(type(AgentWalletFactory).creationCode, abi.encode(factoryRootSafe, factoryRootSafe, factoryRootSafe)));
             console2.log("-> AgentWalletFactory deployed at:", deployments.agentWalletFactory);
         } else {
             console2.log("-> Using existing agentWalletFactory:", deployments.agentWalletFactory);
         }
-        bytes[] memory factoryHandover = _factoryHandoverCalls(AgentWalletFactory(deployments.agentWalletFactory), multisigAdminAddress, deployments.adminTimelock, emergencyAdminAddress, serverAddress);
-        if (factoryHandover.length > 0 && multisigAdminAddress == deployerAddress) {
+        bytes[] memory factoryHandover = _factoryHandoverCalls(AgentWalletFactory(deployments.agentWalletFactory), factoryRootSafe, deployments.adminTimelock, emergencyAdminAddress, serverAddress);
+        if (factoryHandover.length > 0 && factoryRootSafe == deployerAddress) {
             for (uint256 i; i < factoryHandover.length; ++i) {
                 (bool success,) = deployments.agentWalletFactory.call(factoryHandover[i]);
                 require(success, "Factory handover failed");
