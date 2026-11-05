@@ -10,6 +10,7 @@ import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {ERC1967ProxyUnsafe} from "@openzeppelin/contracts/mocks/proxy/ERC1967ProxyUnsafe.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -130,6 +131,9 @@ contract WalletIntegrationTest is IntegrationBase {
     using MessageHashUtils for bytes32;
 
     address private constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
+    address private constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address private constant ENTRY_POINT_V08 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+    address private constant ENTRY_POINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     uint256 private constant SIG_VALIDATION_SUCCESS = 0;
     uint256 private constant SIG_VALIDATION_FAILED = 1;
@@ -302,6 +306,39 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(_validateWithSigner(contractOwnedWallet, abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), 1)), _signedOperatorKey), SIG_VALIDATION_FAILED);
         vm.expectCall(address(contractOwner), abi.encodeWithSelector(ApprovedHashOwner.isValidSignature.selector), 0);
         assertEq(_validateWithSigner(contractOwnedWallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
+    }
+
+    function test_PackedEntryPointsValidateWithTheSameRulesAndActAsEntryPoint() public {
+        address[3] memory packedEntryPoints = [ENTRY_POINT_V07, ENTRY_POINT_V08, ENTRY_POINT_V09];
+        bytes memory withdrawCall = abi.encodeCall(_wallet.withdrawAssetToUser, (_recipient, address(usdc), 1));
+        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
+        (, uint256 strangerKey) = makeAddrAndKey("packed stranger");
+        vm.deal(address(_wallet), 1 ether);
+        for (uint256 i; i < packedEntryPoints.length; ++i) {
+            address entryPoint = packedEntryPoints[i];
+            assertTrue(_wallet.isEntryPoint(entryPoint));
+            assertEq(_validatePackedWithSigner(entryPoint, withdrawCall, _ownerKey, 0), SIG_VALIDATION_SUCCESS);
+            assertEq(_validatePackedWithSigner(entryPoint, withdrawCall, _signedOperatorKey, 0), SIG_VALIDATION_FAILED);
+            assertEq(_validatePackedWithSigner(entryPoint, adapterCall, _signedOperatorKey, 0), SIG_VALIDATION_SUCCESS);
+            assertEq(_validatePackedWithSigner(entryPoint, adapterCall, strangerKey, 0), SIG_VALIDATION_FAILED);
+
+            uint256 entryPointBalance = entryPoint.balance;
+            _validatePackedWithSigner(entryPoint, adapterCall, _signedOperatorKey, 0.01 ether);
+            assertEq(entryPoint.balance - entryPointBalance, 0.01 ether);
+
+            vm.prank(entryPoint);
+            _wallet.withdrawAssetToUser(_recipient, address(usdc), 1);
+        }
+        assertEq(usdc.balanceOf(_recipient), 3);
+
+        assertFalse(_wallet.isEntryPoint(_recipient));
+        PackedUserOperation memory userOp = _buildPackedUserOp(withdrawCall, "");
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, ENTRY_POINT));
+        _wallet.validateUserOp(userOp, bytes32(0), 0);
+        vm.prank(_recipient);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, _recipient));
+        _wallet.withdrawAssetToUser(_recipient, address(usdc), 1);
     }
 
     function test_StorageSlotsStayFixedForUpgrades() public view {
@@ -875,6 +912,27 @@ contract WalletIntegrationTest is IntegrationBase {
             preVerificationGas: 21_000,
             maxFeePerGas: 1 gwei,
             maxPriorityFeePerGas: 1 gwei,
+            paymasterAndData: "",
+            signature: signature
+        });
+    }
+
+    function _validatePackedWithSigner(address entryPoint, bytes memory callData, uint256 signerKey, uint256 missingAccountFunds) private returns (uint256) {
+        bytes32 userOpHash = keccak256(abi.encode(entryPoint, callData, vm.getBlockTimestamp()));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash.toEthSignedMessageHash());
+        vm.prank(entryPoint);
+        return _wallet.validateUserOp(_buildPackedUserOp(callData, abi.encodePacked(r, s, v)), userOpHash, missingAccountFunds);
+    }
+
+    function _buildPackedUserOp(bytes memory callData, bytes memory signature) private view returns (PackedUserOperation memory) {
+        return PackedUserOperation({
+            sender: address(_wallet),
+            nonce: 0,
+            initCode: "",
+            callData: callData,
+            accountGasLimits: bytes32((uint256(500_000) << 128) | 500_000),
+            preVerificationGas: 21_000,
+            gasFees: bytes32((uint256(1 gwei) << 128) | 1 gwei),
             paymasterAndData: "",
             signature: signature
         });

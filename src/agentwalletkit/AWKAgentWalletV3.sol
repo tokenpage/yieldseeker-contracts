@@ -19,6 +19,7 @@ import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 import {IAWKAgentWalletFactory} from "./IAWKAgentWalletFactory.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -71,9 +72,10 @@ library AgentWalletStorageV3 {
 
 /**
  * @title AWKAgentWalletV3
- * @notice Abstract ERC-4337 v0.6 smart wallet with EntryPoint-relayed owner actions.
+ * @notice Abstract ERC-4337 smart wallet with EntryPoint-relayed owner actions.
  * @dev Implements:
- *      - ERC-4337 v0.6 Account (BaseAccount)
+ *      - ERC-4337 accounts for the v0.6 EntryPoint (UserOperation) and the v0.7, v0.8 and v0.9 EntryPoints
+ *        (PackedUserOperation), all at their canonical addresses
  *      - Owner ECDSA or ERC-1271 validation; operator ECDSA validation for adapter calls only
  *      - UUPS Upgradeability
  *      - Namespaced storage in the same slot as V1 (AgentWalletStorageV3)
@@ -89,8 +91,11 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
 
-    // ERC-4337 v0.6 canonical EntryPoint address
+    // ERC-4337 canonical EntryPoint addresses: v0.6 takes UserOperation, v0.7 and later take PackedUserOperation
     IEntryPoint private constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
+    address private constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address private constant ENTRY_POINT_V08 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+    address private constant ENTRY_POINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
     IAWKAgentWalletFactory public immutable FACTORY;
 
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
@@ -104,7 +109,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     modifier onlyOwner() {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
-        if (msg.sender != owner() && msg.sender != address(ENTRY_POINT)) {
+        if (msg.sender != owner() && !isEntryPoint(msg.sender)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
         _;
@@ -112,7 +117,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     modifier onlyExecutors() {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
-        if (msg.sender != address(ENTRY_POINT) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
+        if (!isEntryPoint(msg.sender) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
         _;
@@ -307,21 +312,46 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         return ENTRY_POINT;
     }
 
+    /// @notice Whether `account` is an EntryPoint this wallet accepts UserOperations from (v0.6, v0.7, v0.8 or v0.9)
+    function isEntryPoint(address account) public pure returns (bool) {
+        return account == address(ENTRY_POINT) || _isPackedEntryPoint(account);
+    }
+
+    /**
+     * @notice ERC-4337 validation for the v0.7, v0.8 and v0.9 EntryPoints, with the same signature rules as the v0.6
+     *         validateUserOp
+     * @dev Each EntryPoint hashes the UserOperation with its own address and the chain id and keeps its own nonces,
+     *      so a signature for one EntryPoint can't be replayed through another.
+     */
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds) external virtual returns (uint256 validationData) {
+        if (!_isPackedEntryPoint(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
+        validationData = _validateUserOpSignature(userOp.signature, userOp.callData, userOpHash);
+        _payPrefund(missingAccountFunds);
+    }
+
+    function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
+        return _validateUserOpSignature(userOp.signature, userOp.callData, userOpHash);
+    }
+
+    function _isPackedEntryPoint(address account) private pure returns (bool) {
+        return account == ENTRY_POINT_V07 || account == ENTRY_POINT_V08 || account == ENTRY_POINT_V09;
+    }
+
     /// @dev The owner may authorize any call: an ECDSA signature from the owner's key, or, when the owner is a contract
     ///      (a Safe or smart wallet), its ERC-1271 isValidSignature approval. ECDSA is checked first so EOAs with code
     ///      (EIP-7702) keep signing with their key. Operators may only authorize adapter execution, with ECDSA. Operator
     ///      signatures are checked before ERC-1271, so an operator UserOperation reads only the wallet's own storage and
     ///      never touches the owner account (ERC-7562 validation rules). A malformed signature fails validation instead
     ///      of reverting (ERC-4337), so bundlers can estimate gas with dummy signatures.
-    function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
+    function _validateUserOpSignature(bytes calldata signature, bytes calldata callData, bytes32 userOpHash) internal view virtual returns (uint256 validationData) {
         bytes32 hash = userOpHash.toEthSignedMessageHash();
         address walletOwner = owner();
-        (address signer,,) = hash.tryRecover(userOp.signature);
+        (address signer,,) = hash.tryRecover(signature);
         if (signer == walletOwner) return 0;
-        bytes4 selector = userOp.callData.length >= 4 ? bytes4(userOp.callData[:4]) : bytes4(0);
+        bytes4 selector = callData.length >= 4 ? bytes4(callData[:4]) : bytes4(0);
         bool isAdapterCall = selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector;
         if (signer != address(0) && isAdapterCall && isAgentOperator(signer)) return 0;
-        if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, userOp.signature)) return 0;
+        if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, signature)) return 0;
         return SIG_VALIDATION_FAILED;
     }
 
