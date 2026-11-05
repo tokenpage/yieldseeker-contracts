@@ -230,13 +230,35 @@ The Safe then hands the factory over in one Safe transaction: it grants the admi
 
 To keep that true:
 
-- The Safe must exist at the same address on the new chain. Safe{Wallet} can add the Safe to another network: it recreates the Safe from its original setup, with its original owners and threshold. Owners changed on Base afterwards don't carry over, so enough of the original owners to meet the threshold must still be able to sign on the new chain.
+- The Safe must exist at the same address on the new chain. Safe{Wallet} can add the Safe to another network: it recreates the Safe from its original setup, with its original owners and threshold. Owners changed on Base afterwards don't carry over, so enough of the original owners to meet the threshold must still be able to sign on the new chain. See [The Safe's original setup](#the-safes-original-setup).
 - Deploy from the same factory bytecode. `foundry.toml` turns off compiler metadata (`bytecode_hash = "none"`, `cbor_metadata = false`), so the bytecode depends on code, not on file contents or paths. The factory's bytecode comes from `AgentWalletFactory.sol`, `AWKAgentWalletFactory.sol` (including the embedded `AWKAgentWalletProxy`), the OpenZeppelin code they use, the wallet and tracker functions they call, and the compiler version and settings. Changing any of those changes the address. Check the predicted factory address against Base's before deploying a new chain.
 - The wallet implementation, registries, trackers and adapters can differ per chain.
 
 If a user sends tokens to their wallet's address on a chain where it doesn't exist yet, recreate the Safe there, deploy the V3 contracts, and create the wallet for the same owner and index with the stranded token as its base asset. The owner can then withdraw it.
 
 The scripts only support Base today. A new chain needs its protocol addresses in `Deploy.s.sol` (routers, the WELL token, Merkl and the sequencer feed), its own deployments file, and a `check-timelock.sh` for its timelock and Safe; its timelock address will differ from Base's. `YieldSeekerPriceOracle` needs an L2 sequencer uptime feed, which Ethereum mainnet doesn't have. zkSync Era is not supported: its CREATE2 addresses and bytecode differ from other EVM chains.
+
+#### The Safe's original setup
+
+The Safe `0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa` was created on Base in transaction `0x45dbf6a7237f8547cdf855eaf92cd71700a5b98ee7acf15b570fc065efa2e017` by calling `createProxyWithNonce` on the Safe proxy factory `0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`:
+
+| Field | Value |
+|---|---|
+| Singleton | `0x41675C099F32341bf84BFc5382aF534df5C7461a` (Safe 1.4.1) |
+| Owners | `0xdCf1220Cd53506B1e7137bffC2b8814C6Cc24421`, `0xF3A535cEdf65cB8C287Cb5CAc67E970E94eb372D` |
+| Threshold | `2` |
+| Setup call | `0xBD89A1CE4DDe368FFAB0eC35506eEcE0b1fFdc54` with `0xfe51f643` (`setupToL2`) for the L2 singleton `0x29fcB43b46531BcA003ddC8FCB67FFE91900C762` |
+| Fallback handler | `0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99` |
+| Payment token, payment, payment receiver | `0x0`, `0`, `0x5afe7A11E7000000000000000000000000000000` |
+| Salt nonce | `0` |
+
+Replaying that call with the same arguments creates the Safe at the same address on any chain where these contracts exist; in November 2026 they existed on Ethereum, Optimism, Arbitrum and Polygon, and the replay's address was checked to match. The new copy starts with these two owners at threshold 2, whatever the Base Safe's owners are by then. Both owner keys must therefore stay available for good, even after they are removed from the Base Safe: keep their seed phrases backed up in separate places. Owners added later play no part in any address.
+
+To deploy on a new chain:
+
+1. Recreate the Safe there, with Safe{Wallet}'s "add another network" or by replaying the call above. Anyone can send it.
+2. Run `Deploy.s.sol` on that chain with any deployer key. Check that the factory lands at the same address as on Base.
+3. The two original owners sign that chain's factory handover, then add the owners and threshold the team uses by then.
 
 ### Two vault registries
 
