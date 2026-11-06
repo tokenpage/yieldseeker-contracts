@@ -61,6 +61,12 @@ while IFS=' ' read -r OP_ID TX_HASH BLOCK_NUM; do
   ) &
 
   (
+    # Safe{Wallet} can relay execTransaction, so `to` may be a relayer; the Safe's ExecutionSuccess log still shows it
+    cast receipt --rpc-url "$ARCHIVE_RPC" --json "$TX_HASH" 2>/dev/null | jq -r --arg safe "$(echo "$SAFE" | tr '[:upper:]' '[:lower:]')" \
+      '[(.data // .).logs[] | select((.address | ascii_downcase) == $safe and .topics[0] == "0x442e715f626346e8c54381002da614f62bee8d27386535b2521ec8540898556e")] | length > 0' > "$WORK/$OP_ID.safe"
+  ) &
+
+  (
     BLOCK_DEC=$(printf "%d" "$BLOCK_NUM" 2>/dev/null || echo "0")
     BLK_TS_HEX=$(cast block --rpc-url "$ARCHIVE_RPC" --json "$BLOCK_DEC" 2>/dev/null | jq -r '(.data // .).timestamp // "0x0"')
     BLK_TS=$(printf "%d" "$BLK_TS_HEX" 2>/dev/null || echo "0")
@@ -101,7 +107,7 @@ while IFS=' ' read -r PROPOSED OP_ID TX_HASH; do
   NEW_L=$(echo "$NEW_DEPLOYER" | tr '[:upper:]' '[:lower:]')
   UNKNOWN_PROPOSER=false
 
-  if [ "$TO_L" = "$SAFE_L" ]; then
+  if [ "$TO_L" = "$SAFE_L" ] || [ "$(cat "$WORK/$OP_ID.safe" 2>/dev/null)" = "true" ]; then
     PROPOSER_LABEL="Safe"
   elif [ -z "$OLD_DEPLOYER" ] && [ -z "$NEW_DEPLOYER" ]; then
     PROPOSER_LABEL="$FROM"
