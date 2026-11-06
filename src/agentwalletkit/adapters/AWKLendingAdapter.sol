@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.38;
+
+import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
+import {AWKErrors} from "../AWKErrors.sol";
+
+error MarketTargetMismatch(address target, address expected);
+
+/**
+ * @title AWKLendingAdapter
+ * @notice Base class for lending adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
+ * @dev Every market is its own registry target: target = marketTarget(market), where `market` is the
+ *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
+ *      used once the registry admin has mapped its target to this adapter.
+ *      Pass type(uint256).max to withdraw all collateral or repay all debt. checkpoint moves no funds: it reads the
+ *      market's current debt so subclasses can record it (e.g. after a liquidation outside the adapter).
+ */
+abstract contract AWKLendingAdapter is AWKAdapter {
+    event CollateralSupplied(address indexed wallet, address indexed market, uint256 amount);
+    event CollateralWithdrawn(address indexed wallet, address indexed market, uint256 amount);
+    event Borrowed(address indexed wallet, address indexed market, uint256 amount);
+    event Repaid(address indexed wallet, address indexed market, uint256 amount);
+    event Checkpointed(address indexed wallet, address indexed market, uint256 debt);
+
+    function supplyCollateral(bytes calldata market, uint256 amount) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    function withdrawCollateral(bytes calldata market, uint256 amount) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    function borrow(bytes calldata market, uint256 amount) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    function repay(bytes calldata market, uint256 amount) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    function checkpoint(bytes calldata market) external pure returns (uint256) {
+        revert AWKErrors.DirectCallForbidden();
+    }
+
+    /// @notice The registry target that identifies a market
+    function marketTarget(bytes memory market) public pure returns (address) {
+        return address(uint160(uint256(keccak256(market))));
+    }
+
+    /// @notice The token the wallet holds for its collateral in a market (an Aave V3 aToken), or address(0) when the
+    ///         protocol keeps the collateral itself
+    /// @dev Register it in the registry as a target of this adapter, next to the market: swap policies never sell a
+    ///      registry target, and execute rejects it because it is not a market target
+    function collateralReceiptToken(bytes memory market) public view virtual returns (address);
+
+    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == this.checkpoint.selector) {
+            bytes memory checkpointMarket = abi.decode(data[4:], (bytes));
+            if (marketTarget(checkpointMarket) != target) revert MarketTargetMismatch(target, marketTarget(checkpointMarket));
+            uint256 debt = _checkpointOperation(checkpointMarket);
+            emit Checkpointed(address(this), target, debt);
+            return abi.encode(debt);
+        }
+        if (selector != this.supplyCollateral.selector && selector != this.withdrawCollateral.selector && selector != this.borrow.selector && selector != this.repay.selector) revert UnknownOperation();
+        (bytes memory market, uint256 amount) = abi.decode(data[4:], (bytes, uint256));
+        if (marketTarget(market) != target) revert MarketTargetMismatch(target, marketTarget(market));
+        if (amount == 0) revert AWKErrors.ZeroAmount();
+        uint256 result;
+        if (selector == this.supplyCollateral.selector) {
+            result = _supplyCollateralOperation(market, amount);
+            emit CollateralSupplied(address(this), target, result);
+        } else if (selector == this.withdrawCollateral.selector) {
+            result = _withdrawCollateralOperation(market, amount);
+            emit CollateralWithdrawn(address(this), target, result);
+        } else if (selector == this.borrow.selector) {
+            result = _borrowOperation(market, amount);
+            emit Borrowed(address(this), target, result);
+        } else {
+            result = _repayOperation(market, amount);
+            emit Repaid(address(this), target, result);
+        }
+        return abi.encode(result);
+    }
+
+    // ============ Operations (override to add rules) ============
+
+    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
+        return _supplyCollateral(market, amount);
+    }
+
+    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
+        return _withdrawCollateral(market, amount);
+    }
+
+    function _borrowOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
+        return _borrow(market, amount);
+    }
+
+    function _repayOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
+        return _repay(market, amount);
+    }
+
+    function _checkpointOperation(bytes memory market) internal virtual returns (uint256 debt) {
+        return _debtOf(market);
+    }
+
+    // ============ Protocol Implementation ============
+
+    /// @dev The market's collateral and debt assets
+    function _marketAssets(bytes memory market) internal view virtual returns (address collateralAsset, address debtAsset);
+
+    /// @dev The wallet's current debt in the market, including accrued interest
+    function _debtOf(bytes memory market) internal virtual returns (uint256);
+
+    /// @dev The wallet's current collateral in the market, including any interest it earned
+    function _collateralOf(bytes memory market) internal view virtual returns (uint256);
+
+    /// @dev Collateral units worth one debt unit (raw token units, scaled by 1e36), from the market's own oracle: the
+    ///      price the protocol itself uses to value this position
+    function _debtPriceInCollateral(bytes memory market) internal view virtual returns (uint256);
+
+    function _supplyCollateral(bytes memory market, uint256 amount) internal virtual returns (uint256 supplied);
+
+    /// @dev The withdrawn collateral stays in the wallet
+    function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual returns (uint256 withdrawn);
+
+    /// @dev The borrowed asset stays in the wallet
+    function _borrow(bytes memory market, uint256 amount) internal virtual returns (uint256 borrowed);
+
+    /// @dev Any amount at or above the debt repays all of it
+    function _repay(bytes memory market, uint256 amount) internal virtual returns (uint256 repaid);
+}

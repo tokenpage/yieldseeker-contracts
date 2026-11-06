@@ -1,63 +1,20 @@
 // SPDX-License-Identifier: MIT
-//
-//   /$$     /$$ /$$           /$$       /$$  /$$$$$$                      /$$
-//  |  $$   /$$/|__/          | $$      | $$ /$$__  $$                    | $$
-//   \  $$ /$$/  /$$  /$$$$$$ | $$  /$$$$$$$| $$  \__/  /$$$$$$   /$$$$$$ | $$   /$$  /$$$$$$   /$$$$$$
-//    \  $$$$/  | $$ /$$__  $$| $$ /$$__  $$|  $$$$$$  /$$__  $$ /$$__  $$| $$  /$$/ /$$__  $$ /$$__  $$
-//     \  $$/   | $$| $$$$$$$$| $$| $$  | $$ \____  $$| $$$$$$$$| $$$$$$$$| $$$$$$/ | $$$$$$$$| $$  \__/
-//      | $$    | $$| $$_____/| $$| $$  | $$ /$$  \ $$| $$_____/| $$_____/| $$_  $$ | $$_____/| $$
-//      | $$    | $$|  $$$$$$$| $$|  $$$$$$$|  $$$$$$/|  $$$$$$$|  $$$$$$$| $$ \  $$|  $$$$$$$| $$
-//      |__/    |__/ \_______/|__/ \_______/ \______/  \_______/ \_______/|__/  \__/ \_______/|__/
-//
-//  Grow your wealth on auto-pilot with DeFi agents
-//  https://yieldseeker.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
-import {AWKCompoundV2Adapter, ICToken} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
-import {YieldSeekerAdapter} from "./Adapter.sol";
-
-interface IWETH {
-    function deposit() external payable;
-}
+import {AWKBaseVaultAdapter} from "../agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {AWKCompoundV2Adapter} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
+import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
 
 /**
  * @title YieldSeekerCompoundV2Adapter
- * @notice YieldSeeker-specific Compound V2 adapter with fee tracking
- * @dev Extends the generic AWKCompoundV2Adapter with base asset validation and fee tracking.
- *      Compound V2 uses exchange rate model (cToken * exchangeRate = underlying).
- *      Fee computation uses actual underlying balance proportion for cost basis.
+ * @notice YieldSeeker Compound V2 / Moonwell vault adapter: the AWK protocol code plus the shared YieldSeeker vault rules and fee reports
  */
-contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerAdapter {
-    /**
-     * @notice Internal deposit implementation with validation and fee tracking
-     */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
-        address asset = _getVaultAsset(vault);
-        _requireBaseAsset(asset);
-        (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
+contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerVaultAdapter {
+    function _depositOperation(address vault, uint256 amount) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256, uint256) {
+        return super._depositOperation(vault, amount);
     }
 
-    /**
-     * @notice Internal withdraw implementation with fee tracking
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        address asset = _getVaultAsset(vault);
-        _requireBaseAsset(asset);
-        uint256 cTokenBalance = ICToken(vault).balanceOf(address(this));
-        uint256 exchangeRate = ICToken(vault).exchangeRateCurrent();
-        uint256 assetExchangeRatePrecision = _feeTracker().ASSET_EXCHANGE_RATE_PRECISION();
-        // Compound V2 exchange rates are 1e18-scaled and include decimal normalization.
-        uint256 totalVaultBalanceBefore = (cTokenBalance * exchangeRate) / assetExchangeRatePrecision;
-        uint256 nativeBalanceBefore = address(this).balance;
-        assets = super._withdrawInternal(vault, shares);
-        uint256 nativeAssetsReceived = address(this).balance - nativeBalanceBefore;
-        if (nativeAssetsReceived > 0) {
-            IWETH(asset).deposit{value: nativeAssetsReceived}();
-        }
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: exchangeRate});
+    function _withdrawOperation(address vault, uint256 shares) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256) {
+        return super._withdrawOperation(vault, shares);
     }
 }

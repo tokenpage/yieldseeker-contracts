@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
-import {YieldSeekerAgentWalletV2} from "../../src/AgentWalletV2.sol";
+import {YieldSeekerAgentWalletV3} from "../../src/AgentWalletV3.sol";
 
-contract MockAgentWalletV3 is YieldSeekerAgentWalletV2 {
+contract MockAgentWalletV3 is YieldSeekerAgentWalletV3 {
     struct AgentWalletV3Storage {
         uint256 v3Counter;
         string v3Message;
         address v3CustomAddress;
+        uint256 newImplementationSyncs;
     }
 
     bytes32 private constant AGENT_WALLET_V3_STORAGE_LOCATION = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd00;
@@ -17,7 +18,7 @@ contract MockAgentWalletV3 is YieldSeekerAgentWalletV2 {
     event V3MessageSet(string oldMessage, string newMessage);
     event V3CustomAddressSet(address oldAddress, address newAddress);
 
-    constructor(address factory) YieldSeekerAgentWalletV2(factory) {}
+    constructor(address factory) YieldSeekerAgentWalletV3(factory) {}
 
     function _getV3Storage() private pure returns (AgentWalletV3Storage storage $) {
         assembly {
@@ -57,5 +58,14 @@ contract MockAgentWalletV3 is YieldSeekerAgentWalletV2 {
 
     function version() external pure returns (uint256) {
         return 3;
+    }
+
+    function _syncFromFactory() internal override {
+        super._syncFromFactory();
+        _getV3Storage().newImplementationSyncs++;
+    }
+
+    function newImplementationSyncs() external view returns (uint256) {
+        return _getV3Storage().newImplementationSyncs;
     }
 }

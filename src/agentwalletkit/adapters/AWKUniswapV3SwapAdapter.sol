@@ -1,18 +1,5 @@
 // SPDX-License-Identifier: MIT
-//
-//      _                    _ __        __    _ _      _   _  ___ _
-//     / \   __ _  ___ _ __ | |\ \      / /_ _| | | ___| |_| |/ (_) |_
-//    / _ \ / _` |/ _ \ '_ \| __\ \ /\ / / _` | | |/ _ \ __| ' /| | __|
-//   / ___ \ (_| |  __/ | | | |_ \ V  V / (_| | | |  __/ |_| . \| | |_
-//  /_/   \_\__, |\___|_| |_|\__| \_/\_/ \__,_|_|_|\___|\__|_|\_\_|\__|
-//          |___/
-//
-//  Build verifiably secure onchain agents
-//  https://agentwalletkit.tokenpage.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
@@ -24,16 +11,6 @@ error InvalidUniswapV3RouterTarget(address target, address expected);
 error InvalidUniswapV3FeeTier(uint24 fee);
 
 interface IUniswapV3SwapRouter {
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24 fee;
-        address recipient;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
-    }
-
     struct ExactInputParams {
         bytes path;
         address recipient;
@@ -41,7 +18,6 @@ interface IUniswapV3SwapRouter {
         uint256 amountOutMinimum;
     }
 
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
 }
 
@@ -72,7 +48,7 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
 
     /**
      * @notice Swap tokens via Uniswap V3 (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swap()
+     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
      */
     function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
@@ -81,34 +57,31 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
     // ============ Swap Execution (delegatecall only) ============
 
     /**
-     * @notice Route delegatecall operations to the swap handler
+     * @notice Validate a swap call and run it
      * @param target The Uniswap V3 router target contract
      * @param data ABI-encoded call data (must match swap() selector)
      * @return ABI-encoded buy amount
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.swap.selector) {
-            (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
-            (uint256 buyAmount,) = _swap(target, sellToken, buyToken, route, sellAmount, minBuyAmount);
-            return abi.encode(buyAmount);
-        }
-        revert UnknownOperation();
+        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
+        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
+        if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
+        _validateRoute(sellToken, buyToken, route);
+        _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
+        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, abi.encode(route));
+        return abi.encode(buyAmount);
     }
 
     // ============ Internal Implementations ============
 
-    function _swap(address target, address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) internal virtual returns (uint256 buyAmount, uint256 soldAmount) {
-        if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
-        _validateRoute(sellToken, buyToken, route);
-        SwapBalanceSnapshot memory balanceSnapshot = _beforeSwapInternal(sellToken, buyToken, sellAmount, minBuyAmount);
-        IERC20(sellToken).forceApprove(UNISWAP_V3_ROUTER, sellAmount);
+    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory encodedRoute) internal virtual override {
+        SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
+        IERC20(sellToken).forceApprove(router, sellAmount);
         bytes memory encodedPath = abi.encodePacked(route.path[0]);
         for (uint256 i = 0; i < route.fees.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.fees[i]), abi.encodePacked(route.path[i + 1]));
         }
-        IUniswapV3SwapRouter(UNISWAP_V3_ROUTER).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
-        (buyAmount, soldAmount) = _afterSwapInternal(UNISWAP_V3_ROUTER, sellToken, buyToken, minBuyAmount, balanceSnapshot);
+        IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 
     function _validateFeeTier(uint24 fee) internal pure {

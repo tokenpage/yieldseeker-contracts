@@ -1,21 +1,8 @@
 // SPDX-License-Identifier: MIT
-//
-//      _                    _ __        __    _ _      _   _  ___ _
-//     / \   __ _  ___ _ __ | |\ \      / /_ _| | | ___| |_| |/ (_) |_
-//    / _ \ / _` |/ _ \ '_ \| __\ \ /\ / / _` | | |/ _ \ __| ' /| | __|
-//   / ___ \ (_| |  __/ | | | |_ \ V  V / (_| | | |  __/ |_| . \| | |_
-//  /_/   \_\__, |\___|_| |_|\__| \_/\_/ \__,_|_|_|\___|\__|_|\_\_|\__|
-//          |___/
-//
-//  Build verifiably secure onchain agents
-//  https://agentwalletkit.tokenpage.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
-import {AWKAgentWalletV1 as AgentWallet} from "./AWKAgentWalletV1.sol";
+import {AWKAgentWalletV3 as AgentWallet} from "./AWKAgentWalletV3.sol";
 import {AWKErrors} from "./AWKErrors.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -23,25 +10,33 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 error AgentAlreadyExists(address owner, uint256 ownerAgentIndex);
 error NoAgentWalletImplementationSet();
-error NoAdapterRegistrySet();
+error UnknownAgentProfile(bytes32 agentProfile);
 error InvalidImplementationFactory();
 error TooManyOperators();
 
 /**
  * @title AWKAgentWalletProxy
  * @notice A custom ERC1967Proxy that queries the Factory for its implementation.
- * @dev This ensures the init-code hash is constant regardless of the implementation address.
+ * @dev This ensures the init-code hash is constant regardless of the implementation address. The proxy is created
+ *      without init data, so the wallet address depends only on (owner, ownerAgentIndex); the factory calls
+ *      initialize() in the same transaction (_deployWallet callers must do so).
  */
 contract AWKAgentWalletProxy is ERC1967Proxy {
     constructor() ERC1967Proxy(address(AWKAgentWalletFactory(msg.sender).agentWalletImplementation()), "") {}
+
+    function _unsafeAllowUninitialized() internal pure override returns (bool) {
+        return true;
+    }
 }
 
 /**
  * @title AWKAgentWalletFactory
  * @notice Abstract factory for deploying AgentWallet proxies using CREATE2
- * @dev Each agent wallet is tied to a specific base asset (e.g., USDC)
+ * @dev Each agent wallet is tied to a specific base asset (e.g., USDC) and an agent profile (its agent type).
+ *      Each agent profile has its own adapter registry. A wallet stores its agent profile at initialization and reads
+ *      its registry from adapterRegistry(agentProfile) when it syncs.
  *      Users can create multiple agents with different ownerAgentIndex values
- *      Salt formula: keccak256(abi.encodePacked(owner, ownerAgentIndex))
+ *      Salt formula: keccak256(abi.encode(owner, ownerAgentIndex))
  *
  *      IMPORTANT: This contract is abstract and must be inherited. Subclasses must:
  *      1. Implement a public deployment function (e.g., createAgentWallet)
@@ -50,26 +45,38 @@ contract AWKAgentWalletProxy is ERC1967Proxy {
  */
 abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     bytes32 public constant AGENT_OPERATOR_ROLE = keccak256("AGENT_OPERATOR_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
     uint256 public constant MAX_OPERATORS = 10;
 
     AgentWallet internal _agentWalletImplementation;
-    AdapterRegistry public adapterRegistry;
+    mapping(bytes32 agentProfile => AdapterRegistry) internal _agentProfileAdapterRegistryMap;
 
     /// @notice Mapping of owner => ownerAgentIndex => agent wallet address
     mapping(address => mapping(uint256 => address)) public userWallets;
 
     event AgentWalletCreated(address indexed wallet, address indexed owner, uint256 indexed ownerAgentIndex);
-    event RegistryUpdated(address indexed oldRegistry, address indexed newAdapterRegistry);
-    event TrackerUpdated(address indexed oldTracker, address indexed newTracker);
+    event RegistryUpdated(bytes32 indexed agentProfile, address indexed oldRegistry, address indexed newAdapterRegistry);
     event ImplementationSet(address indexed newAgentWalletImplementation);
 
-    /// @param admin Address of the AdminTimelock contract (gets admin role for dangerous operations)
-    /// @param agentOperator Address that can create agent wallets (typically backend server)
-    constructor(address admin, address agentOperator) {
+    /// @param admin Holder of the admin role (dangerous operations); the deployment passes the Safe, which hands it to
+    ///        the AdminTimelock, so the factory address doesn't depend on the timelock
+    /// @param emergencyAdmin Address that can remove agent operators at once (removeAgentOperator)
+    /// @param agentOperator Address that can create agent wallets (the backend server, after the handover)
+    constructor(address admin, address emergencyAdmin, address agentOperator) {
         if (admin == address(0)) revert AWKErrors.ZeroAddress();
+        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
         if (agentOperator == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(EMERGENCY_ROLE, emergencyAdmin);
         _grantRole(AGENT_OPERATOR_ROLE, agentOperator);
+    }
+
+    /**
+     * @notice Remove an agent operator at once, e.g. when its key is exposed; adding operators stays with the admin
+     * @dev Wallets drop the operator at their next sync, which anyone can trigger (syncFromFactory)
+     */
+    function removeAgentOperator(address operator) external onlyRole(EMERGENCY_ROLE) {
+        _revokeRole(AGENT_OPERATOR_ROLE, operator);
     }
 
     /**
@@ -117,27 +124,39 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     }
 
     /**
-     * @notice Update the AdapterRegistry address for future wallet deployments
+     * @notice Get the AdapterRegistry of an agent profile
+     * @param agentProfile The agent profile, e.g. keccak256("vault")
+     * @return The registry contract, or address(0) if the agent profile has none
+     */
+    function adapterRegistry(bytes32 agentProfile) public view virtual returns (AdapterRegistry) {
+        return _agentProfileAdapterRegistryMap[agentProfile];
+    }
+
+    /**
+     * @notice Update the AdapterRegistry of an agent profile (its existing wallets pick it up on their next sync)
+     * @param agentProfile The agent profile, e.g. keccak256("vault")
      * @param newAdapterRegistry The new registry contract
      */
-    function setAdapterRegistry(AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAdapterRegistry(bytes32 agentProfile, AdapterRegistry newAdapterRegistry) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (agentProfile == bytes32(0)) revert UnknownAgentProfile(agentProfile);
         if (address(newAdapterRegistry) == address(0)) revert AWKErrors.ZeroAddress();
         if (address(newAdapterRegistry).code.length == 0) revert AWKErrors.NotAContract(address(newAdapterRegistry));
-        AdapterRegistry oldAdapterRegistry = adapterRegistry;
-        adapterRegistry = newAdapterRegistry;
-        emit RegistryUpdated(address(oldAdapterRegistry), address(newAdapterRegistry));
+        AdapterRegistry oldAdapterRegistry = _agentProfileAdapterRegistryMap[agentProfile];
+        _agentProfileAdapterRegistryMap[agentProfile] = newAdapterRegistry;
+        emit RegistryUpdated(agentProfile, address(oldAdapterRegistry), address(newAdapterRegistry));
     }
 
     /**
      * @notice Deploy a new wallet proxy, validate preconditions, and register it
      * @param owner The owner address for the wallet
      * @param ownerAgentIndex Index of this agent for the owner
+     * @param agentProfile The wallet's agent profile, which must have an adapter registry; the caller passes it to initialize()
      * @return ret The deployed wallet proxy
      */
-    function _deployWallet(address owner, uint256 ownerAgentIndex) internal returns (AgentWallet ret) {
+    function _deployWallet(address owner, uint256 ownerAgentIndex, bytes32 agentProfile) internal returns (AgentWallet ret) {
         if (owner == address(0)) revert AWKErrors.ZeroAddress();
         if (address(_agentWalletImplementation) == address(0)) revert NoAgentWalletImplementationSet();
-        if (address(adapterRegistry) == address(0)) revert NoAdapterRegistrySet();
+        if (address(_agentProfileAdapterRegistryMap[agentProfile]) == address(0)) revert UnknownAgentProfile(agentProfile);
         if (userWallets[owner][ownerAgentIndex] != address(0)) revert AgentAlreadyExists(owner, ownerAgentIndex);
         bytes32 salt = keccak256(abi.encode(owner, ownerAgentIndex));
         ret = AgentWallet(payable(new AWKAgentWalletProxy{salt: salt}()));

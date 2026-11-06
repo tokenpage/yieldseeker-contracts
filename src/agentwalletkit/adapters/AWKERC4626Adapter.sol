@@ -1,20 +1,6 @@
 // SPDX-License-Identifier: MIT
-//
-//      _                    _ __        __    _ _      _   _  ___ _
-//     / \   __ _  ___ _ __ | |\ \      / /_ _| | | ___| |_| |/ (_) |_
-//    / _ \ / _` |/ _ \ '_ \| __\ \ /\ / / _` | | |/ _ \ __| ' /| | __|
-//   / ___ \ (_| |  __/ | | | |_ \ V  V / (_| | | |  __/ |_| . \| | |_
-//  /_/   \_\__, |\___|_| |_|\__| \_/\_/ \__,_|_|_|\___|\__|_|\_\_|\__|
-//          |___/
-//
-//  Build verifiably secure onchain agents
-//  https://agentwalletkit.tokenpage.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
-import {AWKErrors} from "../AWKErrors.sol";
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -32,8 +18,7 @@ interface IERC4626 {
 /**
  * @title AWKERC4626Adapter
  * @notice Generic adapter for interacting with ERC4626 tokenized vaults
- * @dev Handles deposits and withdrawals for standard ERC4626 vaults with pre/post hooks.
- *      Subclasses can override hooks to add custom logic (e.g., fee tracking).
+ * @dev Handles deposits and withdrawals for standard ERC4626 vaults.
  */
 abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
     using SafeERC20 for IERC20;
@@ -45,28 +30,23 @@ abstract contract AWKERC4626Adapter is AWKBaseVaultAdapter {
         return IERC4626(vault).asset();
     }
 
-    /**
-     * @notice Internal deposit implementation
-     * @dev Runs in wallet context via delegatecall
-     */
-    function _depositInternal(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
-        if (amount == 0) revert AWKErrors.ZeroAmount();
+    function _deposit(address vault, uint256 amount) internal virtual override returns (uint256 shares, uint256 assetsDeposited) {
         address asset = IERC4626(vault).asset();
         uint256 baseAssetBalanceBefore = IERC20(asset).balanceOf(address(this));
         IERC20(asset).forceApprove(vault, amount);
         shares = IERC4626(vault).deposit({assets: amount, receiver: address(this)});
         require(shares > 0, "AWKERC4626Adapter: zero shares minted");
         assetsDeposited = baseAssetBalanceBefore - IERC20(asset).balanceOf(address(this));
-        emit Deposited(address(this), vault, assetsDeposited, shares);
     }
 
-    /**
-     * @notice Internal withdraw implementation
-     * @dev Runs in wallet context via delegatecall
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
-        if (shares == 0) revert AWKErrors.ZeroAmount();
-        assets = IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
-        emit Withdrawn(address(this), vault, shares, assets);
+    /// @dev Measured as the change in the wallet's asset balance, not redeem's return value. A redeem that pays nothing
+    ///      reverts: some vaults (e.g. yo) turn a redemption above their free balance into a queued request that takes
+    ///      the shares and pays later, which would otherwise be reported as a completed withdrawal of zero.
+    function _withdraw(address vault, uint256 shares) internal virtual override returns (uint256 assets) {
+        IERC20 asset = IERC20(IERC4626(vault).asset());
+        uint256 balanceBefore = asset.balanceOf(address(this));
+        IERC4626(vault).redeem({shares: shares, receiver: address(this), owner: address(this)});
+        assets = asset.balanceOf(address(this)) - balanceBefore;
+        require(assets > 0, "AWKERC4626Adapter: nothing received");
     }
 }

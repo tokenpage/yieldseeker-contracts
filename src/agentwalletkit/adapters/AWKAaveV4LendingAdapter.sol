@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.38;
+
+import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+interface IAaveV4Spoke {
+    struct Reserve {
+        address underlying;
+        address hub;
+        uint16 assetId;
+        uint8 decimals;
+        uint24 collateralRisk;
+        uint8 flags;
+        uint32 dynamicConfigKey;
+    }
+
+    function getReserve(uint256 reserveId) external view returns (Reserve memory);
+    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
+    function getUserTotalDebt(uint256 reserveId, address user) external view returns (uint256);
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf) external;
+    function ORACLE() external view returns (IAaveV4Oracle);
+}
+
+interface IAaveV4Oracle {
+    /// @notice Price of one whole token of the reserve, in the oracle's currency (the same unit for every reserve)
+    function getReservePrice(uint256 reserveId) external view returns (uint256);
+}
+
+/**
+ * @title AWKAaveV4LendingAdapter
+ * @notice Borrow against collateral on an Aave V4 spoke
+ * @dev market = abi.encode(address spoke, uint256 collateralReserveId, uint256 debtReserveId).
+ */
+contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
+    using SafeERC20 for IERC20;
+
+    function _decodeMarket(bytes memory market) internal pure returns (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) {
+        (spoke, collateralReserveId, debtReserveId) = abi.decode(market, (IAaveV4Spoke, uint256, uint256));
+    }
+
+    function _marketAssets(bytes memory market) internal view virtual override returns (address collateralAsset, address debtAsset) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
+        return (spoke.getReserve(collateralReserveId).underlying, spoke.getReserve(debtReserveId).underlying);
+    }
+
+    function _debtOf(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
+        return spoke.getUserTotalDebt(debtReserveId, address(this));
+    }
+
+    function collateralReceiptToken(bytes memory) public pure virtual override returns (address) {
+        return address(0);
+    }
+
+    function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
+        return spoke.getUserSuppliedAssets(collateralReserveId, address(this));
+    }
+
+    /// @dev A zero price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the last
+    ///      price)
+    function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
+        IAaveV4Oracle oracle = spoke.ORACLE();
+        uint256 debtValue = oracle.getReservePrice(debtReserveId) * 10 ** spoke.getReserve(collateralReserveId).decimals;
+        uint256 collateralValue = oracle.getReservePrice(collateralReserveId) * 10 ** spoke.getReserve(debtReserveId).decimals;
+        if (collateralValue == 0) return 0;
+        return Math.mulDiv(debtValue, 1e36, collateralValue);
+    }
+
+    /// @dev The spoke returns (shares, assets) from supply / withdraw / borrow / repay; the asset amount is reported
+    function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 supplied) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
+        address collateralAsset = spoke.getReserve(collateralReserveId).underlying;
+        IERC20(collateralAsset).forceApprove(address(spoke), amount);
+        (, supplied) = spoke.supply(collateralReserveId, amount, address(this));
+        spoke.setUsingAsCollateral(collateralReserveId, true, address(this));
+        IERC20(collateralAsset).forceApprove(address(spoke), 0);
+    }
+
+    function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
+        uint256 collateral = _collateralOf(market);
+        (, withdrawn) = spoke.withdraw(collateralReserveId, amount > collateral ? collateral : amount, address(this));
+    }
+
+    function _borrow(bytes memory market, uint256 amount) internal virtual override returns (uint256 borrowed) {
+        (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
+        (, borrowed) = spoke.borrow(debtReserveId, amount, address(this));
+    }
+
+    function _repay(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
+        (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
+        address debtAsset = spoke.getReserve(debtReserveId).underlying;
+        uint256 debt = _debtOf(market);
+        uint256 requested = amount > debt ? debt : amount;
+        IERC20(debtAsset).forceApprove(address(spoke), requested);
+        (, repaid) = spoke.repay(debtReserveId, requested, address(this));
+        IERC20(debtAsset).forceApprove(address(spoke), 0);
+    }
+}

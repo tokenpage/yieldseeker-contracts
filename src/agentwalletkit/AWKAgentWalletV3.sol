@@ -1,0 +1,540 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.38;
+
+import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
+import {AWKErrors} from "./AWKErrors.sol";
+import {IAWKAdapter} from "./IAWKAdapter.sol";
+import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
+import {IAWKAgentWalletFactory} from "./IAWKAgentWalletFactory.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
+import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+
+error AdapterIsBlocked(address adapter);
+error TargetIsBlocked(address target);
+error AdapterExecutionFailed(bytes reason);
+error TransferFailed();
+error NotApprovedImplementation();
+error InvalidRegistry();
+error InvalidState();
+error NotAllowed();
+
+/**
+ * @title AgentWalletStorageV3
+ * @notice Storage layout for AgentWallet V3 in its own namespaced slot
+ * @dev Same slot as V1; V3 only appends agentProfile, so V1/V2 state keeps its position
+ */
+library AgentWalletStorageV3 {
+    /// @dev The slot is keccak256("agentwalletkit.agentwallet.storage.v1"), a plain hash rather than the ERC-7201
+    ///      formula; deployed wallets use it, so it never changes
+    bytes32 private constant STORAGE_LOCATION = keccak256("agentwalletkit.agentwallet.storage.v1");
+
+    struct Layout {
+        address owner;
+        uint256 ownerAgentIndex;
+        AdapterRegistry adapterRegistry;
+        address[] agentOperators;
+        mapping(address => bool) isAgentOperator;
+        mapping(address => bool) blockedAdapters;
+        mapping(address => bool) blockedTargets;
+        bytes32 agentProfile;
+    }
+
+    function getLayout() internal pure returns (Layout storage l) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            l.slot := slot
+        }
+    }
+}
+
+/**
+ * @title AWKAgentWalletV3
+ * @notice Abstract ERC-4337 smart wallet with EntryPoint-relayed owner actions.
+ * @dev Implements:
+ *      - ERC-4337 accounts for the v0.6 EntryPoint (UserOperation) and the v0.7, v0.8 and v0.9 EntryPoints
+ *        (PackedUserOperation), all at their canonical addresses
+ *      - Owner ECDSA or ERC-1271 validation; operator ECDSA validation for adapter calls only
+ *      - UUPS Upgradeability
+ *      - Namespaced storage in the same slot as V1 (AgentWalletStorageV3)
+ *      - "Onchain Proof" enforcement (executeViaAdapter only)
+ *
+ *      IMPORTANT: This contract is abstract and must be inherited. Subclasses should:
+ *      1. Override token withdrawal hooks to enforce policy (see YieldSeekerAgentWalletV3)
+ *      2. Add any protocol-specific storage and logic
+ *      3. Ensure the paired Factory calls initialize() atomically during deployment
+ */
+abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+    using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
+    using SafeERC20 for IERC20;
+
+    // ERC-4337 canonical EntryPoint addresses: v0.6 takes UserOperation, v0.7 and later take PackedUserOperation
+    IEntryPoint private constant ENTRY_POINT = IEntryPoint(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
+    address private constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address private constant ENTRY_POINT_V08 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+    address private constant ENTRY_POINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
+    IAWKAgentWalletFactory public immutable FACTORY;
+
+    event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
+    event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
+    event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
+    event AdapterBlocked(address indexed adapter);
+    event AdapterUnblocked(address indexed adapter);
+    event TargetBlocked(address indexed target);
+    event TargetUnblocked(address indexed target);
+    event SyncedFromFactory(address indexed adapterRegistry);
+
+    modifier onlyOwner() {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
+        if (msg.sender != owner() && !isEntryPoint(msg.sender)) {
+            revert AWKErrors.Unauthorized(msg.sender);
+        }
+        _;
+    }
+
+    modifier onlyExecutors() {
+        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
+        if (!isEntryPoint(msg.sender) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
+            revert AWKErrors.Unauthorized(msg.sender);
+        }
+        _;
+    }
+
+    constructor(address factory) {
+        FACTORY = IAWKAgentWalletFactory(factory);
+        _disableInitializers();
+    }
+
+    receive() external payable {}
+
+    // ============ Initializers ============
+
+    /**
+     * @notice Initialize the wallet with owner, index and agent profile
+     * @param _owner The owner address for the wallet
+     * @param _ownerAgentIndex Index of this agent for the owner
+     * @param _agentProfile The agent profile (agent type) that selects the factory's adapter registry (ignored without a factory)
+     * @dev SECURITY: This function is intentionally public without caller restrictions because:
+     *      1. The `initializer` modifier prevents re-initialization after first call
+     *      2. Factory subclasses MUST call initialize() atomically in the same transaction as deployment
+     *      3. See YieldSeekerAgentWalletFactory.createAgentWallet() for the correct pattern
+     *      Factories that expose deployment without atomic initialization would create a vulnerability.
+     */
+    function initialize(address _owner, uint256 _ownerAgentIndex, bytes32 _agentProfile) public virtual initializer {
+        _initializeV3(_owner, _ownerAgentIndex, _agentProfile);
+    }
+
+    /// @dev The agent profile is set once, before the first sync, and never changes
+    function _initializeV3(address _owner, uint256 _ownerAgentIndex, bytes32 _agentProfile) internal virtual onlyInitializing {
+        if (_owner == address(0)) revert AWKErrors.ZeroAddress();
+        AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
+        $.agentProfile = _agentProfile;
+        $.owner = _owner;
+        $.ownerAgentIndex = _ownerAgentIndex;
+        _syncFromFactory();
+        emit AgentWalletInitialized(ENTRY_POINT, _owner);
+    }
+
+    // ============ Storage Accessors ============
+
+    /**
+     * @notice Get the owner of this wallet
+     * @return Owner address
+     */
+    function owner() public view virtual returns (address) {
+        return AgentWalletStorageV3.getLayout().owner;
+    }
+
+    /**
+     * @notice Get the owner agent index
+     * @return Owner agent index
+     */
+    function ownerAgentIndex() public view virtual returns (uint256) {
+        return AgentWalletStorageV3.getLayout().ownerAgentIndex;
+    }
+
+    /**
+     * @notice Get the agent profile (agent type)
+     */
+    function agentProfile() public view virtual returns (bytes32) {
+        return AgentWalletStorageV3.getLayout().agentProfile;
+    }
+
+    /**
+     * @notice Get the adapter registry
+     * @return AdapterRegistry instance
+     */
+    function adapterRegistry() public view virtual returns (AdapterRegistry) {
+        return AgentWalletStorageV3.getLayout().adapterRegistry;
+    }
+
+    /**
+     * @notice Get the list of agent operators (cached)
+     */
+    function listAgentOperators() public view virtual returns (address[] memory) {
+        return AgentWalletStorageV3.getLayout().agentOperators;
+    }
+
+    /**
+     * @notice Check if an address is a cached agent operator
+     * @param operator The address to check
+     * @return True if the address is a cached operator
+     */
+    function isAgentOperator(address operator) public view virtual returns (bool) {
+        return AgentWalletStorageV3.getLayout().isAgentOperator[operator];
+    }
+
+    // ============ User Blocklist Management ============
+
+    /**
+     * @notice Block an adapter from being used by this wallet
+     * @param adapter The adapter address to block
+     * @dev Owner can block adapters even if they are globally approved.
+     *      This provides user sovereignty over their agent's operations.
+     */
+    function blockAdapter(address adapter) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedAdapters[adapter] = true;
+        emit AdapterBlocked(adapter);
+    }
+
+    /**
+     * @notice Unblock a previously blocked adapter
+     * @param adapter The adapter address to unblock
+     */
+    function unblockAdapter(address adapter) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedAdapters[adapter] = false;
+        emit AdapterUnblocked(adapter);
+    }
+
+    /**
+     * @notice Block a target from being interacted with by this wallet
+     * @param target The target address to block
+     * @dev Owner can block specific protocols/vaults even if globally approved.
+     *      Example: Block a risky vault while keeping other vaults accessible.
+     */
+    function blockTarget(address target) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedTargets[target] = true;
+        emit TargetBlocked(target);
+    }
+
+    /**
+     * @notice Unblock a previously blocked target
+     * @param target The target address to unblock
+     */
+    function unblockTarget(address target) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedTargets[target] = false;
+        emit TargetUnblocked(target);
+    }
+
+    /**
+     * @notice Check if an adapter is blocked by the owner
+     * @param adapter The adapter address to check
+     * @return True if the adapter is blocked
+     */
+    function isAdapterBlocked(address adapter) public view virtual returns (bool) {
+        return AgentWalletStorageV3.getLayout().blockedAdapters[adapter];
+    }
+
+    /**
+     * @notice Check if a target is blocked by the owner
+     * @param target The target address to check
+     * @return True if the target is blocked
+     */
+    function isTargetBlocked(address target) public view virtual returns (bool) {
+        return AgentWalletStorageV3.getLayout().blockedTargets[target];
+    }
+
+    /**
+     * @notice Refresh configuration from the factory
+     * @dev Anyone can call it: it takes no input and only copies the factory's configuration (set by its admin), so the
+     *      platform can apply an operator removal to every wallet without waiting for owners.
+     */
+    function syncFromFactory() external virtual nonReentrant {
+        _syncFromFactory();
+    }
+
+    /**
+     * @notice Internal helper to sync configuration from the factory
+     */
+    function _syncFromFactory() internal virtual {
+        AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
+
+        // Operators
+        _setAgentOperators(FACTORY.listAgentOperators());
+
+        // AdapterRegistry
+        address registryAddr = FACTORY.adapterRegistry(agentProfile());
+        if (registryAddr == address(0)) revert InvalidRegistry();
+        if (registryAddr.code.length == 0) revert InvalidRegistry();
+        $.adapterRegistry = AdapterRegistry(registryAddr);
+
+        emit SyncedFromFactory(registryAddr);
+    }
+
+    function _setAgentOperators(address[] memory operators) internal {
+        AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
+        for (uint256 i = 0; i < $.agentOperators.length; i++) {
+            $.isAgentOperator[$.agentOperators[i]] = false;
+        }
+        $.agentOperators = operators;
+        for (uint256 i = 0; i < operators.length; i++) {
+            $.isAgentOperator[operators[i]] = true;
+        }
+    }
+
+    // ============ ERC-4337 / BaseAccount Overrides ============
+
+    /// @inheritdoc BaseAccount
+    function entryPoint() public view virtual override returns (IEntryPoint) {
+        return ENTRY_POINT;
+    }
+
+    /// @notice Whether `account` is an EntryPoint this wallet accepts UserOperations from (v0.6, v0.7, v0.8 or v0.9)
+    function isEntryPoint(address account) public pure returns (bool) {
+        return account == address(ENTRY_POINT) || _isPackedEntryPoint(account);
+    }
+
+    /**
+     * @notice ERC-4337 validation for the v0.7, v0.8 and v0.9 EntryPoints, with the same signature rules as the v0.6
+     *         validateUserOp
+     * @dev Each EntryPoint hashes the UserOperation with its own address and the chain id and keeps its own nonces,
+     *      so a signature for one EntryPoint can't be replayed through another. The inherited getNonce() reads the
+     *      v0.6 EntryPoint only.
+     */
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds) external virtual returns (uint256 validationData) {
+        if (!_isPackedEntryPoint(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
+        validationData = _validateUserOpSignature(userOp.signature, userOp.callData, userOp.paymasterAndData, userOpHash);
+        _validateNonce(userOp.nonce);
+        _payPrefund(missingAccountFunds);
+    }
+
+    function _validateSignature(UserOperation calldata userOp, bytes32 userOpHash) internal virtual override returns (uint256 validationData) {
+        return _validateUserOpSignature(userOp.signature, userOp.callData, userOp.paymasterAndData, userOpHash);
+    }
+
+    function _isPackedEntryPoint(address account) private pure returns (bool) {
+        return account == ENTRY_POINT_V07 || account == ENTRY_POINT_V08 || account == ENTRY_POINT_V09;
+    }
+
+    /// @dev The owner may authorize any call: an ECDSA signature from the owner's key, or, when the owner is a contract
+    ///      (a Safe or smart wallet), its ERC-1271 isValidSignature approval. ECDSA is checked first so EOAs with code
+    ///      (EIP-7702) keep signing with their key.
+    ///      Operators may only authorize adapter execution, with ECDSA, and only with a paymaster: an operator can't
+    ///      spend the wallet's ETH or EntryPoint deposits on gas. Adapter calls are never checked through ERC-1271
+    ///      (contract owners call executeViaAdapter directly), so validating one, even with a dummy signature, reads only
+    ///      the wallet's own storage (ERC-7562 validation rules). A malformed signature fails validation instead of
+    ///      reverting (ERC-4337).
+    function _validateUserOpSignature(bytes calldata signature, bytes calldata callData, bytes calldata paymasterAndData, bytes32 userOpHash) internal view virtual returns (uint256 validationData) {
+        bytes32 hash = userOpHash.toEthSignedMessageHash();
+        address walletOwner = owner();
+        (address signer,,) = hash.tryRecover(signature);
+        if (signer != address(0) && signer == walletOwner) return 0;
+        bytes4 selector = callData.length >= 4 ? bytes4(callData[:4]) : bytes4(0);
+        if (selector == this.executeViaAdapter.selector || selector == this.executeViaAdapterBatch.selector) {
+            bool sponsored = paymasterAndData.length >= 20 && address(bytes20(paymasterAndData[:20])) != address(0);
+            return signer != address(0) && sponsored && isAgentOperator(signer) ? 0 : SIG_VALIDATION_FAILED;
+        }
+        if (walletOwner.code.length > 0 && SignatureChecker.isValidERC1271SignatureNow(walletOwner, hash, signature)) return 0;
+        return SIG_VALIDATION_FAILED;
+    }
+
+    /**
+     * @notice Standard execute disallowed to enforce authorized adapter usage
+     */
+    function execute(address, uint256, bytes calldata) external virtual {
+        revert NotAllowed();
+    }
+
+    /**
+     * @notice Standard executeBatch disallowed to enforce authorized adapter usage
+     */
+    function executeBatch(address[] calldata, bytes[] calldata) external virtual {
+        revert NotAllowed();
+    }
+
+    // ============ Execution (Via Adapter) ============
+
+    /**
+     * @notice Internal helper to validate and execute adapter call
+     * @dev Enforces the standard IAWKAdapter interface.
+     *      Checks user blocklists first, then global registry validation.
+     */
+    function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
+        AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
+
+        // Check user-level blocklists first (owner sovereignty)
+        if ($.blockedAdapters[adapter]) {
+            revert AdapterIsBlocked(adapter);
+        }
+        if ($.blockedTargets[target]) {
+            revert TargetIsBlocked(target);
+        }
+
+        // Then check global registry validation
+        address registeredAdapter = adapterRegistry().getTargetAdapter(target);
+        if (registeredAdapter == address(0) || registeredAdapter != adapter) {
+            revert AWKErrors.AdapterNotRegistered(adapter);
+        }
+
+        bytes memory callData = abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data);
+        bool success;
+        (success, result) = adapter.delegatecall(callData);
+        if (!success) {
+            revert AdapterExecutionFailed(result);
+        }
+    }
+
+    /**
+     * @notice Execute a call through a registered adapter via delegatecall
+     * @param adapter The address of the adapter to use
+     * @param target The target contract the adapter will interact with
+     * @param data The operation data for the adapter
+     */
+    function executeViaAdapter(address adapter, address target, bytes calldata data) external virtual onlyExecutors nonReentrant returns (bytes memory result) {
+        return _executeAdapterCall(adapter, target, data);
+    }
+
+    /**
+     * @notice Execute multiple adapter calls in a batch
+     */
+    function executeViaAdapterBatch(address[] calldata adapters, address[] calldata targets, bytes[] calldata datas) external virtual onlyExecutors nonReentrant returns (bytes[] memory results) {
+        uint256 length = adapters.length;
+        if (length != targets.length || length != datas.length) revert InvalidState();
+        results = new bytes[](length);
+        for (uint256 i; i < length; ++i) {
+            results[i] = _executeAdapterCall(adapters[i], targets[i], datas[i]);
+        }
+    }
+
+    // ============ UUPS Upgradeability ============
+
+    /**
+     * @notice Upgrade to latest approved implementation from factory and sync registry
+     * @dev The sync runs through the upgrade's call, so it is the new implementation's sync
+     */
+    function upgradeToLatest() external virtual onlyOwner {
+        upgradeToAndCall(FACTORY.agentWalletImplementation(), abi.encodeCall(this.syncFromFactory, ()));
+    }
+
+    /**
+     * @notice Authorize UUPS upgrades
+     * @dev Restricts upgrades to:
+     *      1. Owner only (user sovereignty)
+     *      2. Factory-approved implementations only
+     */
+    function _authorizeUpgrade(address newImplementation) internal view virtual override onlyOwner {
+        address approvedImplementation = FACTORY.agentWalletImplementation();
+        if (newImplementation != approvedImplementation) {
+            revert NotApprovedImplementation();
+        }
+    }
+
+    // ============ USER WITHDRAWAL FUNCTIONS ============
+
+    /**
+     * @notice User withdraws any ERC20 asset from agent wallet
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     * @param amount Amount to withdraw
+     */
+    function withdrawAssetToUser(address recipient, address asset, uint256 amount) external virtual onlyOwner nonReentrant {
+        _withdrawAssetToUser(recipient, asset, amount);
+    }
+
+    /**
+     * @notice User withdraws all of a specific ERC20 asset from agent wallet
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     */
+    function withdrawAllAssetToUser(address recipient, address asset) external virtual onlyOwner nonReentrant {
+        _withdrawAllAssetToUser(recipient, asset);
+    }
+
+    /**
+     * @notice User withdraws exact amounts of multiple ERC20 assets from agent wallet
+     * @param recipient Address to send the assets to
+     * @param assets Addresses of the ERC20 tokens to withdraw
+     * @param amounts Amounts of each token to withdraw
+     */
+    function withdrawAssetsToUser(address recipient, address[] calldata assets, uint256[] calldata amounts) external virtual onlyOwner nonReentrant {
+        uint256 length = assets.length;
+        if (length != amounts.length) revert InvalidState();
+        for (uint256 i; i < length; ++i) {
+            _withdrawAssetToUser(recipient, assets[i], amounts[i]);
+        }
+    }
+
+    /**
+     * @notice User withdraws all of multiple ERC20 assets from agent wallet
+     * @param recipient Address to send the assets to
+     * @param assets Addresses of the ERC20 tokens to withdraw
+     */
+    function withdrawAllAssetsToUser(address recipient, address[] calldata assets) external virtual onlyOwner nonReentrant {
+        for (uint256 i; i < assets.length; ++i) {
+            _withdrawAllAssetToUser(recipient, assets[i]);
+        }
+    }
+
+    function _withdrawAssetToUser(address recipient, address asset, uint256 amount) internal virtual {
+        _withdrawAsset(recipient, asset, amount);
+    }
+
+    function _withdrawAllAssetToUser(address recipient, address asset) internal virtual {
+        uint256 balance = IERC20(asset).balanceOf(address(this));
+        _withdrawAsset(recipient, asset, balance);
+    }
+
+    /**
+     * @notice Internal function to withdraw asset
+     * @param recipient Address to send the asset to
+     * @param asset Address of the ERC20 token to withdraw
+     * @param amount Amount to withdraw
+     */
+    function _withdrawAsset(address recipient, address asset, uint256 amount) internal virtual {
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        if (asset == address(0)) revert AWKErrors.ZeroAddress();
+        IERC20 token = IERC20(asset);
+        token.safeTransfer(recipient, amount);
+        emit WithdrewTokenToUser(owner(), recipient, asset, amount);
+    }
+
+    /**
+     * @notice User withdraws ETH from agent wallet
+     * @param recipient Address to send the ETH to
+     * @param amount Amount of ETH to withdraw
+     */
+    function withdrawEthToUser(address recipient, uint256 amount) external virtual onlyOwner {
+        _withdrawEth(recipient, amount);
+    }
+
+    /**
+     * @notice User withdraws all ETH from agent wallet
+     * @param recipient Address to send the ETH to
+     */
+    function withdrawAllEthToUser(address recipient) external virtual onlyOwner {
+        uint256 balance = address(this).balance;
+        _withdrawEth(recipient, balance);
+    }
+
+    /**
+     * @notice Internal function to withdraw ETH
+     * @param recipient Address to send the ETH to
+     * @param amount Amount of ETH to withdraw
+     */
+    function _withdrawEth(address recipient, uint256 amount) internal virtual {
+        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
+        (bool success,) = recipient.call{value: amount}("");
+        if (!success) revert TransferFailed();
+        emit WithdrewEthToUser(owner(), recipient, amount);
+    }
+}

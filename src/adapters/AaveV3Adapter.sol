@@ -1,51 +1,20 @@
 // SPDX-License-Identifier: MIT
-//
-//   /$$     /$$ /$$           /$$       /$$  /$$$$$$                      /$$
-//  |  $$   /$$/|__/          | $$      | $$ /$$__  $$                    | $$
-//   \  $$ /$$/  /$$  /$$$$$$ | $$  /$$$$$$$| $$  \__/  /$$$$$$   /$$$$$$ | $$   /$$  /$$$$$$   /$$$$$$
-//    \  $$$$/  | $$ /$$__  $$| $$ /$$__  $$|  $$$$$$  /$$__  $$ /$$__  $$| $$  /$$/ /$$__  $$ /$$__  $$
-//     \  $$/   | $$| $$$$$$$$| $$| $$  | $$ \____  $$| $$$$$$$$| $$$$$$$$| $$$$$$/ | $$$$$$$$| $$  \__/
-//      | $$    | $$| $$_____/| $$| $$  | $$ /$$  \ $$| $$_____/| $$_____/| $$_  $$ | $$_____/| $$
-//      | $$    | $$|  $$$$$$$| $$|  $$$$$$$|  $$$$$$/|  $$$$$$$|  $$$$$$$| $$ \  $$|  $$$$$$$| $$
-//      |__/    |__/ \_______/|__/ \_______/ \______/  \_______/ \_______/|__/  \__/ \_______/|__/
-//
-//  Grow your wealth on auto-pilot with DeFi agents
-//  https://yieldseeker.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
-import {AWKAaveV3Adapter, IAaveAToken} from "../agentwalletkit/adapters/AWKAaveV3Adapter.sol";
-import {YieldSeekerAdapter} from "./Adapter.sol";
+import {AWKAaveV3Adapter} from "../agentwalletkit/adapters/AWKAaveV3Adapter.sol";
+import {AWKBaseVaultAdapter} from "../agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
 
 /**
  * @title YieldSeekerAaveV3Adapter
- * @notice YieldSeeker-specific Aave V3 adapter with fee tracking
- * @dev Extends the generic AWKAaveV3Adapter with base asset validation and fee tracking.
- *      Aave uses rebasing tokens (aToken balance grows over time).
- *      Fee computation uses actual vault balance proportion for cost basis.
+ * @notice YieldSeeker Aave V3 vault adapter: the AWK protocol code plus the shared YieldSeeker vault rules and fee reports
  */
-contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerAdapter {
-    /**
-     * @notice Internal deposit implementation with validation and fee tracking
-     */
-    function _depositInternal(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {
-        address asset = _getVaultAsset(vault);
-        _requireBaseAsset(asset);
-        (shares, assetsDeposited) = super._depositInternal(vault, amount);
-        _feeTracker().recordAgentVaultShareDeposit({vault: vault, assetsDeposited: assetsDeposited, sharesReceived: shares});
+contract YieldSeekerAaveV3Adapter is AWKAaveV3Adapter, YieldSeekerVaultAdapter {
+    function _depositOperation(address vault, uint256 amount) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256, uint256) {
+        return super._depositOperation(vault, amount);
     }
 
-    /**
-     * @notice Internal withdraw implementation with fee tracking
-     */
-    function _withdrawInternal(address vault, uint256 shares) internal override returns (uint256 assets) {
-        address asset = _getVaultAsset(vault);
-        _requireBaseAsset(asset);
-        // aTokens rebase 1:1 with underlying, so balanceOf is already in base asset terms
-        uint256 totalVaultBalanceBefore = IAaveAToken(vault).balanceOf(address(this));
-        assets = super._withdrawInternal(vault, shares);
-        _feeTracker().recordAgentVaultAssetWithdraw({vault: vault, assetsReceived: assets, totalVaultBalanceBefore: totalVaultBalanceBefore, vaultTokenToBaseAssetRate: _feeTracker().ASSET_EXCHANGE_RATE_PRECISION()});
+    function _withdrawOperation(address vault, uint256 shares) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256) {
+        return super._withdrawOperation(vault, shares);
     }
 }

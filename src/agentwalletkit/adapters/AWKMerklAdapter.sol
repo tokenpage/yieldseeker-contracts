@@ -1,23 +1,8 @@
 // SPDX-License-Identifier: MIT
-//
-//      _                    _ __        __    _ _      _   _  ___ _
-//     / \   __ _  ___ _ __ | |\ \      / /_ _| | | ___| |_| |/ (_) |_
-//    / _ \ / _` |/ _ \ '_ \| __\ \ /\ / / _` | | |/ _ \ __| ' /| | __|
-//   / ___ \ (_| |  __/ | | | |_ \ V  V / (_| | | |  __/ |_| . \| | |_
-//  /_/   \_\__, |\___|_| |_|\__| \_/\_/ \__,_|_|_|\___|\__|_|\_\_|\__|
-//          |___/
-//
-//  Build verifiably secure onchain agents
-//  https://agentwalletkit.tokenpage.xyz
-//
-//  For technical queries or guidance contact @krishan711
-//
-pragma solidity 0.8.28;
+pragma solidity 0.8.38;
 
 import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title IMerklDistributor
@@ -29,39 +14,40 @@ interface IMerklDistributor {
 
 /**
  * @title AWKMerklAdapter
- * @notice Generic adapter for claiming rewards via Merkl with pre/post hooks
- * @dev Subclasses can override hooks to add custom logic (e.g., fee tracking).
+ * @notice Generic adapter for claiming the wallet's own rewards via Merkl
+ * @dev execute calls the operation (_claimOperation), which subclasses override to add rules; the operation calls
+ *      the protocol implementation (_claim).
  */
 contract AWKMerklAdapter is AWKAdapter {
-    using SafeERC20 for IERC20;
-
-    /**
-     * @notice Override execute to properly handle dynamic array parameters
-     * @dev Already running in wallet context via delegatecall from AgentWallet
-     */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.claim.selector) {
-            (address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], address[], uint256[], bytes32[][]));
-            _claimInternal(target, users, tokens, amounts, proofs);
-            return "";
-        }
-        revert UnknownOperation();
+        if (bytes4(data[:4]) != this.claim.selector) revert UnknownOperation();
+        (address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], uint256[], bytes32[][]));
+        _claimOperation(target, tokens, amounts, proofs);
+        return "";
     }
 
     /**
-     * @notice Claim rewards from Merkl (public interface, should not be called directly)
+     * @notice Claim the wallet's Merkl rewards (public interface, should not be called directly)
      * @dev Only used for selector generation
      */
-    function claim(address[] calldata users, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external pure {
+    function claim(address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external pure {
         revert AWKErrors.DirectCallForbidden();
     }
 
-    /**
-     * @notice Internal claim implementation
-     * @dev Runs in wallet context via delegatecall.
-     */
-    function _claimInternal(address distributor, address[] memory users, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
+    // ============ Operations (override to add rules) ============
+
+    function _claimOperation(address distributor, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
+        _claim(distributor, tokens, amounts, proofs);
+    }
+
+    // ============ Protocol Implementation ============
+
+    /// @dev Merkl takes one user per claimed token and pays each user, so every entry is the wallet itself
+    function _claim(address distributor, address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) internal virtual {
+        address[] memory users = new address[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            users[i] = address(this);
+        }
         IMerklDistributor(distributor).claim(users, tokens, amounts, proofs);
     }
 }

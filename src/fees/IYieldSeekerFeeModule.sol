@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.38;
+
+error InvalidFeeRate();
+
+/**
+ * @title IYieldSeekerFeeModule
+ * @notice A fee type plugged into the YieldSeekerFeeTracker (e.g. the yield fee, the borrow fee)
+ * @dev The fee tracker passes every action a wallet's adapters report (see FeeActions) to every module. Each module
+ *      decides what the action costs and returns what the wallet pays now; the tracker adds it up and the adapter
+ *      sends it to the fee collector. Only the module's tracker may call onAction.
+ *      Each module defines its own plan struct (its rates); the tracker stores plans ABI-encoded and every wallet's
+ *      plan choice, and asks the module to validate each plan.
+ */
+interface IYieldSeekerFeeModule {
+    /// @notice The fee tracker this module serves (the only caller of onAction)
+    function FEE_TRACKER() external view returns (address);
+
+    /// @notice The fee type this module is plugged in as (its plans are read under this type)
+    function FEE_TYPE() external view returns (bytes32);
+
+    /// @notice Whether `plan` is an ABI-encoded plan this module can charge with (within its fixed maximums)
+    function isValidPlan(bytes calldata plan) external view returns (bool);
+
+    /**
+     * @notice Record an action of `wallet` and settle its fees; only callable by the module's fee tracker
+     * @param action The action ID (FeeActions); unknown actions charge nothing
+     * @param data The action's struct, ABI-encoded (FeeActions)
+     * @param maxPayment The wallet's base asset still available for fees in this action
+     * @return payment Base asset the wallet pays now (at most `maxPayment`), recorded as paid
+     */
+    function onAction(address wallet, bytes32 action, bytes calldata data, uint256 maxPayment) external returns (uint256 payment);
+
+    /// @notice Whether this module accounts for `token` (besides the base asset) in `wallet`, e.g. a borrowed token
+    function isAccountedToken(address wallet, address token) external view returns (bool);
+
+    /// @notice Fees `wallet` owes this module and has not paid yet, valued in its base asset (shown net in
+    ///         withdrawableBalance and required to be 0 after a base-asset sale; the module collects them at the
+    ///         wallet's next reported action or outflow)
+    function feesOwedInBaseAsset(address wallet) external view returns (uint256);
+}
