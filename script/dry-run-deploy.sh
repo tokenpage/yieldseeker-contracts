@@ -68,7 +68,7 @@ else
   STATUS=$(cast send "$TIMELOCK" "executeBatch(address[],uint256[],bytes[],bytes32,bytes32)" \
     "$(echo "$SCHEDULE" | jq -r '.[0]')" "$(echo "$SCHEDULE" | jq -r '.[1]')" "$(echo "$SCHEDULE" | jq -r '.[2]')" \
     "$(echo "$SCHEDULE" | jq -r '.[3]')" "$(echo "$SCHEDULE" | jq -r '.[4]')" \
-    --from "$SAFE" --unlocked --gas-limit 29000000 --rpc-url "$RPC" | awk '/^status/ {print $2}')
+    --from "$SAFE" --unlocked --gas-limit 16000000 --rpc-url "$RPC" | awk '/^status/ {print $2}')
   [ "$STATUS" = "1" ] || { echo "executeBatch failed"; exit 1; }
   echo "Batch executed as the Safe"
 fi

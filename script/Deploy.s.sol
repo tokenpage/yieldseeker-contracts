@@ -127,6 +127,12 @@ contract DeployScript is Script {
         }
     }
 
+    /// @dev A failed or simulated run can leave an address with no code in deployments.json; it counts as not deployed
+    function _readDeployed(string memory json, string memory key) internal view returns (address deployed) {
+        deployed = safeReadAddress(json, key);
+        if (deployed.code.length == 0) return address(0);
+    }
+
     function deployCreate2(bytes memory initCode) internal returns (address deployed) {
         return deployCreate2(initCode, bytes32(SALT));
     }
@@ -264,35 +270,35 @@ contract DeployScript is Script {
         // forge-lint: disable-next-line(unsafe-cheatcode)
         string memory deployJson = vm.exists(path) ? vm.readFile(path) : "{}";
         deployments = Deployments({
-            adminTimelock: safeReadAddress(deployJson, ".adminTimelock"),
-            agentWalletFactory: safeReadAddress(deployJson, ".agentWalletFactory"),
-            agentWalletImplementation: safeReadAddress(deployJson, ".agentWalletImplementation"),
-            vaultFeeTracker: safeReadAddress(deployJson, ".vaultFeeTracker"),
-            borrowFeeTracker: safeReadAddress(deployJson, ".borrowFeeTracker"),
-            vaultYieldFeeModule: safeReadAddress(deployJson, ".vaultYieldFeeModule"),
-            borrowYieldFeeModule: safeReadAddress(deployJson, ".borrowYieldFeeModule"),
-            borrowFeeModule: safeReadAddress(deployJson, ".borrowFeeModule"),
-            priceOracle: safeReadAddress(deployJson, ".priceOracle"),
-            swapSellPolicy: safeReadAddress(deployJson, ".swapSellPolicy"),
-            vaultSwapPolicy: safeReadAddress(deployJson, ".vaultSwapPolicy"),
-            borrowSwapPolicy: safeReadAddress(deployJson, ".borrowSwapPolicy"),
-            vaultAdapterRegistry: safeReadAddress(deployJson, ".vaultAdapterRegistry"),
-            borrowAdapterRegistry: safeReadAddress(deployJson, ".borrowAdapterRegistry"),
-            erc4626Adapter: safeReadAddress(deployJson, ".erc4626Adapter"),
-            aaveV3Adapter: safeReadAddress(deployJson, ".aaveV3Adapter"),
-            compoundV3Adapter: safeReadAddress(deployJson, ".compoundV3Adapter"),
-            compoundV2Adapter: safeReadAddress(deployJson, ".compoundV2Adapter"),
-            moonwellRewardAdapter: safeReadAddress(deployJson, ".moonwellRewardAdapter"),
-            merklAdapter: safeReadAddress(deployJson, ".merklAdapter"),
-            uniswapV3SwapAdapter: safeReadAddress(deployJson, ".uniswapV3SwapAdapter"),
-            aerodromeV2SwapAdapter: safeReadAddress(deployJson, ".aerodromeV2SwapAdapter"),
-            aerodromeClSwapAdapter: safeReadAddress(deployJson, ".aerodromeCLSwapAdapter"),
-            aerodromeCl2SwapAdapter: safeReadAddress(deployJson, ".aerodromeCL2SwapAdapter"),
-            aerodromeCl3SwapAdapter: safeReadAddress(deployJson, ".aerodromeCL3SwapAdapter"),
-            aaveV3LendingAdapter: safeReadAddress(deployJson, ".aaveV3LendingAdapter"),
-            aaveV4LendingAdapter: safeReadAddress(deployJson, ".aaveV4LendingAdapter"),
-            morphoBlueLendingAdapter: safeReadAddress(deployJson, ".morphoBlueLendingAdapter"),
-            agentTransferAdapter: safeReadAddress(deployJson, ".agentTransferAdapter")
+            adminTimelock: _readDeployed(deployJson, ".adminTimelock"),
+            agentWalletFactory: _readDeployed(deployJson, ".agentWalletFactory"),
+            agentWalletImplementation: _readDeployed(deployJson, ".agentWalletImplementation"),
+            vaultFeeTracker: _readDeployed(deployJson, ".vaultFeeTracker"),
+            borrowFeeTracker: _readDeployed(deployJson, ".borrowFeeTracker"),
+            vaultYieldFeeModule: _readDeployed(deployJson, ".vaultYieldFeeModule"),
+            borrowYieldFeeModule: _readDeployed(deployJson, ".borrowYieldFeeModule"),
+            borrowFeeModule: _readDeployed(deployJson, ".borrowFeeModule"),
+            priceOracle: _readDeployed(deployJson, ".priceOracle"),
+            swapSellPolicy: _readDeployed(deployJson, ".swapSellPolicy"),
+            vaultSwapPolicy: _readDeployed(deployJson, ".vaultSwapPolicy"),
+            borrowSwapPolicy: _readDeployed(deployJson, ".borrowSwapPolicy"),
+            vaultAdapterRegistry: _readDeployed(deployJson, ".vaultAdapterRegistry"),
+            borrowAdapterRegistry: _readDeployed(deployJson, ".borrowAdapterRegistry"),
+            erc4626Adapter: _readDeployed(deployJson, ".erc4626Adapter"),
+            aaveV3Adapter: _readDeployed(deployJson, ".aaveV3Adapter"),
+            compoundV3Adapter: _readDeployed(deployJson, ".compoundV3Adapter"),
+            compoundV2Adapter: _readDeployed(deployJson, ".compoundV2Adapter"),
+            moonwellRewardAdapter: _readDeployed(deployJson, ".moonwellRewardAdapter"),
+            merklAdapter: _readDeployed(deployJson, ".merklAdapter"),
+            uniswapV3SwapAdapter: _readDeployed(deployJson, ".uniswapV3SwapAdapter"),
+            aerodromeV2SwapAdapter: _readDeployed(deployJson, ".aerodromeV2SwapAdapter"),
+            aerodromeClSwapAdapter: _readDeployed(deployJson, ".aerodromeCLSwapAdapter"),
+            aerodromeCl2SwapAdapter: _readDeployed(deployJson, ".aerodromeCL2SwapAdapter"),
+            aerodromeCl3SwapAdapter: _readDeployed(deployJson, ".aerodromeCL3SwapAdapter"),
+            aaveV3LendingAdapter: _readDeployed(deployJson, ".aaveV3LendingAdapter"),
+            aaveV4LendingAdapter: _readDeployed(deployJson, ".aaveV4LendingAdapter"),
+            morphoBlueLendingAdapter: _readDeployed(deployJson, ".morphoBlueLendingAdapter"),
+            agentTransferAdapter: _readDeployed(deployJson, ".agentTransferAdapter")
         });
 
         vm.startBroadcast(deployerPrivateKey);

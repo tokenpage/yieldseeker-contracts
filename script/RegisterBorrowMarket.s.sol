@@ -15,6 +15,10 @@ interface IMorphoOracle {
     function price() external view returns (uint256);
 }
 
+interface IAaveV3PoolConfiguration {
+    function getConfiguration(address asset) external view returns (uint256);
+}
+
 contract RegisterBorrowMarketScript is Script {
     using stdJson for string;
 
@@ -62,6 +66,8 @@ contract RegisterBorrowMarketScript is Script {
             require(pool == AAVE_V3_POOL, "Aave V3 pool must be the Base Aave V3 pool");
             require(eMode == 0, "Aave V3 eMode variants are not allowed");
             require(keccak256(market) == keccak256(abi.encode(pool, collateralAsset, debtAsset, eMode)), "Market bytes must be the canonical encoding");
+            require(IAaveV3PoolConfiguration(pool).getConfiguration(collateralAsset) & 0xFFFF != 0, "Aave V3 collateral has LTV 0 outside eMode, so supplying it as collateral reverts");
+            require((IAaveV3PoolConfiguration(pool).getConfiguration(debtAsset) >> 58) & 1 == 1, "Aave V3 debt reserve has borrowing disabled");
             collateral = collateralAsset;
             debt = debtAsset;
         } else if (keccak256(bytes(protocol)) == keccak256(bytes("aavev4"))) {
