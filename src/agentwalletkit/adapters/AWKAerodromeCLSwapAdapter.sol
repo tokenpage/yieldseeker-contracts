@@ -19,6 +19,7 @@ interface IAerodromeCLSwapRouter {
     }
 
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
+    function refundETH() external payable;
 }
 
 /**
@@ -35,7 +36,6 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
         int24[] tickSpacings;
     }
 
-    uint256 internal constant FAR_FUTURE_DEADLINE = type(uint32).max;
     uint256 internal constant MAX_HOPS = 4;
 
     address public immutable AERODROME_CL_ROUTER;
@@ -51,7 +51,7 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
      * @notice Swap tokens via Aerodrome CL (public interface, should not be called directly)
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
      */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount) external pure returns (uint256) {
+    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -65,24 +65,27 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
-        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
+        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != AERODROME_CL_ROUTER) revert InvalidAerodromeCLRouterTarget(target, AERODROME_CL_ROUTER);
         _validateRoute(sellToken, buyToken, route);
         _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
-        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, abi.encode(route));
+        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
         return abi.encode(buyAmount);
     }
 
     // ============ Internal Implementations ============
 
-    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory encodedRoute) internal virtual override {
+    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory encodedRoute) internal virtual override returns (uint256) {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
+        // The router pays a WETH input from its own ETH when it holds enough, so the wallet would spend nothing;
+        // sweeping it to the wallet first keeps the swap paid from the wallet
+        if (router.balance != 0) IAerodromeCLSwapRouter(router).refundETH();
         IERC20(sellToken).forceApprove(router, sellAmount);
         bytes memory encodedPath = abi.encodePacked(route.path[0]);
         for (uint256 i = 0; i < route.tickSpacings.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.tickSpacings[i]), abi.encodePacked(route.path[i + 1]));
         }
-        IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: FAR_FUTURE_DEADLINE, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
+        return IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 
     function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {

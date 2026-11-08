@@ -25,6 +25,7 @@ import {YieldSeekerFeeTracker as FeeTracker} from "../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule as YieldFeeModule} from "../src/fees/YieldFeeModule.sol";
 import {YieldSeekerBorrowSwapPolicy as BorrowSwapPolicy} from "../src/swaps/BorrowSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy as VaultSwapPolicy} from "../src/swaps/VaultSwapPolicy.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -34,9 +35,11 @@ import {console2} from "forge-std/console2.sol";
  * @notice Deploys the YieldSeeker AgentWallet system with selective contract deployment.
  * @dev Usage: forge script script/Deploy.s.sol:DeployScript --rpc-url <RPC> --broadcast
  *      The V2 system (factory, fee tracker, vault registry and its adapters) stays live for V2 wallets and is kept in
- *      deployments.json under agentWalletV2* keys; this script never deploys or configures it. The V3 vault registry
- *      must hold the same targets as the V2 vault registry: this script copies every V2 target onto the matching V3
- *      adapter, and RegisterVault.s.sol registers new vaults in both registries in one timelock batch.
+ *      deployments.json under agentWalletV2* keys; this script never deploys or configures it, except to grant the
+ *      V2 vault registry's EMERGENCY_ROLE to KRISHAN711_ETH. Vaults and reward targets in both vault registries, price
+ *      sources, borrow markets and sellable tokens come from script/config/base.json through Configure.s.sol; this
+ *      script sets only the targets it deploys adapters for (CL2/CL3/CL4 routers, agent transfers, the borrow
+ *      registry's routers and Merkl).
  */
 contract DeployScript is Script {
     using stdJson for string;
@@ -46,6 +49,10 @@ contract DeployScript is Script {
     // The Safe in the factory's constructor: it fixes the factory's address, and so every wallet address, on every
     // chain; recreate it on a new chain from its original setup (README, "The Safe's original setup")
     address constant FACTORY_ROOT_SAFE = 0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa;
+    // krishan711.eth: a second emergency admin next to the deployer, so pausing and operator removal don't depend on
+    // the hot deployer key alone
+    address constant KRISHAN711_ETH = 0xcec34E6E3babc36Ef72e31bd5808B87214F4A3A8;
+    bytes32 constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     // Testing Mode: Set to true to deploy with 0-delay adminTimelock for faster testing
     // Set to false for production (uses 4-day delay)
@@ -89,13 +96,15 @@ contract DeployScript is Script {
         address aerodromeClSwapAdapter;
         address aerodromeCl2SwapAdapter;
         address aerodromeCl3SwapAdapter;
+        address aerodromeCl4SwapAdapter;
         address aaveV3LendingAdapter;
         address aaveV4LendingAdapter;
         address morphoBlueLendingAdapter;
         address agentTransferAdapter;
     }
 
-    /// @dev V2-system entries kept in deployments.json as they are; never deployed or configured by this script
+    /// @dev V2-system entries kept in deployments.json as they are; never deployed or configured by this script, except
+    ///      for granting the V2 vault registry's EMERGENCY_ROLE to KRISHAN711_ETH
     string[14] internal LEGACY_KEYS = [
         "agentWalletV1Implementation",
         "agentWalletV2Implementation",
@@ -222,6 +231,15 @@ contract DeployScript is Script {
         revert(string.concat("Unsupported chain id for Aerodrome CL3 router: ", vm.toString(chainId)));
     }
 
+    /// @dev The Slipstream router of factory 0x9CB220581b91b0C83223012FE69688b92aD07a76, which held the deepest
+    ///      tokenized-stock pools on Base in November 2026
+    function getAerodromeCl4Router(uint256 chainId) internal pure returns (address) {
+        if (chainId == 8453) {
+            return 0x9Ee35Bf1bd69a03c6F0393582030fCe8Bb93D418;
+        }
+        revert(string.concat("Unsupported chain id for Aerodrome CL4 router: ", vm.toString(chainId)));
+    }
+
     function getWellToken(uint256 chainId) internal pure returns (address) {
         if (chainId == 8453) {
             return 0xA88594D404727625A9437C3f886C7643872296AE;
@@ -247,6 +265,7 @@ contract DeployScript is Script {
         address aerodromeClRouter = getAerodromeClRouter(block.chainid);
         address aerodromeCl2Router = getAerodromeCl2Router(block.chainid);
         address aerodromeCl3Router = getAerodromeCl3Router(block.chainid);
+        address aerodromeCl4Router = getAerodromeCl4Router(block.chainid);
 
         console2.log("=================================================");
         console2.log("YIELDSEEKER DEPLOYMENT SCRIPT");
@@ -259,7 +278,7 @@ contract DeployScript is Script {
         console2.log("Timelock Proposers and Cancellers:", deployerAddress, multisigAdminAddress);
         console2.log("Timelock Executor:", timelockExecutorAddress);
         console2.log("Timelock Admin:", timelockAdminAddress);
-        console2.log("Emergency Admin:", emergencyAdminAddress);
+        console2.log("Emergency Admins:", emergencyAdminAddress, KRISHAN711_ETH);
         console2.log("Timelock Delay:", adminTimelockDelay);
         console2.log("Testing Mode:", TESTING_MODE);
         console2.log("");
@@ -295,6 +314,7 @@ contract DeployScript is Script {
             aerodromeClSwapAdapter: _readDeployed(deployJson, ".aerodromeCLSwapAdapter"),
             aerodromeCl2SwapAdapter: _readDeployed(deployJson, ".aerodromeCL2SwapAdapter"),
             aerodromeCl3SwapAdapter: _readDeployed(deployJson, ".aerodromeCL3SwapAdapter"),
+            aerodromeCl4SwapAdapter: _readDeployed(deployJson, ".aerodromeCL4SwapAdapter"),
             aaveV3LendingAdapter: _readDeployed(deployJson, ".aaveV3LendingAdapter"),
             aaveV4LendingAdapter: _readDeployed(deployJson, ".aaveV4LendingAdapter"),
             morphoBlueLendingAdapter: _readDeployed(deployJson, ".morphoBlueLendingAdapter"),
@@ -507,6 +527,13 @@ contract DeployScript is Script {
             console2.log("-> Using existing aerodromeCL3SwapAdapter:", deployments.aerodromeCl3SwapAdapter);
         }
 
+        if (deployments.aerodromeCl4SwapAdapter == address(0)) {
+            deployments.aerodromeCl4SwapAdapter = deployCreate2(abi.encodePacked(type(AerodromeCLSwapAdapter).creationCode, abi.encode(aerodromeCl4Router)));
+            console2.log("-> AerodromeCL4SwapAdapter deployed at:", deployments.aerodromeCl4SwapAdapter);
+        } else {
+            console2.log("-> Using existing aerodromeCL4SwapAdapter:", deployments.aerodromeCl4SwapAdapter);
+        }
+
         // Lending adapters
         if (deployments.aaveV3LendingAdapter == address(0)) {
             deployments.aaveV3LendingAdapter = deployCreate2(type(AaveV3LendingAdapter).creationCode);
@@ -567,6 +594,7 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "aerodromeCLSwapAdapter", deployments.aerodromeClSwapAdapter);
         vm.serializeAddress(json, "aerodromeCL2SwapAdapter", deployments.aerodromeCl2SwapAdapter);
         vm.serializeAddress(json, "aerodromeCL3SwapAdapter", deployments.aerodromeCl3SwapAdapter);
+        vm.serializeAddress(json, "aerodromeCL4SwapAdapter", deployments.aerodromeCl4SwapAdapter);
         vm.serializeAddress(json, "aaveV3LendingAdapter", deployments.aaveV3LendingAdapter);
         vm.serializeAddress(json, "aaveV4LendingAdapter", deployments.aaveV4LendingAdapter);
         vm.serializeAddress(json, "morphoBlueLendingAdapter", deployments.morphoBlueLendingAdapter);
@@ -638,6 +666,7 @@ contract DeployScript is Script {
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeClSwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl2SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl3SwapAdapter);
+        _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl4SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.agentTransferAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV3LendingAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aaveV4LendingAdapter);
@@ -649,10 +678,11 @@ contract DeployScript is Script {
         _registerAdapter(borrowAdapterRegistry, deployments.agentTransferAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeCl2SwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeCl3SwapAdapter);
-        // 3. Set Vault Registry Targets: every V2 vault registry target, plus agent transfers
-        _copyV2VaultTargets(deployJson, vaultAdapterRegistry, deployments);
+        _registerAdapter(borrowAdapterRegistry, deployments.aerodromeCl4SwapAdapter);
+        // 3. Set Vault Registry Targets this script owns; Configure.s.sol sets vaults and the shared swap and reward targets
         _setTarget(vaultAdapterRegistry, aerodromeCl2Router, deployments.aerodromeCl2SwapAdapter);
         _setTarget(vaultAdapterRegistry, aerodromeCl3Router, deployments.aerodromeCl3SwapAdapter);
+        _setTarget(vaultAdapterRegistry, aerodromeCl4Router, deployments.aerodromeCl4SwapAdapter);
         _setTarget(vaultAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
         // 4. Set Borrow Registry Targets
         _setTarget(borrowAdapterRegistry, uniswapV3Router, deployments.uniswapV3SwapAdapter);
@@ -662,6 +692,7 @@ contract DeployScript is Script {
         _setTarget(borrowAdapterRegistry, deployments.agentTransferAdapter, deployments.agentTransferAdapter);
         _setTarget(borrowAdapterRegistry, aerodromeCl2Router, deployments.aerodromeCl2SwapAdapter);
         _setTarget(borrowAdapterRegistry, aerodromeCl3Router, deployments.aerodromeCl3SwapAdapter);
+        _setTarget(borrowAdapterRegistry, aerodromeCl4Router, deployments.aerodromeCl4SwapAdapter);
         // 5. Set Agent Operator
         if (factoryHandover.length > 0) {
             console2.log("-> Server gets AGENT_OPERATOR_ROLE in the Safe's factory handover");
@@ -671,6 +702,13 @@ contract DeployScript is Script {
         } else {
             console2.log("-> Server already has AGENT_OPERATOR_ROLE");
         }
+        // 6. Second emergency admin; the factory grant runs after the Safe's handover, which check-timelock.sh bundles first
+        _grantEmergencyRole(deployments.agentWalletFactory);
+        _grantEmergencyRole(deployments.vaultAdapterRegistry);
+        _grantEmergencyRole(deployments.borrowAdapterRegistry);
+        _grantEmergencyRole(deployments.priceOracle);
+        _grantEmergencyRole(deployments.swapSellPolicy);
+        _grantEmergencyRole(safeReadAddress(deployJson, ".agentWalletV2AdapterRegistry"));
         // Execute batch if there are operations
         if (_targets.length > 0) {
             console2.log("-> Executing", _targets.length, "operations in batch...");
@@ -680,48 +718,9 @@ contract DeployScript is Script {
             console2.log("-> No configuration needed, all settings are up to date!");
         }
         console2.log("=================================================");
-        console2.log("Register new vaults with RegisterVault.s.sol (it registers them in both vault registries)");
+        console2.log("Next: Configure.s.sol (vaults, price sources, borrow markets, sellable tokens); pass this batch's ID as its predecessor while it is pending");
         console2.log("=================================================");
         vm.stopBroadcast();
-    }
-
-    /// @dev Maps every target of the V2 vault registry onto the V3 adapter of the same kind in the V3 vault registry
-    function _copyV2VaultTargets(string memory deployJson, AdapterRegistry vaultAdapterRegistry, Deployments memory deployments) internal {
-        address v2Registry = safeReadAddress(deployJson, ".agentWalletV2AdapterRegistry");
-        if (v2Registry == address(0)) return;
-        address[9] memory v2Adapters = [
-            safeReadAddress(deployJson, ".agentWalletV2Erc4626Adapter"),
-            safeReadAddress(deployJson, ".agentWalletV2AaveV3Adapter"),
-            safeReadAddress(deployJson, ".agentWalletV2CompoundV3Adapter"),
-            safeReadAddress(deployJson, ".agentWalletV2CompoundV2Adapter"),
-            safeReadAddress(deployJson, ".agentWalletV2MoonwellRewardAdapter"),
-            safeReadAddress(deployJson, ".agentWalletV2MerklAdapter"),
-            safeReadAddress(deployJson, ".agentWalletV2UniswapV3SwapAdapter"),
-            safeReadAddress(deployJson, ".agentWalletV2AerodromeV2SwapAdapter"),
-            safeReadAddress(deployJson, ".agentWalletV2AerodromeCLSwapAdapter")
-        ];
-        address[9] memory v3Adapters = [
-            deployments.erc4626Adapter,
-            deployments.aaveV3Adapter,
-            deployments.compoundV3Adapter,
-            deployments.compoundV2Adapter,
-            deployments.moonwellRewardAdapter,
-            deployments.merklAdapter,
-            deployments.uniswapV3SwapAdapter,
-            deployments.aerodromeV2SwapAdapter,
-            deployments.aerodromeClSwapAdapter
-        ];
-        address[] memory targets = AdapterRegistry(v2Registry).getAllTargets();
-        console2.log("-> Copying V2 vault registry targets:", targets.length);
-        for (uint256 i = 0; i < targets.length; i++) {
-            address v2Adapter = AdapterRegistry(v2Registry).getTargetAdapter(targets[i]);
-            address v3Adapter = address(0);
-            for (uint256 j = 0; j < v2Adapters.length; j++) {
-                if (v2Adapters[j] == v2Adapter) v3Adapter = v3Adapters[j];
-            }
-            require(v3Adapter != address(0), string.concat("No V3 adapter for V2 adapter ", vm.toString(v2Adapter), " of target ", vm.toString(targets[i])));
-            _setTarget(vaultAdapterRegistry, targets[i], v3Adapter);
-        }
     }
 
     function _op(address target, bytes memory data) internal {
@@ -745,6 +744,12 @@ contract DeployScript is Script {
 
     function _registerAdapter(AdapterRegistry registry, address adapter) internal {
         if (!registry.isRegisteredAdapter(adapter)) _op(address(registry), abi.encodeCall(registry.registerAdapter, (adapter)));
+    }
+
+    function _grantEmergencyRole(address target) internal {
+        if (target == address(0) || IAccessControl(target).hasRole(EMERGENCY_ROLE, KRISHAN711_ETH)) return;
+        console2.log("-> Preparing EMERGENCY_ROLE grant for krishan711.eth on:", target);
+        _op(target, abi.encodeCall(IAccessControl.grantRole, (EMERGENCY_ROLE, KRISHAN711_ETH)));
     }
 
     function _setTarget(AdapterRegistry registry, address target, address adapter) internal {

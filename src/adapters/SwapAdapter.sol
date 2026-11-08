@@ -17,10 +17,10 @@ error FeesOwed(uint256 owed);
  *      what gets reported to the fee modules. A swap that sells the base asset must leave no fees unpaid.
  */
 abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
-    function _swapOperation(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory route) internal virtual override returns (uint256 soldAmount, uint256 buyAmount) {
+    function _swapOperation(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory route) internal virtual override returns (uint256 soldAmount, uint256 buyAmount) {
         IYieldSeekerSwapPolicy policy = _swapPolicy();
         policy.checkSwap(address(this), sellToken, buyToken);
-        (soldAmount, buyAmount) = super._swapOperation(router, sellToken, buyToken, sellAmount, minBuyAmount, route);
+        (soldAmount, buyAmount) = super._swapOperation(router, sellToken, buyToken, sellAmount, minBuyAmount, deadline, route);
         bytes32 action = policy.checkSwapResult(address(this), sellToken, soldAmount, buyToken, buyAmount);
         _reportAction(action, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
         if (sellToken == _baseAssetAddress()) {

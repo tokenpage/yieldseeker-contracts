@@ -22,10 +22,11 @@ error SwapAboveDebt(uint256 held, uint256 debt);
  *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle and only up to what they owe in it
  * @dev Buying a borrowed token is for repaying: after the swap the wallet may hold at most its debt in that token as
  *      of each market's last report (the BORROW_FEE module's tokenDebt; checkpoint first to include fresh interest).
- *      Borrowed tokens can never be sold, so collateral can't be drained with round trips. The cap is on the balance
- *      held after each swap, not on the total bought: agent transfers can move the token to the owner's other wallets,
- *      so an operator can keep converting idle base asset, losing up to MAX_SLIPPAGE_BPS on each swap. Selling the base
- *      asset is a trade (FeeActions.SWAP), not yield.
+ *      Borrowed tokens can never be sold, so one wallet's collateral can't be drained with round trips; registered
+ *      markets that form a collateral-to-debt cycle would allow it across the owner's wallets, so none may be
+ *      registered. The cap is on the balance held after each swap, not on the total bought: agent transfers can move
+ *      the token to the owner's other wallets, so an operator can keep converting idle base asset, losing up to
+ *      MAX_SLIPPAGE_BPS on each swap. Selling the base asset is a trade (FeeActions.SWAP), not yield.
  */
 contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;

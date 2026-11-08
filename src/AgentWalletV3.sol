@@ -176,8 +176,9 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         if (payment > 0) baseAsset().safeTransfer(collector, payment);
     }
 
-    /// @dev Gas-limited and failure-tolerant, so neither a fee module nor the fee collector can block the owner's exit;
-    ///      if settlement fails, nothing is recorded, the fees stay owed and FeeSettlementFailed is emitted.
+    /// @dev Gas-limited and failure-tolerant, so neither a fee module nor the fee collector can make settlement block
+    ///      the owner's exit; if settlement fails, nothing is recorded, the fees stay owed and FeeSettlementFailed is
+    ///      emitted. Exits of tokens other than the base asset still need the tracker to account for the token.
     function _settleFees(address asset, address recipient, uint256 amount) internal {
         try this.settleFeesForWithdrawal{gas: FEE_SETTLEMENT_GAS_LIMIT}(asset, recipient, amount) {}
         catch {

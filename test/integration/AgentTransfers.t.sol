@@ -1,7 +1,7 @@
 pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {InvalidTransferTarget, NotOwnersAgentWallet} from "../../src/adapters/AgentTransferAdapter.sol";
+import {InvalidTransferTarget, NotOwnersAgentWallet, ReceiverIsExecuting} from "../../src/adapters/AgentTransferAdapter.sol";
 import {AgentWalletStorageV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
@@ -169,6 +169,14 @@ contract AgentTransfersTest is IntegrationBase {
 
         bytes memory zeroAmountError = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
         _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 0)), zeroAmountError);
+    }
+
+    function testTransferToTheSendingWalletRevertsBecauseItIsExecuting() public {
+        AgentWallet wallet = _createVaultWallet(owner, 1);
+        _fundWallet(wallet, address(usdc), 100e6);
+        bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(wallet), uint256(100e6)));
+        _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), data, abi.encodeWithSelector(ReceiverIsExecuting.selector, address(wallet)));
+        assertEq(usdc.balanceOf(address(wallet)), 100e6);
     }
 
     function _borrowWeth(AgentWallet wallet, uint256 collateral, uint256 borrowed) private {

@@ -8,7 +8,14 @@ import {MockERC20} from "./MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MockMerklDistributor {
+    struct Claim {
+        uint208 amount;
+        uint48 timestamp;
+        bytes32 merkleRoot;
+    }
+
     bool public shouldRevert;
+    mapping(address user => mapping(address token => Claim)) public claimed;
 
     function setShouldRevert(bool value) external {
         shouldRevert = value;
@@ -18,7 +25,11 @@ contract MockMerklDistributor {
         if (shouldRevert) revert("claim failed");
         require(users.length == tokens.length && amounts.length == tokens.length, "Length mismatch");
         for (uint256 i = 0; i < tokens.length; i++) {
-            require(MockERC20(tokens[i]).transfer(users[i], amounts[i]), "Transfer failed");
+            Claim storage previous = claimed[users[i]][tokens[i]];
+            uint256 toSend = amounts[i] - previous.amount;
+            previous.amount = uint208(amounts[i]);
+            previous.timestamp = uint48(block.timestamp);
+            if (toSend != 0) require(MockERC20(tokens[i]).transfer(users[i], toSend), "Transfer failed");
         }
     }
 }

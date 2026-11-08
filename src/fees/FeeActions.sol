@@ -55,7 +55,8 @@ library FeeActions {
 
     /// @notice A borrow (`borrowed` > 0), a repay (`repaid` > 0), or a collateral withdrawal or checkpoint (both 0) on a
     ///         lending market
-    /// @param market The market's registry target (the lending adapter's `marketTarget`)
+    /// @param market The market's debt position (the lending adapter's `debtPosition`: the spoke and debt reserve for
+    ///        Aave V4, the market's registry target otherwise)
     /// @param debtToken The market's debt token
     /// @param debtBefore The market's real debt before the action
     /// @param borrowed Debt token received by this borrow

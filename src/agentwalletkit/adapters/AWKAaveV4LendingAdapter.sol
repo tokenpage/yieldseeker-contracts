@@ -59,6 +59,18 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         return address(0);
     }
 
+    /// @dev Every market with the same spoke and collateral reserve uses the same supplied balance
+    function collateralPosition(bytes memory market) public pure virtual override returns (address) {
+        (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
+        return address(uint160(uint256(keccak256(abi.encode(spoke, collateralReserveId)))));
+    }
+
+    /// @dev Every market with the same spoke and debt reserve uses the same debt balance
+    function debtPosition(bytes memory market) public pure virtual override returns (address) {
+        (IAaveV4Spoke spoke,, uint256 debtReserveId) = _decodeMarket(market);
+        return address(uint160(uint256(keccak256(abi.encode(spoke, debtReserveId)))));
+    }
+
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId,) = _decodeMarket(market);
         return spoke.getUserSuppliedAssets(collateralReserveId, address(this));

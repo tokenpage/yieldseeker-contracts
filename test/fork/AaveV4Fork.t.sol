@@ -133,7 +133,7 @@ contract AaveV4ForkTest is ForkBase {
         assertEq(spoke.getUserSuppliedAssets(COLLATERAL_RESERVE_ID, address(wallet)), 0);
         assertEq(IERC20(COLLATERAL_ASSET).balanceOf(address(wallet)), withdrawn - expectedTotalFee);
         assertEq(IERC20(COLLATERAL_ASSET).balanceOf(feeCollector) - feeCollectorBalanceBefore, expectedTotalFee);
-        assertEq(borrowYieldFeeModule.costBasis(address(wallet), adapter.marketTarget(market)), 0);
+        assertEq(borrowYieldFeeModule.costBasis(address(wallet), adapter.collateralPosition(market)), 0);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);
 
         uint256 ownerCollateralBefore = IERC20(COLLATERAL_ASSET).balanceOf(owner);

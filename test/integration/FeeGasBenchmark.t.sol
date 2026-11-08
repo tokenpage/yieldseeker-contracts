@@ -172,7 +172,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
 
         uint256 adapterSwapStart = gasleft();
         vm.prank(operator);
-        wallet.executeViaAdapter(address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(wellToken), address(usdc), route, wellAmount, buyAmount));
+        wallet.executeViaAdapter(address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(wellToken), address(usdc), route, wellAmount, buyAmount, block.timestamp));
         uint256 adapterSwapGas = adapterSwapStart - gasleft();
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, expectedFee);

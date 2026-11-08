@@ -34,7 +34,6 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
         bool[] stables;
     }
 
-    uint256 internal constant FAR_FUTURE_DEADLINE = type(uint32).max;
     uint256 internal constant MAX_HOPS = 4;
 
     address public immutable AERODROME_V2_ROUTER;
@@ -52,7 +51,7 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
      * @notice Swap tokens via Aerodrome V2 (public interface, should not be called directly)
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
      */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount) external pure returns (uint256) {
+    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -66,24 +65,25 @@ contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
-        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
+        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != AERODROME_V2_ROUTER) revert InvalidAerodromeV2RouterTarget(target, AERODROME_V2_ROUTER);
         _validateRoute(sellToken, buyToken, route);
         _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
-        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, abi.encode(route));
+        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
         return abi.encode(buyAmount);
     }
 
     // ============ Internal Implementations ============
 
-    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory encodedRoute) internal virtual override {
+    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory encodedRoute) internal virtual override returns (uint256) {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
         IERC20(sellToken).forceApprove(router, sellAmount);
         IAerodromeV2Router.Route[] memory routes = new IAerodromeV2Router.Route[](route.stables.length);
         for (uint256 i = 0; i < route.stables.length; i++) {
             routes[i] = IAerodromeV2Router.Route({from: route.path[i], to: route.path[i + 1], stable: route.stables[i], factory: AERODROME_V2_FACTORY});
         }
-        IAerodromeV2Router(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), FAR_FUTURE_DEADLINE);
+        uint256[] memory amounts = IAerodromeV2Router(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), deadline);
+        return amounts[amounts.length - 1];
     }
 
     function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {

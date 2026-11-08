@@ -276,7 +276,7 @@ contract FeesIntegrationTest is IntegrationBase {
         fees[0] = 3_000;
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(20 * USDC);
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, 100e18, 20 * USDC));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, 100e18, 20 * USDC, block.timestamp));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 22 * USDC);
         assertEq(usdc.balanceOf(address(wallet)), 198 * USDC);
@@ -433,7 +433,7 @@ contract FeesIntegrationTest is IntegrationBase {
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(bought);
 
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought, block.timestamp));
 
         assertEq(vaultYieldFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(feeCollector), 0);

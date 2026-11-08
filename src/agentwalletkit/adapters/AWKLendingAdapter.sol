@@ -47,6 +47,18 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         return address(uint160(uint256(keccak256(market))));
     }
 
+    /// @notice An id for the wallet's collateral position behind a market. Markets that share one collateral balance
+    ///         (e.g. two Aave V3 markets with the same pool and collateral) share it; by default it is the market target
+    function collateralPosition(bytes memory market) public view virtual returns (address) {
+        return marketTarget(market);
+    }
+
+    /// @notice An id for the wallet's debt position behind a market. Markets that share one debt balance (e.g. two Aave V4
+    ///         markets with the same spoke and debt reserve) share it; by default it is the market target
+    function debtPosition(bytes memory market) public view virtual returns (address) {
+        return marketTarget(market);
+    }
+
     /// @notice The token the wallet holds for its collateral in a market (an Aave V3 aToken), or address(0) when the
     ///         protocol keeps the collateral itself
     /// @dev Register it in the registry as a target of this adapter, next to the market: swap policies never sell a

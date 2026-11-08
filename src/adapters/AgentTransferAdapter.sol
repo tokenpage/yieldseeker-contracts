@@ -13,6 +13,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 error InvalidTransferTarget(address target);
 error NotOwnersAgentWallet(address wallet);
+error ReceiverIsExecuting(address wallet);
 
 /**
  * @title YieldSeekerAgentTransferAdapter
@@ -22,6 +23,9 @@ error NotOwnersAgentWallet(address wallet);
  *      the receiver must still be owned by them.
  *      Both fee trackers must account for the token (so it can always be withdrawn there), and the transfer is
  *      reported first (FeeActions.TRANSFER_OUT) so fees owed are paid before the exact amount leaves.
+ *      The receiver must not be mid-execution: an operator able to run code during another wallet's swap (e.g. from a
+ *      token hook) could otherwise send tokens in and have them counted as the swap's output, faking the swap's
+ *      oracle floor or a reward sale.
  */
 contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
     using SafeERC20 for IERC20;
@@ -42,6 +46,7 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         address owner = wallet.owner();
         if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotOwnersAgentWallet(address(this));
         if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to || YieldSeekerAgentWalletV3(payable(to)).owner() != owner) revert NotOwnersAgentWallet(to);
+        if (YieldSeekerAgentWalletV3(payable(to)).isExecuting()) revert ReceiverIsExecuting(to);
         if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();
         _reportAction(FeeActions.TRANSFER_OUT, abi.encode(FeeActions.TransferOut({token: token, to: to, amount: amount})));
         if (IERC20(token).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();

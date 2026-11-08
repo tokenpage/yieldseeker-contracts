@@ -10,6 +10,14 @@ import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
  * @notice Borrow against the wallet's base asset on registered Aave V4 spokes, with the borrow fee
  */
 contract YieldSeekerAaveV4LendingAdapter is AWKAaveV4LendingAdapter, YieldSeekerLendingAdapter {
+    function collateralPosition(bytes memory market) public pure override(AWKAaveV4LendingAdapter, AWKLendingAdapter) returns (address) {
+        return super.collateralPosition(market);
+    }
+
+    function debtPosition(bytes memory market) public pure override(AWKAaveV4LendingAdapter, AWKLendingAdapter) returns (address) {
+        return super.debtPosition(market);
+    }
+
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
         return super._supplyCollateralOperation(market, amount);
     }

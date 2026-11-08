@@ -24,6 +24,7 @@ contract SwapForkTest is ForkBase {
     address internal constant AERODROME_V2_FACTORY = 0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
     address internal constant AERODROME_CL_ROUTER = 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
     address internal constant AERODROME_CL_3_ROUTER = 0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F;
+    address internal constant AERODROME_CL_4_ROUTER = 0x9Ee35Bf1bd69a03c6F0393582030fCe8Bb93D418;
     address internal constant ETH_USD_FEED = 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70;
     address internal constant USDC_USD_FEED = 0x7e860098F58bBFC8648a4311b374B1D669a2bc6B;
     address internal constant SEQUENCER_UPTIME_FEED = 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433;
@@ -35,6 +36,7 @@ contract SwapForkTest is ForkBase {
     YieldSeekerAerodromeV2SwapAdapter internal aerodromeV2Adapter;
     YieldSeekerAerodromeCLSwapAdapter internal aerodromeCLAdapter;
     YieldSeekerAerodromeCLSwapAdapter internal aerodromeCL3Adapter;
+    YieldSeekerAerodromeCLSwapAdapter internal aerodromeCL4Adapter;
     AgentWallet internal wallet;
 
     function setUp() public override {
@@ -49,10 +51,12 @@ contract SwapForkTest is ForkBase {
         aerodromeV2Adapter = new YieldSeekerAerodromeV2SwapAdapter(AERODROME_V2_ROUTER, AERODROME_V2_FACTORY);
         aerodromeCLAdapter = new YieldSeekerAerodromeCLSwapAdapter(AERODROME_CL_ROUTER);
         aerodromeCL3Adapter = new YieldSeekerAerodromeCLSwapAdapter(AERODROME_CL_3_ROUTER);
+        aerodromeCL4Adapter = new YieldSeekerAerodromeCLSwapAdapter(AERODROME_CL_4_ROUTER);
         _registerAdapter(address(uniswapAdapter), UNISWAP_V3_ROUTER);
         _registerAdapter(address(aerodromeV2Adapter), AERODROME_V2_ROUTER);
         _registerAdapter(address(aerodromeCLAdapter), AERODROME_CL_ROUTER);
         _registerAdapter(address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER);
+        _registerAdapter(address(aerodromeCL4Adapter), AERODROME_CL_4_ROUTER);
         wallet = _createVaultWallet(USDC, 0);
         deal(WETH, address(wallet), SELL_AMOUNT);
     }
@@ -60,31 +64,35 @@ contract SwapForkTest is ForkBase {
     function test_UniswapV3SingleAndTwoHopRewardSales() public {
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
-        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(false), fees: fees}), SELL_AMOUNT, 1)));
+        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(false), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
 
         fees = new uint24[](2);
         fees[0] = 500;
         fees[1] = 500;
-        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(true), fees: fees}), SELL_AMOUNT, 1)));
+        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(true), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
     }
 
     function test_AerodromeV2SingleAndTwoHopRewardSales() public {
         bool[] memory stables = new bool[](1);
-        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(false), stables: stables}), SELL_AMOUNT, 1)));
+        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(false), stables: stables}), SELL_AMOUNT, 1, block.timestamp)));
 
         stables = new bool[](2);
-        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(true), stables: stables}), SELL_AMOUNT, 1)));
+        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(true), stables: stables}), SELL_AMOUNT, 1, block.timestamp)));
     }
 
     function test_AerodromeCLSingleAndTwoHopRewardSales() public {
         int24[] memory tickSpacings = new int24[](1);
         tickSpacings[0] = 100;
-        _assertRewardSale(address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1)));
+        _assertRewardSale(
+            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+        );
 
         tickSpacings = new int24[](2);
         tickSpacings[0] = 100;
         tickSpacings[1] = 100;
-        _assertRewardSale(address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(true), tickSpacings: tickSpacings}), SELL_AMOUNT, 1)));
+        _assertRewardSale(
+            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(true), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+        );
     }
 
     function test_AerodromeCLThirdRouterSpacing10RewardSale() public {
@@ -97,7 +105,10 @@ contract SwapForkTest is ForkBase {
         uint256 bought = abi.decode(
             abi.decode(
                 _execute(
-                    wallet, address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER, abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1))
+                    wallet,
+                    address(aerodromeCL3Adapter),
+                    AERODROME_CL_3_ROUTER,
+                    abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
                 ),
                 (bytes)
             ),
@@ -110,6 +121,16 @@ contract SwapForkTest is ForkBase {
         assertEq(IERC20(USDC).balanceOf(address(wallet)) - walletUsdcBefore, bought - fee);
         assertEq(IERC20(USDC).balanceOf(feeCollector) - collectorUsdcBefore, fee);
         assertEq(IERC20(WETH).allowance(address(wallet), AERODROME_CL_3_ROUTER), 0);
+    }
+
+    /// @dev The fourth Slipstream factory (0x9CB2…) holds the deepest tokenized-stock pools; B20 tokens can't run in a
+    ///      fork, so this swaps through its WETH/USDC pool to prove the router works with the adapter
+    function test_AerodromeCLFourthRouterRewardSale() public {
+        int24[] memory tickSpacings = new int24[](1);
+        tickSpacings[0] = 50;
+        _assertRewardSale(
+            address(aerodromeCL4Adapter), AERODROME_CL_4_ROUTER, abi.encodeCall(aerodromeCL4Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+        );
     }
 
     function _assertRewardSale(address adapter, address router, bytes memory data) internal {

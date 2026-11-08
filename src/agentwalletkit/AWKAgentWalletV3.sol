@@ -416,6 +416,12 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         }
     }
 
+    /// @notice Whether the wallet is inside an adapter call, ERC20 withdrawal or sync. Adapters that send tokens to
+    ///         another wallet check it: tokens arriving mid-call would be counted as that call's output.
+    function isExecuting() external view returns (bool) {
+        return _reentrancyGuardEntered();
+    }
+
     // ============ UUPS Upgradeability ============
 
     /**

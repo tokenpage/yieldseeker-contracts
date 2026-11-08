@@ -186,7 +186,7 @@ contract BorrowForkTest is ForkBase {
         assertEq(IERC20(WETH).balanceOf(address(wallet)) - walletBalanceBefore, withdrawn - expectedFee);
         assertEq(IERC20(WETH).balanceOf(feeCollector) - collectorBalanceBefore, expectedFee);
         YieldSeekerYieldFeeModule yieldFees = YieldSeekerYieldFeeModule(address(feeTracker.feeModules(YIELD_FEE)));
-        assertEq(yieldFees.costBasis(address(wallet), target), 0);
+        assertEq(yieldFees.costBasis(address(wallet), aaveAdapter.collateralPosition(market)), 0);
     }
 
     function test_MorphoBlue_BorrowRepayWithdrawChargesBorrowFee() public {
@@ -299,7 +299,7 @@ contract BorrowForkTest is ForkBase {
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
         AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
-        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1));
+        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1, block.timestamp));
         uint256 bought = abi.decode(result, (uint256));
         assertGe(bought, (oracle.quote(WETH, USDC, swapAmount) * 99) / 100, "swap output within the oracle bound");
         assertLe(bought, debt, "swap output does not exceed the reported debt");

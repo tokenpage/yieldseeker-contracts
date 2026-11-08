@@ -59,6 +59,11 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         return pool.getReserveAToken(collateralAsset);
     }
 
+    /// @dev Every market with the same pool and collateral asset uses the same aToken balance
+    function collateralPosition(bytes memory market) public view virtual override returns (address) {
+        return collateralReceiptToken(market);
+    }
+
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
         return IERC20(collateralReceiptToken(market)).balanceOf(address(this));
     }

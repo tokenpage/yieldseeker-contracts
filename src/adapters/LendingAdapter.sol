@@ -14,12 +14,14 @@ error UnusableDebtPrice();
  * @notice YieldSeeker rules on top of an AWK lending adapter
  * @dev Collateral must be the wallet's base asset and the debt asset must differ from it; which markets can be
  *      used at all is decided by the registry. Collateral is a yield fee position like a vault: supplying it reports a
- *      deposit and withdrawing it a withdrawal (target = marketTarget(market)), so interest it earned is charged when
- *      it comes back. Every borrow, repay, collateral withdrawal and checkpoint reports the market's real debt and the
- *      market's own price for it (FeeActions.DEBT_CHANGE), so the borrow fee is valued in the base asset with the
- *      price the protocol itself uses, and fees due are paid from the base asset, including collateral just
- *      withdrawn. The operator checkpoints a market after its debt changed outside the adapter (e.g. a liquidation),
- *      so the borrow fee stops accruing on the old debt.
+ *      deposit and withdrawing it a withdrawal (target = collateralPosition(market)), so interest it earned is charged
+ *      when it comes back. Markets that share one collateral balance share that position, so collateral supplied
+ *      through one market and withdrawn through another releases its basis. Every borrow, repay, collateral withdrawal
+ *      and checkpoint reports the market's real debt and the market's own price for it (FeeActions.DEBT_CHANGE, keyed
+ *      by debtPosition(market), so markets that share one debt balance are charged on it once), so the borrow fee is
+ *      valued in the base asset with the price the protocol itself uses, and fees due are paid from the base asset,
+ *      including collateral just withdrawn. The operator checkpoints a market after its debt changed outside the
+ *      adapter (e.g. a liquidation), so the borrow fee stops accruing on the old debt.
  */
 abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAdapter {
     function _checkedMarketAssets(bytes memory market) internal view returns (address collateralAsset, address debtAsset) {
@@ -31,7 +33,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 supplied) {
         _checkedMarketAssets(market);
         supplied = super._supplyCollateralOperation(market, amount);
-        _reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: marketTarget(market), assetsIn: supplied})));
+        _reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: collateralPosition(market), assetsIn: supplied})));
     }
 
     function _borrowOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 borrowed) {
@@ -60,7 +62,7 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         uint256 collateralBefore = _collateralOf(market);
         withdrawn = super._withdrawCollateralOperation(market, amount);
         uint256 spent = collateralBefore - _collateralOf(market);
-        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: marketTarget(market), spent: spent, heldBefore: collateralBefore, assetsOut: withdrawn})));
+        _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: collateralPosition(market), spent: spent, heldBefore: collateralBefore, assetsOut: withdrawn})));
         _reportDebtChange(market, debtAsset, debt, 0, 0);
     }
 
@@ -78,6 +80,6 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
     function _reportDebtChange(bytes memory market, address debtAsset, uint256 debtBefore, uint256 borrowed, uint256 repaid) internal {
         uint256 debtPrice = debtBefore > 0 || borrowed > 0 ? _debtPriceInCollateral(market) : 0;
         if (borrowed > 0 && (debtPrice == 0 || debtPrice > type(uint192).max)) revert UnusableDebtPrice();
-        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: marketTarget(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtPrice})));
+        _reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: debtPosition(market), debtToken: debtAsset, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: debtPrice})));
     }
 }

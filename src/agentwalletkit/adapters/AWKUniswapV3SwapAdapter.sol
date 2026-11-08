@@ -19,6 +19,7 @@ interface IUniswapV3SwapRouter {
     }
 
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
+    function refundETH() external payable;
 }
 
 /**
@@ -50,7 +51,7 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
      * @notice Swap tokens via Uniswap V3 (public interface, should not be called directly)
      * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
      */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount) external pure returns (uint256) {
+    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
         revert AWKErrors.DirectCallForbidden();
     }
 
@@ -64,24 +65,27 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
-        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256));
+        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
         _validateRoute(sellToken, buyToken, route);
         _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
-        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, abi.encode(route));
+        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
         return abi.encode(buyAmount);
     }
 
     // ============ Internal Implementations ============
 
-    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, bytes memory encodedRoute) internal virtual override {
+    function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, uint256, bytes memory encodedRoute) internal virtual override returns (uint256) {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
+        // The router pays a WETH input from its own ETH when it holds enough, so the wallet would spend nothing;
+        // sweeping it to the wallet first keeps the swap paid from the wallet
+        if (router.balance != 0) IUniswapV3SwapRouter(router).refundETH();
         IERC20(sellToken).forceApprove(router, sellAmount);
         bytes memory encodedPath = abi.encodePacked(route.path[0]);
         for (uint256 i = 0; i < route.fees.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.fees[i]), abi.encodePacked(route.path[i + 1]));
         }
-        IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
+        return IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 
     function _validateFeeTier(uint24 fee) internal pure {

@@ -16,8 +16,9 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  *         the lending market's own price and paid from the base asset
  * @dev Plugged into the fee tracker as BORROW_FEE; the yearly rate comes from the wallet's plan in the tracker (a Plan,
  *      at most MAX_FEE_RATE_BPS).
- *      Lending adapters report every borrow, repay, collateral withdrawal and checkpoint per market with the
- *      protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
+ *      Lending adapters report every borrow, repay, collateral withdrawal and checkpoint per debt position (the
+ *      adapter's debtPosition(market): the spoke and debt reserve for Aave V4, the market's registry target otherwise)
+ *      with the protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
  *      is charged on the debt at the start of the period, so repaying directly on the protocol cannot erase the fee;
  *      after a debt change outside the adapters (e.g. a liquidation) the period runs until the next report, so the
  *      operator checkpoints the market. A report without a usable price (the market has no debt left, e.g. it was
@@ -45,13 +46,13 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         uint192 lastPrice;
     }
 
-    mapping(address wallet => mapping(address market => DebtPosition)) public debtPositions;
+    mapping(address wallet => mapping(address position => DebtPosition)) public debtPositions;
     mapping(address wallet => mapping(address token => bool)) public isBorrowedToken;
-    /// @notice Debt in `token` across the wallet's markets, as of each market's last report
+    /// @notice Debt in `token` across the wallet's debt positions, as of each position's last report
     mapping(address wallet => mapping(address token => uint256)) public tokenDebt;
     mapping(address wallet => uint256) public feesOwed;
 
-    event BorrowFeeCharged(address indexed wallet, address indexed market, address indexed debtToken, uint256 fee, uint256 feeInBaseAsset);
+    event BorrowFeeCharged(address indexed wallet, address indexed position, address indexed debtToken, uint256 fee, uint256 feeInBaseAsset);
     event FeePaid(address indexed wallet, uint256 amount);
 
     constructor(YieldSeekerFeeTracker feeTracker, uint256 maxFeeRateBps) {
@@ -97,9 +98,10 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
         return Math.mulDiv(position.lastDebt, walletPlan(wallet).rateBps * (block.timestamp - position.lastAccrual), SECONDS_PER_YEAR * 1e4, Math.Rounding.Ceil);
     }
 
-    /// @notice The fee a market has accrued since its last report, in the debt token (charged at the next report)
-    function pendingFee(address wallet, address market) external view returns (uint256) {
-        return _pendingFee(wallet, debtPositions[wallet][market]);
+    /// @notice The fee a debt position has accrued since its last report, in the debt token (charged at the next
+    ///         report); `position` is the lending adapter's debtPosition(market)
+    function pendingFee(address wallet, address position) external view returns (uint256) {
+        return _pendingFee(wallet, debtPositions[wallet][position]);
     }
 
     function isValidPlan(bytes calldata plan) external view returns (bool) {

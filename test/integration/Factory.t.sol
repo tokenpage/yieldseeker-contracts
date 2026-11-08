@@ -201,7 +201,7 @@ contract FactoryTest is IntegrationBase {
         wellToUsdc.path[1] = address(usdc);
         wellToUsdc.fees = new uint24[](1);
         wellToUsdc.fees[0] = 3000;
-        bytes memory swapData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(wellToken), address(usdc), wellToUsdc, uint256(10e18), uint256(1)));
+        bytes memory swapData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(wellToken), address(usdc), wellToUsdc, uint256(10e18), uint256(1), block.timestamp));
         bytes memory sellBlocked = abi.encodeWithSelector(SellTokenNotAllowed.selector, address(wellToken));
         _executeExpectRevert(vaultWallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), swapData, sellBlocked);
 
