@@ -34,9 +34,11 @@ error SwapAboveDebt(uint256 held, uint256 debt);
 /**
  * @title YieldSeekerBorrowSwapPolicy
  * @notice Borrow agents sell reward tokens for the base asset, and sell the base asset (their collateral) for a token
- *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle and only up to what they owe in it
+ *         they borrowed, at most MAX_SLIPPAGE_BPS below the price oracle and only up to what they owe in it plus DEBT_BUFFER_BPS
  * @dev Buying a borrowed token is for repaying: after the swap the wallet may hold at most its debt in that token as
- *      of each market's last report (the BORROW_FEE module's tokenDebt; checkpoint first to include fresh interest).
+ *      of each market's last report (the BORROW_FEE module's tokenDebt; checkpoint first to include fresh interest),
+ *      plus DEBT_BUFFER_BPS of it. Swaps fix the amount sold, not the amount bought, so a close can't buy exactly the
+ *      debt; the buffer lets it buy enough to repay in full despite interest accrued since the report and slippage.
  *      Borrowed tokens can never be sold, so one wallet's collateral can't be drained with round trips; registered
  *      markets that form a collateral-to-debt cycle would allow it across the owner's wallets, so none may be
  *      registered. The cap is on the balance held after each swap, not on the total bought: agent transfers can move
@@ -46,6 +48,7 @@ error SwapAboveDebt(uint256 held, uint256 debt);
 contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
     IYieldSeekerPriceOracle public immutable PRICE_ORACLE;
     uint256 public immutable MAX_SLIPPAGE_BPS;
+    uint256 public constant DEBT_BUFFER_BPS = 300;
 
     constructor(IYieldSeekerSwapSellPolicy sellPolicy, IYieldSeekerPriceOracle priceOracle, uint256 maxSlippageBps) YieldSeekerVaultSwapPolicy(sellPolicy) {
         if (address(priceOracle) == address(0)) revert AWKErrors.ZeroAddress();
@@ -69,7 +72,7 @@ contract YieldSeekerBorrowSwapPolicy is YieldSeekerVaultSwapPolicy {
         if (boughtAmount < minimum) revert SwapBelowOraclePrice(boughtAmount, minimum);
         uint256 held = IERC20(buyToken).balanceOf(wallet);
         uint256 debt = _borrowFees(wallet).tokenDebt(wallet, buyToken);
-        if (held > debt) revert SwapAboveDebt(held, debt);
+        if (held > Math.mulDiv(debt, 1e4 + DEBT_BUFFER_BPS, 1e4)) revert SwapAboveDebt(held, debt);
         return FeeActions.SWAP;
     }
 

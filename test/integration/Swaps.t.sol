@@ -655,7 +655,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
     }
 
-    function testBorrowSwapCannotLeaveHeldBalanceAboveDebt() public {
+    function testBorrowSwapCannotLeaveHeldBalanceAboveDebtBuffer() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 debt = 1e18;
         _borrowWeth(wallet, 3_000e6, debt);
@@ -664,7 +664,7 @@ contract SwapsTest is IntegrationBase {
 
         uint256 amountIn = 2_000e6;
         _fundWallet(wallet, address(usdc), amountIn);
-        uint256 held = debt + 1;
+        uint256 held = debt + debt * borrowSwapPolicy.DEBT_BUFFER_BPS() / 1e4 + 1;
         uniswapV3Router.setBuyAmount(held);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
@@ -681,7 +681,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
-    function testBorrowSwapUpToDebtCanRepayInFull() public {
+    function testBorrowSwapUpToDebtBufferCanRepayInFull() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 debt = 1e18;
         _borrowWeth(wallet, 3_000e6, debt);
@@ -689,18 +689,19 @@ contract SwapsTest is IntegrationBase {
         wallet.withdrawAllAssetToUser(owner, address(weth));
 
         uint256 amountIn = 2_000e6;
+        uint256 surplus = debt * borrowSwapPolicy.DEBT_BUFFER_BPS() / 1e4;
         _fundWallet(wallet, address(usdc), amountIn);
-        uniswapV3Router.setBuyAmount(debt);
+        uniswapV3Router.setBuyAmount(debt + surplus);
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
-        assertEq(weth.balanceOf(address(wallet)), debt);
+        assertEq(weth.balanceOf(address(wallet)), debt + surplus);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
         _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
-        assertEq(weth.balanceOf(address(wallet)), 0);
+        assertEq(weth.balanceOf(address(wallet)), surplus);
     }
 
     function testBorrowSwapAfterFullRepayRevertsWithoutDebt() public {
