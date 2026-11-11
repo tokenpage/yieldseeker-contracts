@@ -327,6 +327,17 @@ contract FeeAccountingHandler is IntegrationBase {
     }
 
     function _depositVault(AgentWallet wallet, uint256 amount) private {
+        uint256 totalShares = erc4626Vault.totalSupply();
+        if (totalShares != 0) {
+            uint256 vaultAssets = usdc.balanceOf(address(erc4626Vault));
+            if (vaultAssets == 0) {
+                usdc.mint(address(erc4626Vault), 1);
+                vaultAssets = 1;
+            }
+            uint256 minAssetsForOneShare = vaultAssets / totalShares;
+            if (vaultAssets % totalShares != 0) minAssetsForOneShare++;
+            if (amount < minAssetsForOneShare) amount = minAssetsForOneShare;
+        }
         uint256 requiredBalance = amount + vaultFeeTracker.feesOwedInBaseAsset(address(wallet));
         uint256 balance = usdc.balanceOf(address(wallet));
         if (balance < requiredBalance) _fundWallet(wallet, address(usdc), requiredBalance - balance);
