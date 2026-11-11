@@ -68,7 +68,7 @@ contract WalletPropertiesTest is IntegrationBase {
     uint256 private constant SIG_VALIDATION_SUCCESS = 0;
     uint256 private constant SIG_VALIDATION_FAILED = 1;
 
-    function testFuzz_property6_userOpsFollowSignatureSelectorAndPaymasterDecisionTable(bytes4 selector, bytes32 randomCallData, uint8 paymasterChoice, uint256 randomKeySeed) public {
+    function testFuzz_onlyOwnerOrSponsoredOperatorAdapterCallsPassSignatureValidation(bytes4 selector, bytes32 randomCallData, uint8 paymasterChoice, uint256 randomKeySeed) public {
         paymasterChoice = uint8(bound(paymasterChoice, 0, 2));
         uint256 randomKey = bound(randomKeySeed, 3, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140 - 1);
         address walletOwner = vm.addr(OWNER_KEY);
@@ -87,8 +87,8 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(_validateUserOp(wallet, callData, paymaster, userOpHash, randomKey), SIG_VALIDATION_FAILED);
     }
 
-    /// @notice Property 7: privileged entrypoints reject outsiders; public sync and the receive hook intentionally stay open.
-    function testFuzz_property7_nonPrivilegedCallersCannotUsePrivilegedEntryPoints(address attacker) public {
+    /// @notice Public sync and the receive hook intentionally stay open.
+    function testFuzz_attackerCannotCallAnyPrivilegedWalletFunction(address attacker) public {
         AgentWallet wallet = _createVaultWallet(owner, 702);
         vm.assume(attacker != address(0) && attacker != owner && attacker != operator);
         vm.assume(!wallet.isEntryPoint(attacker) && !wallet.isAgentOperator(attacker));
@@ -135,7 +135,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertTrue(received);
     }
 
-    function testFuzz_property8_ownerWithdrawsBaseAssetWhenFeeModuleIsHostile(uint8 behaviorSeed) public {
+    function testFuzz_ownerCanWithdrawEverythingWhenAFeeModuleIsHostile(uint8 behaviorSeed) public {
         HostileFeeModule.Behavior behavior = HostileFeeModule.Behavior(uint8(bound(behaviorSeed, 1, 3)));
         AgentWallet wallet = _createBorrowWallet(owner, 703);
         uint256 feeOwed = _accrueBorrowFees(wallet, 100e6, 1e18);
@@ -156,7 +156,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), feeOwed);
     }
 
-    function testFuzz_property8_ownerWithdrawsWhenCollectorCannotReceiveTokenPayment(uint96 extraBalanceSeed) public {
+    function testFuzz_ownerCanWithdrawEverythingWhenTheFeeCollectorRejectsPayment(uint96 extraBalanceSeed) public {
         AgentWallet wallet = _createBorrowWallet(owner, 714);
         uint256 feeOwed = _accrueBorrowFees(wallet, 100e6, 1e18);
         uint256 extraBalance = bound(extraBalanceSeed, 0, 100e6);
@@ -181,7 +181,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), feeOwed);
     }
 
-    function testFuzz_property9_withdrawableBalanceIsBoundedByBalanceAndFees(address walletOwner, uint128 rawBalance, uint128 rawOwed) public {
+    function testFuzz_withdrawableBalanceIsBalanceLessFeesOwed(address walletOwner, uint128 rawBalance, uint128 rawOwed) public {
         walletOwner = _nonzero(walletOwner);
         AgentWallet wallet = _createVaultWallet(walletOwner, 704);
         uint256 balance = rawBalance;
@@ -200,7 +200,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(wallet.withdrawableBalance(address(unrelated)), 0);
     }
 
-    function testFuzz_property10_onlyRegisteredUnblockedUnpausedAdapterTargetPairsExecute(address registeredTargetSeed, address candidateTarget, bool useRegisteredAdapter, bool blockAdapter, bool blockTarget, bool pauseRegistry) public {
+    function testFuzz_onlyRegisteredUnblockedUnpausedAdapterTargetPairsExecute(address registeredTargetSeed, address candidateTarget, bool useRegisteredAdapter, bool blockAdapter, bool blockTarget, bool pauseRegistry) public {
         PairProbeAdapter registeredAdapter = new PairProbeAdapter();
         PairProbeAdapter otherAdapter = new PairProbeAdapter();
         address registeredTarget = _nonzero(registeredTargetSeed);
@@ -229,7 +229,7 @@ contract WalletPropertiesTest is IntegrationBase {
         if (blockTarget) assertTrue(wallet.isTargetBlocked(candidateTarget));
     }
 
-    function testFuzz_property15_sameOwnerAgentsMoveExactTokens(address ownerSeed, uint96 amountSeed) public {
+    function testFuzz_ownersAgentsCanMoveExactAmountsBetweenEachOther(address ownerSeed, uint96 amountSeed) public {
         address walletOwner = _nonzero(ownerSeed);
         AgentWallet sender = _createVaultWallet(walletOwner, 706);
         AgentWallet receiver = _createBorrowWallet(walletOwner, 707);
@@ -242,7 +242,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(receiver)), amount);
     }
 
-    function testFuzz_property15_otherOwnerSpoofAndSelfTransfersAreRejected(uint96 amountSeed) public {
+    function testFuzz_transfersToOtherOwnersSpoofedWalletsOrSelfAreRejected(uint96 amountSeed) public {
         uint256 amount = bound(amountSeed, 1, 100e6);
         AgentWallet sender = _createVaultWallet(owner, 708);
         AgentWallet sameOwnerReceiver = _createVaultWallet(owner, 709);
@@ -258,7 +258,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(otherOwnerReceiver)), 0);
     }
 
-    function testFuzz_property15_senderSettlesFeesBeforeSameOwnerTransfer(uint96 amountSeed) public {
+    function testFuzz_senderPaysFeesOwedBeforeMovingFundsToAnotherAgent(uint96 amountSeed) public {
         AgentWallet sender = _createBorrowWallet(owner, 710);
         AgentWallet receiver = _createBorrowWallet(owner, 711);
         uint256 feeOwed = _accrueBorrowFees(sender, 100e6, 1e18);
@@ -274,7 +274,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(borrowFeeModule.feesOwed(address(sender)), 0);
     }
 
-    function testFuzz_property15_receiverMidExecutionCannotReceiveTokens(uint96 amountSeed) public {
+    function testFuzz_walletMidExecutionCannotReceiveAgentTransfers(uint96 amountSeed) public {
         uint256 amount = bound(amountSeed, 1, 100e6);
         AgentWallet sender = _createVaultWallet(owner, 712);
         AgentWallet receiver = _createVaultWallet(owner, 713);
@@ -297,7 +297,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(receiver)), 0);
     }
 
-    function testFuzz_property16_factoryPredictionMatchesDeploymentAndIndexCannotRepeat(address ownerSeed, uint256 index) public {
+    function testFuzz_walletLandsAtPredictedAddressAndCannotBeCreatedTwice(address ownerSeed, uint256 index) public {
         address walletOwner = _nonzero(ownerSeed);
         address predicted = factory.getAddress(walletOwner, index);
         FeePlanChoice[] memory noPlans = new FeePlanChoice[](0);
