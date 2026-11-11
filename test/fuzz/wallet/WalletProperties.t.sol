@@ -8,6 +8,7 @@ import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
+import {BlockedRecipientMockERC20, RejectingFeeCollector} from "./mocks/BlockedRecipientMockERC20.sol";
 import {HostileFeeModule} from "./mocks/HostileFeeModule.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -152,6 +153,31 @@ contract WalletPropertiesTest is IntegrationBase {
 
         assertEq(usdc.balanceOf(owner) - ownerBalanceBefore, withdrawalBalance);
         assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(borrowFeeModule.feesOwed(address(wallet)), feeOwed);
+    }
+
+    function testFuzz_property8_ownerWithdrawsWhenCollectorCannotReceiveTokenPayment(uint96 extraBalanceSeed) public {
+        AgentWallet wallet = _createBorrowWallet(owner, 714);
+        uint256 feeOwed = _accrueBorrowFees(wallet, 100e6, 1e18);
+        uint256 extraBalance = bound(extraBalanceSeed, 0, 100e6);
+        uint256 withdrawalBalance = feeOwed + extraBalance;
+        _fundWallet(wallet, address(usdc), withdrawalBalance);
+
+        RejectingFeeCollector rejectingCollector = new RejectingFeeCollector();
+        BlockedRecipientMockERC20 tokenImplementation = new BlockedRecipientMockERC20();
+        vm.etch(address(usdc), address(tokenImplementation).code);
+        BlockedRecipientMockERC20(address(usdc)).setBlockedRecipient(address(rejectingCollector));
+        borrowFeeTracker.setFeeCollector(address(rejectingCollector));
+        uint256 ownerBalanceBefore = usdc.balanceOf(owner);
+
+        vm.expectEmit(false, false, false, true, address(wallet));
+        emit AgentWallet.FeeSettlementFailed(address(usdc), withdrawalBalance);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(usdc));
+
+        assertEq(usdc.balanceOf(owner) - ownerBalanceBefore, withdrawalBalance);
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(usdc.balanceOf(address(rejectingCollector)), 0);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), feeOwed);
     }
 
