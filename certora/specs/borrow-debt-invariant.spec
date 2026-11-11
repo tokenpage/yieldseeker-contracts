@@ -23,4 +23,24 @@ invariant borrowTokenDebtMatchesPositionSum(address wallet, address token)
         require e.msg.sender == currentContract.FEE_TRACKER(e);
         require currentContract.hasConsistentDebtToken(e, walletArg, actionArg, dataArg);
     }
+    preserved reachDebtChange() with (env e) {
+        require currentContract.debtPositions[currentContract][currentContract.WITNESS_MARKET(e)].lastDebt == 0;
+        require currentContract.tokenDebt[currentContract][currentContract.WITNESS_DEBT_TOKEN(e)] == 0;
+    }
+}
+
+// Reachability witness: a one-unit FeeTracker debt report changes lastDebt and its token total.
+rule borrowDebtPositionAndTokenChangeReachable(env e) {
+    address wallet = currentContract;
+    address market = currentContract.WITNESS_MARKET(e);
+    address token = currentContract.WITNESS_DEBT_TOKEN(e);
+    require currentContract.debtPositions[wallet][market].lastDebt == 0;
+    require currentContract.tokenDebt[wallet][token] == 0;
+    uint128 lastDebtBefore;
+    uint128 lastDebtAfter;
+    uint256 tokenDebtBefore;
+    uint256 tokenDebtAfter;
+    lastDebtBefore, lastDebtAfter, tokenDebtBefore, tokenDebtAfter = currentContract.reachDebtChange(e);
+    satisfy lastDebtAfter != lastDebtBefore && tokenDebtAfter != tokenDebtBefore,
+        "the FeeTracker action updates the debt position and token total";
 }

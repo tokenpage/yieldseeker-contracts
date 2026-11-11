@@ -34,11 +34,18 @@ abstract contract FeeTrackerSurface {
 
 contract YieldFeeModuleHarness is YieldSeekerYieldFeeModule, FeeTrackerSurface {
     constructor() YieldSeekerYieldFeeModule(YieldSeekerFeeTracker(address(this)), 10_000) {}
+
+    function reachFeeChargeAndPayment() external returns (uint256) {
+        FeeActions.Withdraw memory withdrawal = FeeActions.Withdraw({target: address(0xCAFE), spent: 0, heldBefore: 0, assetsOut: 1});
+        return this.reportAction(keccak256("withdraw"), abi.encode(withdrawal), 1);
+    }
 }
 
 contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface {
     mapping(address wallet => mapping(address position => address)) public debtTokenForPosition;
     mapping(address wallet => mapping(address position => bool)) private _hasDebtToken;
+    address public constant WITNESS_MARKET = address(0xCAFE);
+    address public constant WITNESS_DEBT_TOKEN = address(0xBEEF);
 
     constructor() YieldSeekerBorrowFeeModule(YieldSeekerFeeTracker(address(this)), 10_000) {}
 
@@ -61,4 +68,22 @@ contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface
         FeeActions.DebtChange memory change = abi.decode(data, (FeeActions.DebtChange));
         return _hasDebtToken[wallet][change.market] && debtTokenForPosition[wallet][change.market] == change.debtToken;
     }
+
+    function reachDebtChange() external returns (uint128 lastDebtBefore, uint128 lastDebtAfter, uint256 tokenDebtBefore, uint256 tokenDebtAfter) {
+        address wallet = address(this);
+        address market = WITNESS_MARKET;
+        address debtToken = WITNESS_DEBT_TOKEN;
+        DebtPosition storage position = debtPositions[wallet][market];
+        require(position.lastDebt == 0 && tokenDebt[wallet][debtToken] == 0);
+
+        debtTokenForPosition[wallet][market] = debtToken;
+        _hasDebtToken[wallet][market] = true;
+        lastDebtBefore = position.lastDebt;
+        tokenDebtBefore = tokenDebt[wallet][debtToken];
+        FeeActions.DebtChange memory change = FeeActions.DebtChange({market: market, debtToken: debtToken, debtBefore: 0, borrowed: 1, repaid: 0, debtPriceInBaseAsset: 1e36});
+        this.reportAction(keccak256("debtChange"), abi.encode(change), 0);
+        lastDebtAfter = position.lastDebt;
+        tokenDebtAfter = tokenDebt[wallet][debtToken];
+    }
 }
+

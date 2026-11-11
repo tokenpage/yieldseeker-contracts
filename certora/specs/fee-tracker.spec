@@ -36,6 +36,8 @@ rule trackerPaymentDoesNotExceedWalletBalance(env e, uint256 walletBalance, byte
     payment, collector = currentContract.reportAction(e, action, data);
 
     assert payment <= balanceBefore;
+    satisfy payment > 0 && balanceBefore > 0,
+        "a bounded module can report a non-zero payment from a funded wallet";
 }
 
 // Property 1: a module that reports more than the remaining allowance makes the tracker revert, provided that balance is below max uint256.
@@ -50,4 +52,5 @@ rule trackerRejectsModuleOverpayment(env e, uint256 walletBalance, bytes32 actio
     currentContract.reportAction@withrevert(e, action, data);
 
     assert lastReverted;
+    satisfy lastReverted, "forced module overpayment reaches the tracker rejection";
 }

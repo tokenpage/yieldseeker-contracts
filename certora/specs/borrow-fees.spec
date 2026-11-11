@@ -20,10 +20,18 @@ rule borrowFeeChargedEqualsOwedPlusPaid(env e, bytes32 action, bytes data, uint2
 
     assert payment == feePaid[wallet];
     assert feeCharged[wallet] + owedBefore == currentContract.feesOwed(e, wallet) + feePaid[wallet];
+    satisfy payment > 0 && feeCharged[wallet] > 0 && feePaid[wallet] > 0,
+        "a debt checkpoint can charge and pay a non-zero borrow fee";
 }
 
 // Property 1: a borrow fee module never returns more than the tracker made available for payment.
 rule borrowFeePaymentDoesNotExceedLimit(env e, bytes32 action, bytes data, uint256 maxPayment) {
+    address wallet = e.msg.sender;
+    feeCharged[wallet] = 0;
+    feePaid[wallet] = 0;
     uint256 payment = currentContract.reportAction(e, action, data, maxPayment);
     assert payment <= maxPayment;
+    satisfy payment > 0 && feeCharged[wallet] > 0 && feePaid[wallet] > 0,
+        "a non-zero borrow fee can be paid within a non-zero allowance";
 }
+
