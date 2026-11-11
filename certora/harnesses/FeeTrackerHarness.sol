@@ -13,7 +13,7 @@ contract FeeTrackerHarness is YieldSeekerFeeTracker {
         _modules.push(IYieldSeekerFeeModule(address(0xFACE)));
     }
 
-    function baseAsset() external pure returns (IERC20) {
+    function baseAsset() external view returns (IERC20) {
         return IERC20(address(this));
     }
 
@@ -23,5 +23,9 @@ contract FeeTrackerHarness is YieldSeekerFeeTracker {
 
     function setWalletBaseAssetBalance(uint256 balance) external {
         _walletBaseAssetBalance = balance;
+    }
+
+    function moduleCount() external view returns (uint256) {
+        return _modules.length;
     }
 }

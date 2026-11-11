@@ -9,7 +9,7 @@ hook event FeePaid(address indexed wallet, uint256 amount) {
     feePaid[wallet] = feePaid[wallet] + amount;
 }
 
-// A yield fee charge is either still owed or was returned as payment by this action.
+// Property 1: a yield fee charge is either still owed or was returned as payment by this action.
 rule yieldFeeChargedEqualsOwedPlusPaid(env e, bytes32 action, bytes data, uint256 maxPayment) {
     address wallet = e.msg.sender;
     uint256 owedBefore = currentContract.feesOwed(e, wallet);
@@ -22,7 +22,7 @@ rule yieldFeeChargedEqualsOwedPlusPaid(env e, bytes32 action, bytes data, uint25
     assert feeCharged[wallet] + owedBefore == currentContract.feesOwed(e, wallet) + feePaid[wallet];
 }
 
-// A yield fee module never returns more than the tracker made available for payment.
+// Property 1: a yield fee module never returns more than the tracker made available for payment.
 rule yieldFeePaymentDoesNotExceedLimit(env e, bytes32 action, bytes data, uint256 maxPayment) {
     uint256 payment = currentContract.reportAction(e, action, data, maxPayment);
     assert payment <= maxPayment;

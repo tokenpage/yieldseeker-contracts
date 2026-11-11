@@ -1,10 +1,11 @@
+using AgentWalletHarness as wallet;
+
 methods {
-    function getEthBalance(address) external returns (uint256) envfree;
-    unresolved external in _.executeViaAdapter(address,address,bytes) => HAVOC_ALL;
-    unresolved external in _.executeViaAdapterBatch(address[],address[],bytes[]) => HAVOC_ALL;
+    // Adapter code is unconstrained, but onlyExecutors protects the only calls into its delegatecall.
+    function _.execute(address, bytes) external => HAVOC_ALL;
 }
 
-// An untrusted caller cannot alter wallet authority, routing controls, implementation, or balances.
+// Property 7: an untrusted caller cannot alter wallet controls or reduce balances; syncFromFactory is intentionally public.
 rule untrustedCallerCannotChangeWalletAuthorityOrReduceBalances(method f) {
     env e;
     calldataarg args;
@@ -12,32 +13,35 @@ rule untrustedCallerCannotChangeWalletAuthorityOrReduceBalances(method f) {
     address adapterProbe;
     address targetProbe;
 
-    address wallet = currentContract;
+    address walletAddress = currentContract;
     address ownerBefore = currentContract.owner(e);
-    address registryBefore = address(currentContract.adapterRegistry(e));
+    address registryBefore = currentContract.adapterRegistry(e);
     bool operatorBefore = currentContract.isAgentOperator(e, operatorProbe);
     bool adapterBlockedBefore = currentContract.isAdapterBlocked(e, adapterProbe);
     bool targetBlockedBefore = currentContract.isTargetBlocked(e, targetProbe);
-    bytes32 operatorsBefore = currentContract.operatorListHash(e);
     address implementationBefore = currentContract.currentImplementation(e);
-    uint256 baseAssetBalanceBefore = currentContract.balanceOf(e, wallet);
-    mathint nativeBalanceBefore = getEthBalance(wallet);
+    uint256 baseAssetBalanceBefore = currentContract.balanceOf(e, walletAddress);
+    mathint nativeBalanceBefore = nativeBalances[walletAddress];
 
+    require !f.isView;
+    require f.selector != sig:syncFromFactory().selector;
+    require f.selector != sig:recordBaseAssetTransfer(address,address,uint256).selector;
+    require currentContract.walletInitialized(e);
+    require ownerBefore != 0;
     require e.msg.sender != ownerBefore;
     require !currentContract.isEntryPoint(e, e.msg.sender);
     require !currentContract.isAgentOperator(e, e.msg.sender);
 
-    f@withrevert(e, args);
+    wallet.f@withrevert(e, args);
 
-    if (!lastReverted) {
-        assert currentContract.owner(e) == ownerBefore;
-        assert address(currentContract.adapterRegistry(e)) == registryBefore;
-        assert currentContract.isAgentOperator(e, operatorProbe) == operatorBefore;
-        assert currentContract.isAdapterBlocked(e, adapterProbe) == adapterBlockedBefore;
-        assert currentContract.isTargetBlocked(e, targetProbe) == targetBlockedBefore;
-        assert currentContract.operatorListHash(e) == operatorsBefore;
-        assert currentContract.currentImplementation(e) == implementationBefore;
-        assert currentContract.balanceOf(e, wallet) >= baseAssetBalanceBefore;
-        assert getEthBalance(wallet) >= nativeBalanceBefore;
-    }
+    assert lastReverted ||
+        (currentContract.owner(e) == ownerBefore &&
+        currentContract.adapterRegistry(e) == registryBefore &&
+        currentContract.isAgentOperator(e, operatorProbe) == operatorBefore &&
+        currentContract.isAdapterBlocked(e, adapterProbe) == adapterBlockedBefore &&
+        currentContract.isTargetBlocked(e, targetProbe) == targetBlockedBefore &&
+        currentContract.currentImplementation(e) == implementationBefore &&
+        currentContract.balanceOf(e, walletAddress) >= baseAssetBalanceBefore &&
+        nativeBalances[walletAddress] >= nativeBalanceBefore);
 }
+

@@ -55,4 +55,10 @@ contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface
         }
         return IFeeModuleAction(address(this)).onAction(msg.sender, action, data, maxPayment);
     }
+
+    function hasConsistentDebtToken(address wallet, bytes32 action, bytes calldata data) external view returns (bool) {
+        if (action != keccak256("debtChange")) return true;
+        FeeActions.DebtChange memory change = abi.decode(data, (FeeActions.DebtChange));
+        return _hasDebtToken[wallet][change.market] && debtTokenForPosition[wallet][change.market] == change.debtToken;
+    }
 }
