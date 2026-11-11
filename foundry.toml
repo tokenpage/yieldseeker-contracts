@@ -20,6 +20,24 @@ remappings = [
 
 fs_permissions = [{ access = "read-write", path = "./" }]
 
+# Quick enough for every `forge test` and CI; `FOUNDRY_PROFILE=deep forge test --match-path "test/{fuzz,invariant}/**"` for long local runs
+[profile.default.fuzz]
+runs = 256
+seed = "0x711"
+
+[profile.default.invariant]
+runs = 64
+depth = 64
+fail_on_revert = false
+
+[profile.deep.fuzz]
+runs = 20000
+
+[profile.deep.invariant]
+runs = 1000
+depth = 200
+fail_on_revert = false
+
 [fmt]
 line_length = 240
 tab_width = 4
