@@ -16,6 +16,27 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 
+struct WalletHandlerSetup {
+    address owner;
+    address otherOwner;
+    address operator;
+    address attacker;
+    address feeCollector;
+    AgentWallet ownerAgent;
+    AgentWallet ownerSecondAgent;
+    AgentWallet otherOwnerAgent;
+    AgentWalletFactory factory;
+    AdapterRegistry vaultRegistry;
+    AdapterRegistry borrowRegistry;
+    MockERC20 usdc;
+    MockERC20WithDecimals rewardToken;
+    MockERC4626 vault;
+    ERC4626Adapter vaultAdapter;
+    UniswapV3SwapAdapter swapAdapter;
+    AgentTransferAdapter transferAdapter;
+    MockUniswapV3Router router;
+}
+
 contract WalletWorkflowHandler is Test {
     AgentWallet public immutable ownerAgent;
     AgentWallet public immutable ownerSecondAgent;
@@ -52,44 +73,25 @@ contract WalletWorkflowHandler is Test {
     uint256 public emergencyCalls;
     uint256 public operatorSyncCalls;
 
-    constructor(
-        address owner_,
-        address otherOwner_,
-        address operator_,
-        address attacker_,
-        address feeCollector_,
-        AgentWallet ownerAgent_,
-        AgentWallet ownerSecondAgent_,
-        AgentWallet otherOwnerAgent_,
-        AgentWalletFactory factory_,
-        AdapterRegistry vaultRegistry_,
-        AdapterRegistry borrowRegistry_,
-        MockERC20 usdc_,
-        MockERC20WithDecimals rewardToken_,
-        MockERC4626 vault_,
-        ERC4626Adapter vaultAdapter_,
-        UniswapV3SwapAdapter swapAdapter_,
-        AgentTransferAdapter transferAdapter_,
-        MockUniswapV3Router router_
-    ) {
-        owner = owner_;
-        otherOwner = otherOwner_;
-        operator = operator_;
-        attacker = attacker_;
-        feeCollector = feeCollector_;
-        ownerAgent = ownerAgent_;
-        ownerSecondAgent = ownerSecondAgent_;
-        otherOwnerAgent = otherOwnerAgent_;
-        factory = factory_;
-        vaultRegistry = vaultRegistry_;
-        borrowRegistry = borrowRegistry_;
-        usdc = usdc_;
-        rewardToken = rewardToken_;
-        vault = vault_;
-        vaultAdapter = vaultAdapter_;
-        swapAdapter = swapAdapter_;
-        transferAdapter = transferAdapter_;
-        router = router_;
+    constructor(WalletHandlerSetup memory setup) {
+        owner = setup.owner;
+        otherOwner = setup.otherOwner;
+        operator = setup.operator;
+        attacker = setup.attacker;
+        feeCollector = setup.feeCollector;
+        ownerAgent = setup.ownerAgent;
+        ownerSecondAgent = setup.ownerSecondAgent;
+        otherOwnerAgent = setup.otherOwnerAgent;
+        factory = setup.factory;
+        vaultRegistry = setup.vaultRegistry;
+        borrowRegistry = setup.borrowRegistry;
+        usdc = setup.usdc;
+        rewardToken = setup.rewardToken;
+        vault = setup.vault;
+        vaultAdapter = setup.vaultAdapter;
+        swapAdapter = setup.swapAdapter;
+        transferAdapter = setup.transferAdapter;
+        router = setup.router;
 
         attackerStartingUsdc = 1_000e6;
         usdc.mint(owner, 500_000e6);
@@ -280,24 +282,26 @@ contract WalletInvariantTest is IntegrationBase {
         ownerSecondAgent = _createVaultWallet(owner, 2);
         otherOwnerAgent = _createVaultWallet(otherOwner, 1);
         handler = new WalletWorkflowHandler(
-            owner,
-            otherOwner,
-            operator,
-            attacker,
-            feeCollector,
-            ownerAgent,
-            ownerSecondAgent,
-            otherOwnerAgent,
-            factory,
-            vaultRegistry,
-            borrowRegistry,
-            usdc,
-            rewardToken,
-            erc4626Vault,
-            erc4626Adapter,
-            uniswapV3SwapAdapter,
-            agentTransferAdapter,
-            uniswapV3Router
+            WalletHandlerSetup({
+                owner: owner,
+                otherOwner: otherOwner,
+                operator: operator,
+                attacker: attacker,
+                feeCollector: feeCollector,
+                ownerAgent: ownerAgent,
+                ownerSecondAgent: ownerSecondAgent,
+                otherOwnerAgent: otherOwnerAgent,
+                factory: factory,
+                vaultRegistry: vaultRegistry,
+                borrowRegistry: borrowRegistry,
+                usdc: usdc,
+                rewardToken: rewardToken,
+                vault: erc4626Vault,
+                vaultAdapter: erc4626Adapter,
+                swapAdapter: uniswapV3SwapAdapter,
+                transferAdapter: agentTransferAdapter,
+                router: uniswapV3Router
+            })
         );
         factory.grantRole(factory.DEFAULT_ADMIN_ROLE(), address(handler));
         factory.grantRole(factory.EMERGENCY_ROLE(), address(handler));
