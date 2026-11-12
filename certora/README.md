@@ -45,29 +45,24 @@ source certora/env.sh && certoraRun.py certora/wallet-authorization.conf --build
 ```
 
 
-## Latest local results
+## What is proven
 
-All times are shell wall-clock times from final runs using the local Prover, with event reporting disabled and no cloud/API credentials. Universal assertion and invariant results are reported separately from existential `satisfy` witnesses.
+Every rule below verifies, and each has a `satisfy` witness showing its scenario can happen, so none passes vacuously. All configurations use `rule_sanity: basic`. The `invariant_not_trivial_postcondition` countermodels printed for property 4 are expected: they show the invariant is not trivially true, not a counterexample to it.
 
-| Scope | Universal results | Reachability / positive witness | Wall time |
-| --- | --- | --- | ---: |
-| Bundled Counter smoke | `incrementIncreasesCountByOne`, `decrementDecreasesCountByOne` verified | — | 5.53 s |
-| Property 1: YieldFeeModule | Both fee-accounting and payment-bound assertions verified | Nonzero fee charge/payment and bounded-payment witnesses | 21.74 s |
-| Property 1: BorrowFeeModule | Both fee-accounting and payment-bound assertions verified | Nonzero debt-fee checkpoint and bounded-payment witnesses | 47.58 s |
-| Property 1: FeeTracker | Wallet-balance bound and module-overpayment rejection assertions verified | Payment within wallet balance; forced overpayment reverts | 15.33 s |
-| Property 4: borrow debt conservation | Invariant base and `reportAction`, `onAction`, `reachDebtChange` preservation verified | `lastDebt` and `tokenDebt` both change from 0 to 1 | 18.50 s |
-| Property 7: wallet authorization | Authority and balance assertions verified for all 22 covered methods | Untrusted invocation witness for each method; owner blocklist and native-withdrawal controls | 129.29 s |
+| Property | Config | Rules | Witnesses |
+| --- | --- | --- | --- |
+| 1 | `yield-fees.conf` | `yieldFeeChargedEqualsOwedPlusPaid`, `yieldFeePaymentDoesNotExceedLimit` on the real `YieldSeekerYieldFeeModule` | A fee is charged and paid |
+| 1 | `borrow-fees.conf` | `borrowFeeChargedEqualsOwedPlusPaid`, `borrowFeePaymentDoesNotExceedLimit` on the real `YieldSeekerBorrowFeeModule` | A debt fee is charged and paid |
+| 1 | `fee-tracker.conf` | `trackerPaymentDoesNotExceedWalletBalance`: whatever the modules report, `reportAction` reverts or asks for at most the wallet's base asset; `trackerRejectsModuleOverpayment` | A non-zero payment; a forced overpayment reverts |
+| 4 | `borrow-debt-invariant.conf` | `borrowTokenDebtMatchesPositionSum` holds initially and after `reportAction`, `onAction` and every debt change | `lastDebt` and `tokenDebt` both change |
+| 7 | `wallet-authorization.conf` | `untrustedCallerCannotChangeWalletAuthorityOrReduceBalances` over every non-view wallet method except `syncFromFactory` | An untrusted call reaches each method; the owner can change blocklists, withdraw ETH and withdraw the base asset |
 
-All final configurations use `rule_sanity: basic`. The individual result tables show satisfiable `rule_not_vacuous` checks for the covered safety rules. The CLI also emits noisy `Failed on rule_not_vacuous` messages on the parametric wallet run; its machine-readable `output.json` lists every covered safety instance and invocation-witness instance as `SUCCESS`. The property 4 `invariant_not_trivial_postcondition` countermodels are expected: they show the invariant is nontrivial over arbitrary states, not a counterexample to its verified base and induction obligations.
+## Assumptions and limits
 
-The 22 methods included in the Property 7 rule and witness are `<receiveOrFallback>()`, `blockAdapter(address)`, `blockTarget(address)`, `execute(address,uint256,bytes)`, `executeBatch(address[],bytes[])`, `executeViaAdapter(address,address,bytes)`, `executeViaAdapterBatch(address[],address[],bytes[])`, both `initialize` overloads, `settleFeesForWithdrawal(address,address,uint256)`, `unblockAdapter(address)`, `unblockTarget(address)`, `upgradeToAndCall(address,bytes)`, `upgradeToLatest()`, both `validateUserOp` overloads, `withdrawAllAssetToUser(address,address)`, `withdrawAllAssetsToUser(address,address[])`, `withdrawAllEthToUser(address)`, `withdrawAssetToUser(address,address,uint256)`, `withdrawAssetsToUser(address,address[],uint256[])`, and `withdrawEthToUser(address,uint256)`. Each appears as `SUCCESS` in both parametric rule result lists.
-
-**Property 7 limitation:** the blanket statement does not hold for `syncFromFactory()`: repository behavior intentionally permits anyone to request this factory refresh, which can change registry/operator configuration. The final proof explicitly excludes this public method, so it does not establish the unrestricted property as originally phrased; treat the permissionless factory refresh as a real design exception, not a proved case.
-
-## Verification scope
-
-- Property 1, `yield-fees.conf`: `yieldFeeChargedEqualsOwedPlusPaid` and `yieldFeePaymentDoesNotExceedLimit` use the real `YieldSeekerYieldFeeModule` implementation.
-- Property 1, `borrow-fees.conf`: `borrowFeeChargedEqualsOwedPlusPaid` and `borrowFeePaymentDoesNotExceedLimit` use the real `YieldSeekerBorrowFeeModule` implementation.
-- Property 4, `borrow-debt-invariant.conf`: the storage hook tracks each `lastDebt` update by the harness's token-for-position mapping; `walletPlan` and rounded fee math are summarized because they do not affect debt-token conservation. The harness fixes one debt token per market and its reachability rule proves a debt checkpoint changes both `lastDebt` and `tokenDebt`. The configuration uses the legacy Solidity pipeline with CSE, peephole, and inlining disabled, so it checks the source-logic compilation rather than the production `via_ir` bytecode.
-- Property 1, `fee-tracker.conf`: `trackerPaymentDoesNotExceedWalletBalance` and `trackerRejectsModuleOverpayment` use two nondeterministic module summaries bounded by the remaining allowance, and a ghost models the harness wallet's base-asset balance consistently. The rules require the harness's two configured modules and set the loop bound to two.
-- Property 7, `wallet-authorization.conf`: for initialized wallets with nonzero owner, the `filtered` parametric rule checks all 22 non-view wallet methods except permissionless `syncFromFactory` and the harness-only `recordBaseAssetTransfer` callback. It requires the caller to be neither owner, EntryPoint, nor an operator. Adapter `execute(address,bytes)` calls are summarized as `HAVOC_ALL` behind `onlyExecutors`. A mock ERC-20 keeps token methods out of the wallet's parametric method set while preserving base-asset balance checks; the owner withdrawal control proves a native-balance reduction. The configuration uses the legacy Solidity pipeline, not the production `via_ir` bytecode.
+- **Property 7 caller:** "untrusted" means not the owner, an EntryPoint, an operator or the wallet itself. The wallet only calls itself (`settleFeesForWithdrawal`) inside owner and executor flows.
+- **Property 7 excludes `syncFromFactory`:** anyone may call it by design; it copies the factory's admin-set registry, operators, tracker and policy.
+- **Property 7 upgrades:** the harness is the implementation contract, not a proxy, so OpenZeppelin's `onlyProxy` makes `upgradeToAndCall` and `upgradeToLatest` revert for every caller here. The implementation check is therefore not meaningful for those two methods; upgrade authorization is covered by the Foundry test `testFuzz_attackerCannotCallAnyPrivilegedWalletFunction` on real proxies.
+- **Property 7 adapters:** adapter `execute` calls are summarised as `HAVOC_ALL`; they are only reachable behind `onlyExecutors`. The base asset is a mock ERC-20 in the scene, and balances are read from it.
+- **Fee tracker:** two modules with arbitrary return values; loop bound 2.
+- **Property 4:** fee maths and `walletPlan` are summarised because they do not affect debt bookkeeping; one debt token per market.
+- **Compiler:** properties 4 and 7 use the legacy pipeline with CSE, peephole and inlining off, so they check the source logic rather than the production `via_ir` bytecode.
