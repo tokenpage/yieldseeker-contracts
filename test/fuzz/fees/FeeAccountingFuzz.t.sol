@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
-import {FeePlanChoice, InvalidFeeModule, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InsufficientGasForModules, InvalidFeeModule, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule, InvalidFeeRate} from "../../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
@@ -281,6 +281,10 @@ contract FeeAccountingFuzzTest is Test {
         assertEq(feePaid, 0);
         assertEq(yieldModule.feesOwed(address(wallet)), _yieldFee(50e6));
         assertGt(borrowModule.feesOwed(address(wallet)), 0);
+
+        assertTrue(tracker.isAccountedToken(address(wallet), DEBT_TOKEN));
+        vm.expectRevert(InsufficientGasForModules.selector);
+        tracker.isAccountedToken{gas: 50_000}(address(wallet), DEBT_TOKEN);
     }
 
     function test_feeTrackerRejectsModuleOverpaymentAndToleratesBrokenViewModules() public {

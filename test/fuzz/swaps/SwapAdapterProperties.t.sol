@@ -134,11 +134,12 @@ contract SwapAdapterProperties is IntegrationBase {
         }
     }
 
-    function testFuzz_eachDexCountsMinimumOfMeasuredAndReportedOutput(uint8 dexSeed, uint256 deliveredSeed, uint256 reportedSeed) public {
+    function testFuzz_eachDexCountsMinimumOfMeasuredAndReportedOutput(uint8 dexSeed, uint256 deliveredSeed, uint256 reportedSeed, uint256 heldSeed) public {
         uint8 dex = uint8(bound(dexSeed, 0, 2));
         uint256 delivered = bound(deliveredSeed, 1e6, 100e6);
         uint256 reported = bound(reportedSeed, 1e6, 100e6);
         uint256 minimum = delivered < reported ? delivered : reported;
+        _fundWallet(wallet, address(usdc), bound(heldSeed, 1, 1_000e6));
         routers[dex].configure(RouterBehaviorMock.Behavior.Exact, delivered, reported);
 
         bytes memory result = _executeDex(dex, SELL_AMOUNT, minimum, block.timestamp);
@@ -146,6 +147,20 @@ contract SwapAdapterProperties is IntegrationBase {
         assertEq(routers[dex].lastAmountOutMinimum(), minimum);
         assertEq(routers[dex].lastRouteStart(), address(rewardToken));
         assertEq(routers[dex].lastRouteEnd(), address(usdc));
+    }
+
+    function test_rewardSalesStillWorkWhileBorrowFeesStayOwed() public {
+        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        _fundWallet(wallet, address(usdc), 100e6);
+        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, 100e6)));
+        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1e16)));
+        vm.warp(block.timestamp + 365 days);
+        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        assertGt(wallet.feeTracker().feesOwedInBaseAsset(address(wallet)), 1);
+
+        routers[0].configure(RouterBehaviorMock.Behavior.Exact, 1, 1);
+        _executeDex(0, SELL_AMOUNT, 1, block.timestamp);
+        assertGt(wallet.feeTracker().feesOwedInBaseAsset(address(wallet)), 0);
     }
 
     function test_eachDexRejectsUnderSpendUnderDeliveryAndLateDelivery() public {
