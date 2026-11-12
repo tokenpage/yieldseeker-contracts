@@ -377,9 +377,14 @@ Fee state lives in modules. Replacing a yield module without importing state los
 
 ## Development
 
-Foundry is required. Tests live in `test/unit`, `test/integration` and `test/fork`. Fork tests need a Base RPC.
+Foundry is required. Tests live in `test/unit`, `test/integration`, `test/fuzz`, `test/invariant` and `test/fork`. Fork tests need a Base RPC. `test/PROPERTIES.md` maps each contract property to the fuzz tests, invariant suites and proofs that check it.
 
 ```bash
 forge test --no-match-path 'test/fork/*'
 forge test --match-path 'test/fork/*' --fork-url "$RPC_NODE_URL_8453"
+make test-deep
+make prove-halmos
+make prove-certora
 ```
+
+`make test-deep` runs the fuzz and invariant tests with many more runs. The proofs run locally; `test/formal/halmos/README.md` and `certora/README.md` cover setup, bounds and limits.
