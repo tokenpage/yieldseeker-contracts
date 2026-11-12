@@ -11,6 +11,7 @@ import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 contract OverpayingFeeModule is IYieldSeekerFeeModule {
     address public immutable FEE_TRACKER;
@@ -232,6 +233,54 @@ contract FeeAccountingFuzzTest is Test {
         vm.prank(address(0xCAFE));
         tracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1})));
         assertEq(tracker.feesOwedInBaseAsset(address(wallet)), 0);
+        _deposit(wallet, address(0xA11CE), 100e6);
+        _withdraw(wallet, address(0xA11CE), 1, 1, 140e6);
+        assertEq(replacement.feesOwed(address(wallet)), _yieldFee(40e6));
+        assertEq(yieldModule.feesOwed(address(wallet)), 0);
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), _yieldFee(40e6));
+    }
+
+    function test_feesAndFeeEventsOnlyAppearForRealYieldDebtAndPayments() public {
+        YieldSeekerFeeTracker planlessTracker = new YieldSeekerFeeTracker(address(this), makeAddr("fee collector"));
+        YieldSeekerYieldFeeModule planlessYield = new YieldSeekerYieldFeeModule(planlessTracker, 5_000);
+        YieldSeekerBorrowFeeModule planlessBorrow = new YieldSeekerBorrowFeeModule(planlessTracker, 1_000);
+        planlessTracker.setFeeModule(YIELD_FEE, planlessYield);
+        planlessTracker.setFeeModule(BORROW_FEE, planlessBorrow);
+        FeeActionWallet planlessWallet = new FeeActionWallet(planlessTracker, baseAsset);
+        planlessWallet.reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: address(0xA11CE), assetsIn: 100e6})));
+        planlessWallet.reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: address(0xA11CE), spent: 1, heldBefore: 1, assetsOut: 150e6})));
+        planlessWallet.reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: MARKET, debtToken: DEBT_TOKEN, debtBefore: 0, borrowed: 1e18, repaid: 0, debtPriceInBaseAsset: 1e36})));
+        vm.warp(block.timestamp + YEAR);
+        planlessWallet.reportAction(FeeActions.DEBT_CHANGE, abi.encode(FeeActions.DebtChange({market: MARKET, debtToken: DEBT_TOKEN, debtBefore: 1e18, borrowed: 0, repaid: 0, debtPriceInBaseAsset: 1e36})));
+        assertEq(planlessYield.walletPlan(address(planlessWallet)).rateBps, 0);
+        assertEq(planlessBorrow.walletPlan(address(planlessWallet)).rateBps, 0);
+        assertEq(planlessTracker.feesOwedInBaseAsset(address(planlessWallet)), 0);
+
+        FeeActionWallet wallet = _newWallet();
+        vm.recordLogs();
+        _reportDebt(wallet, 0, 0, 0, 1e36);
+        assertFalse(borrowModule.isAccountedToken(address(wallet), DEBT_TOKEN));
+        _deposit(wallet, address(0xB0B), 100e6);
+        _withdraw(wallet, address(0xB0B), 1, 1, 150e6);
+        _reportDebt(wallet, 0, 1e18, 0, 1e36);
+        assertTrue(borrowModule.isAccountedToken(address(wallet), DEBT_TOKEN));
+        vm.warp(block.timestamp + 30 days);
+        _reportDebt(wallet, 1e18, 0, 0, 1e36);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 yieldRecorded;
+        uint256 borrowFeeCharged;
+        uint256 feePaid;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == YieldSeekerYieldFeeModule.YieldRecorded.selector) yieldRecorded++;
+            if (logs[i].topics[0] == YieldSeekerBorrowFeeModule.BorrowFeeCharged.selector) borrowFeeCharged++;
+            if (logs[i].topics[0] == YieldSeekerYieldFeeModule.FeePaid.selector) feePaid++;
+        }
+        assertEq(yieldRecorded, 1);
+        assertEq(borrowFeeCharged, 1);
+        assertEq(feePaid, 0);
+        assertEq(yieldModule.feesOwed(address(wallet)), _yieldFee(50e6));
+        assertGt(borrowModule.feesOwed(address(wallet)), 0);
     }
 
     function test_feeTrackerRejectsModuleOverpaymentAndToleratesBrokenViewModules() public {
