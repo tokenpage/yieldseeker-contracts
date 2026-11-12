@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
+import {YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../../src/adapters/AaveV3Adapter.sol";
 import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
 import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../../../src/adapters/AaveV4LendingAdapter.sol";
@@ -18,12 +19,11 @@ import {YieldSeekerMorphoBlueLendingAdapter as MorphoBlueLendingAdapter} from ".
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {IMorphoBlue, IMorphoOracle} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
-import {YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE} from "../../../src/fees/YieldFeeModule.sol";
-import {IMorphoBlue, IMorphoOracle} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockAToken} from "../../mocks/MockAaveV3.sol";
 import {MockCToken} from "../../mocks/MockCompoundV2.sol";
@@ -32,16 +32,16 @@ import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
 import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, MockMoonwellComptroller, MockUniswapV3Router} from "../../mocks/MockIntegrationMocks.sol";
-import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho} from "../../mocks/MockLendingMarkets.sol";
-import {OperatorHostileRouter, OperatorHostileToken, OperatorHostileVault, OperatorMockEntryPoint, OperatorThiefReceiver} from "./mocks/CompromisedOperatorMocks.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockMorphoOracle} from "../../mocks/MockLendingMarkets.sol";
+import {OperatorHostileRouter, OperatorHostileToken, OperatorHostileVault, OperatorMockEntryPoint, OperatorMorphoBlueMarket, OperatorThiefReceiver} from "./mocks/CompromisedOperatorMocks.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IOperatorEntryPoint {
     function depositTo(address account) external payable;
@@ -68,6 +68,7 @@ struct CompromisedOperatorSetup {
     AgentWallet ownerAVault;
     AgentWallet ownerABorrow;
     AgentWallet ownerAWethSink;
+    AgentWallet ownerAMorpho;
     AgentWallet ownerBVault;
     AgentWallet ownerBBorrow;
     AgentWallet thiefVault;
@@ -98,7 +99,8 @@ struct CompromisedOperatorSetup {
     MorphoBlueLendingAdapter morphoBlueLendingAdapter;
     MockLendingAaveV3Pool aaveV3LendingPool;
     MockLendingAaveV4Spoke aaveV4Spoke;
-    MockLendingMorpho morpho;
+    OperatorMorphoBlueMarket morpho;
+    MockMorphoOracle morphoOracle;
     MockMerklDistributor merklDistributor;
     MockMoonwellComptroller moonwellComptroller;
     MockUniswapV3Router uniswapV3Router;
@@ -137,6 +139,7 @@ contract CompromisedOperatorHandler is Test {
     uint256 private immutable _operatorKey;
     address public immutable thief;
     address public immutable feeCollector;
+    AgentWallet public immutable ownerAMorpho;
     AgentWalletFactory public immutable factory;
     MockERC20 public immutable usdc;
     MockERC20WithDecimals public immutable weth;
@@ -163,7 +166,8 @@ contract CompromisedOperatorHandler is Test {
     MorphoBlueLendingAdapter public immutable morphoBlueLendingAdapter;
     MockLendingAaveV3Pool public immutable aaveV3LendingPool;
     MockLendingAaveV4Spoke public immutable aaveV4Spoke;
-    MockLendingMorpho public immutable morpho;
+    OperatorMorphoBlueMarket public immutable morpho;
+    MockMorphoOracle public immutable morphoOracle;
     MockMerklDistributor public immutable merklDistributor;
     MockMoonwellComptroller public immutable moonwellComptroller;
     MockUniswapV3Router public immutable uniswapV3Router;
@@ -184,6 +188,14 @@ contract CompromisedOperatorHandler is Test {
     AgentWallet public immutable thiefVault;
     AgentWallet public immutable thiefBorrow;
 
+    uint256 public initialLiquidatorWeth;
+    uint256 public liquidationWethSpent;
+    uint256 public liquidationCollateralReceived;
+    uint256 public liquidationBonusValue;
+    uint256 public liquidationRepaidValue;
+    uint256 public liquidationSuccesses;
+    uint256 public morphoInterestBudget;
+    uint256 public morphoBorrowFeeGrowth;
     AgentWallet[] private _ownerAWallets;
     AgentWallet[] private _ownerBWallets;
     AgentWallet[] private _thiefWallets;
@@ -249,6 +261,7 @@ contract CompromisedOperatorHandler is Test {
         factory = setup.factory;
         usdc = setup.usdc;
         weth = setup.weth;
+        initialLiquidatorWeth = weth.balanceOf(thief);
         rewardToken = setup.rewardToken;
         wellToken = setup.wellToken;
         erc4626Vault = setup.erc4626Vault;
@@ -273,6 +286,7 @@ contract CompromisedOperatorHandler is Test {
         aaveV3LendingPool = setup.aaveV3LendingPool;
         aaveV4Spoke = setup.aaveV4Spoke;
         morpho = setup.morpho;
+        morphoOracle = setup.morphoOracle;
         merklDistributor = setup.merklDistributor;
         moonwellComptroller = setup.moonwellComptroller;
         uniswapV3Router = setup.uniswapV3Router;
@@ -293,9 +307,11 @@ contract CompromisedOperatorHandler is Test {
         thiefVault = setup.thiefVault;
         thiefBorrow = setup.thiefBorrow;
 
+        ownerAMorpho = setup.ownerAMorpho;
         _ownerAWallets.push(setup.ownerAVault);
         _ownerAWallets.push(setup.ownerABorrow);
         _ownerAWallets.push(setup.ownerAWethSink);
+        _ownerAWallets.push(setup.ownerAMorpho);
         _ownerBWallets.push(setup.ownerBVault);
         _ownerBWallets.push(setup.ownerBBorrow);
         _thiefWallets.push(setup.thiefVault);
@@ -304,6 +320,7 @@ contract CompromisedOperatorHandler is Test {
         expectedWalletEth[address(setup.ownerAVault)] = address(setup.ownerAVault).balance;
         expectedWalletEth[address(setup.ownerABorrow)] = address(setup.ownerABorrow).balance;
         expectedWalletEth[address(setup.ownerAWethSink)] = address(setup.ownerAWethSink).balance;
+        expectedWalletEth[address(setup.ownerAMorpho)] = address(setup.ownerAMorpho).balance;
         expectedWalletEth[address(setup.ownerBVault)] = address(setup.ownerBVault).balance;
         expectedWalletEth[address(setup.ownerBBorrow)] = address(setup.ownerBBorrow).balance;
         expectedEntryPointDeposit[address(setup.ownerAVault)] = IOperatorEntryPoint(ENTRY_POINT_V06).balanceOf(address(setup.ownerAVault));
@@ -311,16 +328,20 @@ contract CompromisedOperatorHandler is Test {
         expectedEntryPointDeposit[address(setup.ownerAWethSink)] = IOperatorEntryPoint(ENTRY_POINT_V06).balanceOf(address(setup.ownerAWethSink));
         expectedEntryPointDeposit[address(setup.ownerBVault)] = IOperatorEntryPoint(ENTRY_POINT_V06).balanceOf(address(setup.ownerBVault));
         expectedEntryPointDeposit[address(setup.ownerBBorrow)] = IOperatorEntryPoint(ENTRY_POINT_V06).balanceOf(address(setup.ownerBBorrow));
-        initialDeposits[ownerA] = 10_000 * USDC_UNIT;
+        expectedEntryPointDeposit[address(setup.ownerAMorpho)] = IOperatorEntryPoint(ENTRY_POINT_V06).balanceOf(address(setup.ownerAMorpho));
+        initialDeposits[ownerA] = 20_000 * USDC_UNIT;
         initialDeposits[ownerB] = 10_000 * USDC_UNIT;
         uint256 initialCostsA = _protocolCosts(_ownerAWallets[1]);
         uint256 initialCostsB = _protocolCosts(_ownerBWallets[1]);
+        uint256 initialMorphoCosts = _protocolCosts(ownerAMorpho);
         _trackedProtocolCosts[address(_ownerAWallets[1])] = initialCostsA;
         _trackedProtocolCosts[address(_ownerBWallets[1])] = initialCostsB;
-        acceptedLossBudget[ownerA] += initialCostsA;
+        _trackedProtocolCosts[address(ownerAMorpho)] = initialMorphoCosts;
+        acceptedLossBudget[ownerA] += initialCostsA + initialMorphoCosts;
         acceptedLossBudget[ownerB] += initialCostsB;
         _updateDebtBufferBudget(_ownerAWallets[1]);
         _updateDebtBufferBudget(_ownerBWallets[1]);
+        _updateDebtBufferBudget(ownerAMorpho);
     }
 
     function ownerWalletCount(address walletOwner) external view returns (uint256) {
@@ -378,6 +399,7 @@ contract CompromisedOperatorHandler is Test {
         _exerciseAaveV4Lending(wallet, amountSeed);
         _exerciseMorphoLending(wallet, amountSeed);
         _tryBorrowSwapAtOracleFloor(wallet);
+        _runMorphoLiquidationLifecycle(ownerAMorpho, _ownerAWallets[0], USDC_UNIT, 1 hours, 1, false);
         _tryLiquidation(wallet);
     }
 
@@ -401,7 +423,7 @@ contract CompromisedOperatorHandler is Test {
         _ownerWithdrawBatch(_ownerAWallets[1], ownerA, amountSeed);
         _ownerWithdrawAllBatch(_ownerBWallets[1], ownerB);
         _ownerBlocklists(_ownerAWallets[0], ownerA, blockIt);
-        _ownerBlocklists(_ownerBBorrow, ownerB, !blockIt);
+        _ownerBlocklists(_ownerBWallets[1], ownerB, !blockIt);
     }
 
     function operatorCreatesOwnerAndThiefWallets(uint8 choiceSeed) external {
@@ -456,6 +478,8 @@ contract CompromisedOperatorHandler is Test {
         wellPriceFeed.setPrice(1e8, now_);
         aaveV3LendingPool.setAssetPrice(address(weth), uint256(marketPrice));
         aaveV4Spoke.setReservePrice(2, uint256(marketPrice));
+        morphoOracle.setPrice(Math.mulDiv(5e44, 2_000e8, uint256(marketPrice)));
+        _accrueMorphoAndTrackInterest();
         for (uint256 i; i < _ownerAWallets.length; i++) {
             if (_ownerAWallets[i].agentProfile() == BORROW_AGENT_PROFILE) _refreshBorrowBudgets(_ownerAWallets[i]);
         }
@@ -491,9 +515,7 @@ contract CompromisedOperatorHandler is Test {
         }
         erc4626Vault.setRedeemFee(0);
 
-        _operatorTransfer(borrowWallet, sinkWallet, address(weth), weth.balanceOf(address(borrowWallet)));
-        _runMorphoBorrowAtItsConfiguredLltv(borrowWallet, vaultWallet);
-        _operatorTransfer(borrowWallet, sinkWallet, address(weth), weth.balanceOf(address(borrowWallet)));
+        _runMorphoLiquidationLifecycle(ownerAMorpho, vaultWallet, 1_000 * USDC_UNIT, 365 days, 3, true);
         for (uint256 i; i < loopCount; i++) {
             uint256 beforeValue = _ownerValue(ownerA) + feesPaidByOwner[ownerA];
             uint256 amount = USDC_UNIT;
@@ -534,8 +556,13 @@ contract CompromisedOperatorHandler is Test {
         assertEq(hostileRouter.reached(), false);
         assertEq(hostileVault.reached(), false);
         assertEq(hostileToken.balanceOf(thief), 0);
-        for (uint256 i; i < _thiefWallets.length; i++) _assertNoOwnerAssets(address(_thiefWallets[i]));
-        _assertNoOwnerAssets(thief);
+        assertEq(usdc.balanceOf(thief), liquidationCollateralReceived);
+        assertEq(weth.balanceOf(thief) + liquidationWethSpent, initialLiquidatorWeth);
+        assertLe(liquidationBonusValue, Math.mulDiv(liquidationRepaidValue, 440, 10_000, Math.Rounding.Ceil) + liquidationSuccesses);
+        for (uint256 i; i < _thiefWallets.length; i++) {
+            _assertNoOwnerAssets(address(_thiefWallets[i]));
+        }
+        _assertNoPositions(thief);
         _assertNoOwnerAssets(operator);
         _assertNoOwnerAssets(address(hostileRouter));
         _assertNoOwnerAssets(address(hostileVault));
@@ -578,6 +605,7 @@ contract CompromisedOperatorHandler is Test {
         assertGt(priceAndTimeMoves, 0);
         assertGt(factoryWalletBlocks, 0);
         assertGt(liquidationAttempts, 0);
+        assertGt(liquidationSuccesses, 0);
         assertGt(liquidationBlocks, 0);
         _assertAdapterAttempts(address(erc4626Adapter));
         _assertAdapterAttempts(address(aaveV3Adapter));
@@ -643,6 +671,11 @@ contract CompromisedOperatorHandler is Test {
         console2.log("price/time moves", priceAndTimeMoves);
         console2.log("liquidation attempts", liquidationAttempts);
         console2.log("liquidation blocked", liquidationBlocks);
+        console2.log("liquidation successes", liquidationSuccesses);
+        console2.log("Morpho liquidation bonus (USDC)", liquidationBonusValue);
+        console2.log("Morpho repaid value (USDC)", liquidationRepaidValue);
+        console2.log("Morpho interest budget (USDC)", morphoInterestBudget);
+        console2.log("Morpho borrow-fee growth (WETH)", morphoBorrowFeeGrowth);
         console2.log("ERC4626 adapter attempts", adapterAttempts[address(erc4626Adapter)]);
         console2.log("ERC4626 adapter blocked", adapterBlocks[address(erc4626Adapter)]);
         console2.log("Aave V3 vault attempts", adapterAttempts[address(aaveV3Adapter)]);
@@ -672,8 +705,12 @@ contract CompromisedOperatorHandler is Test {
     }
 
     function ownerExitsEveryWallet() external {
-        for (uint256 i; i < _ownerAWallets.length; i++) _ownerExit(_ownerAWallets[i], ownerA);
-        for (uint256 i; i < _ownerBWallets.length; i++) _ownerExit(_ownerBWallets[i], ownerB);
+        for (uint256 i; i < _ownerAWallets.length; i++) {
+            _ownerExit(_ownerAWallets[i], ownerA);
+        }
+        for (uint256 i; i < _ownerBWallets.length; i++) {
+            _ownerExit(_ownerBWallets[i], ownerB);
+        }
     }
 
     function _exerciseAaveV3Lending(AgentWallet wallet, uint96 amountSeed) private {
@@ -702,14 +739,34 @@ contract CompromisedOperatorHandler is Test {
 
     function _exerciseMorphoLending(AgentWallet wallet, uint96 amountSeed) private {
         address target = morphoBlueLendingAdapter.marketTarget(morphoMarket);
-        (bool success,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, uint256(0))));
-        if (!success) lendingWorkflowBlocks++;
-        _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, _smallSupplyAmount(wallet, amountSeed))));
-        uint256 borrowAmount = _smallBorrowAmount(amountSeed);
-        _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, borrowAmount)));
-        _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, borrowAmount / 2)));
-        _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, USDC_UNIT)));
-        _refreshBorrowBudgets(wallet);
+        uint256 collateralAmount = 2 * USDC_UNIT;
+        if (usdc.balanceOf(address(wallet)) < collateralAmount) {
+            uint256 shortfall = collateralAmount - usdc.balanceOf(address(wallet));
+            if (usdc.balanceOf(address(_ownerAWallets[0])) < shortfall) {
+                lendingWorkflowBlocks++;
+                return;
+            }
+            _operatorTransfer(_ownerAWallets[0], wallet, address(usdc), shortfall);
+        }
+        (bool supplied,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, collateralAmount)));
+        if (!supplied) {
+            lendingWorkflowBlocks++;
+            return;
+        }
+        IMorphoBlue.MarketParams memory params = _morphoParams();
+        uint256 collateralValue = Math.mulDiv(collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
+        uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
+        uint256 borrowAmount = Math.min(_smallBorrowAmount(amountSeed), borrowLimit / 2);
+        (bool borrowed,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, borrowAmount)));
+        if (!borrowed) {
+            lendingWorkflowBlocks++;
+            _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+            return;
+        }
+        (bool repaid,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, type(uint256).max)));
+        if (!repaid) lendingWorkflowBlocks++;
+        (bool withdrawn,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+        if (!withdrawn) lendingWorkflowBlocks++;
     }
 
     function _vaultRoundTrip(AgentWallet wallet, address adapter, address target, bytes memory zeroDepositData, uint96 amountSeed) private {
@@ -751,8 +808,9 @@ contract CompromisedOperatorHandler is Test {
         (bool success,) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapterBatch, (adapters, targets, calls)));
         adapterAttempts[address(erc4626Adapter)]++;
         adapterAttempts[address(aaveV3Adapter)]++;
-        if (success) feesPaidByOwner[wallet.owner()] += _feeCollectorValue() - feesBefore;
-        else {
+        if (success) {
+            feesPaidByOwner[wallet.owner()] += _feeCollectorValue() - feesBefore;
+        } else {
             adapterBlocks[address(erc4626Adapter)]++;
             adapterBlocks[address(aaveV3Adapter)]++;
             vaultWorkflowBlocks++;
@@ -823,7 +881,7 @@ contract CompromisedOperatorHandler is Test {
         } else {
             swapWorkflowBlocks++;
         }
-        (, , bytes memory zeroMinCall) = _swapCall(dex, token, baseAsset, amount, 0);
+        (,, bytes memory zeroMinCall) = _swapCall(dex, token, baseAsset, amount, 0);
         swapWorkflowAttempts++;
         (success,) = _operatorExecute(wallet, adapter, target, zeroMinCall);
         if (success) acceptedLossBudget[wallet.owner()] += _tokenValueCeil(token, amount);
@@ -924,38 +982,118 @@ contract CompromisedOperatorHandler is Test {
         uniswapV3Router.setBuyAmount(amountOut);
 
         AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(
-            uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, 0, block.timestamp)
-        );
+        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, 0, block.timestamp));
         swapWorkflowAttempts++;
-        (bool success,) = _operatorExecute(
-            wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data
-        );
+        (bool success,) = _operatorExecute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertFalse(success);
         swapWorkflowBlocks++;
     }
 
-    function _runMorphoBorrowAtItsConfiguredLltv(AgentWallet wallet, AgentWallet source) private {
-        uint256 collateralAmount = 1_000 * USDC_UNIT;
-        if (usdc.balanceOf(address(wallet)) < collateralAmount) _operatorTransfer(source, wallet, address(usdc), collateralAmount);
+    function _runMorphoLiquidationLifecycle(AgentWallet wallet, AgentWallet source, uint256 collateralAmount, uint256 elapsed, uint256 rounds, bool requireSuccess) private {
+        uint256 bonusBefore = liquidationBonusValue;
+        uint256 repaidBefore = liquidationRepaidValue;
         address target = morphoBlueLendingAdapter.marketTarget(morphoMarket);
-        (bool supplied,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, collateralAmount)));
-        assertTrue(supplied);
-        IMorphoBlue.MarketParams memory marketParams = _morphoParams();
-        uint256 borrowLimit = Math.mulDiv(collateralAmount, IMorphoOracle(marketParams.oracle).price(), 1e36);
-        uint256 borrowed = Math.mulDiv(borrowLimit, marketParams.lltv, 1e18);
-        (bool borrowedSuccessfully,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, borrowed)));
-        assertTrue(borrowedSuccessfully);
-        _refreshBorrowBudgets(wallet);
-        vm.prank(thief);
-        (bool liquidationSupported,) = address(morpho).call(abi.encodeWithSignature("liquidate((address,address,address,address,uint256),address,uint256,uint256,bytes)", _morphoParams(), address(wallet), 0, 0, bytes("")));
-        liquidationAttempts++;
-        if (!liquidationSupported) liquidationBlocks++;
-        uint256 beforeValue = _ownerValue(ownerA);
-        (bool withdrawn,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
-        assertTrue(withdrawn);
-        uint256 afterValue = _ownerValue(ownerA);
-        assertGe(afterValue + 1, beforeValue);
+        for (uint256 i; i < rounds; i++) {
+            uint256 available = usdc.balanceOf(address(wallet));
+            if (available < collateralAmount) {
+                uint256 shortfall = collateralAmount - available;
+                if (usdc.balanceOf(address(source)) < shortfall) {
+                    liquidationAttempts++;
+                    liquidationBlocks++;
+                    if (requireSuccess) assertTrue(false);
+                    continue;
+                }
+                _operatorTransfer(source, wallet, address(usdc), shortfall);
+            }
+
+            (bool supplied,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, collateralAmount)));
+            if (!supplied) {
+                liquidationAttempts++;
+                liquidationBlocks++;
+                if (requireSuccess) assertTrue(false);
+                continue;
+            }
+
+            IMorphoBlue.MarketParams memory params = _morphoParams();
+            uint256 collateralValue = Math.mulDiv(collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
+            uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
+            (bool borrowed,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, borrowLimit)));
+            if (!borrowed) {
+                liquidationAttempts++;
+                liquidationBlocks++;
+                if (requireSuccess) assertTrue(false);
+                _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+                continue;
+            }
+
+            uint256 debtAtBorrow = _morphoDebt(address(wallet));
+            assertGt(debtAtBorrow, 0);
+            YieldSeekerBorrowFeeModule module = _borrowFeeModule();
+            address position = morphoBlueLendingAdapter.debtPosition(morphoMarket);
+            uint256 feeAtBorrow = module.pendingFee(address(wallet), position);
+            uint256 costsAtBorrow = _protocolCosts(wallet);
+            morpho.accrueInterest(params);
+            assertEq(_morphoDebt(address(wallet)), debtAtBorrow);
+            assertEq(module.pendingFee(address(wallet), position), feeAtBorrow);
+            assertEq(_protocolCosts(wallet), costsAtBorrow);
+
+            _warpAndRefreshPrices(elapsed);
+            _accrueMorphoAndTrackInterest();
+            uint256 debtAfterTime = _morphoDebt(address(wallet));
+            uint256 interest = debtAfterTime - debtAtBorrow;
+            uint256 expectedInterest = Math.mulDiv(debtAtBorrow, 500 * elapsed, 10_000 * 365 days);
+            assertGt(interest, 0);
+            assertLe(interest, expectedInterest + 10);
+            assertGe(interest + 10, expectedInterest);
+
+            uint256 feeAfterTime = module.pendingFee(address(wallet), position);
+            uint256 rateBps = module.walletPlan(address(wallet)).rateBps;
+            uint256 expectedFee = Math.mulDiv(debtAtBorrow, rateBps * elapsed, 10_000 * 365 days, Math.Rounding.Ceil);
+            assertEq(feeAfterTime - feeAtBorrow, expectedFee);
+            assertGt(_protocolCosts(wallet), costsAtBorrow);
+            morphoBorrowFeeGrowth += feeAfterTime - feeAtBorrow;
+
+            liquidationAttempts++;
+            vm.prank(thief);
+            (bool liquidated, bytes memory result) = address(morpho).call(abi.encodeCall(morpho.liquidate, (params, address(wallet), 0, type(uint256).max, bytes(""))));
+            if (!liquidated) {
+                liquidationBlocks++;
+                if (requireSuccess) assertTrue(false);
+                continue;
+            }
+            (uint256 repaidAssets, uint256 seizedCollateral) = abi.decode(result, (uint256, uint256));
+            _recordSuccessfulLiquidation(wallet, repaidAssets, seizedCollateral);
+
+            (bool checkpointed,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.checkpoint, (morphoMarket)));
+            if (!checkpointed && requireSuccess) assertTrue(false);
+            (bool withdrawn,) = _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+            if (!withdrawn && requireSuccess) assertTrue(false);
+            if (requireSuccess) {
+                assertEq(_morphoDebt(address(wallet)), 0);
+                assertEq(_morphoCollateral(address(wallet)), 0);
+            }
+        }
+
+        if (requireSuccess) {
+            uint256 bonus = liquidationBonusValue - bonusBefore;
+            uint256 repaid = liquidationRepaidValue - repaidBefore;
+            assertGt(repaid, 0);
+            assertLe(bonus, Math.mulDiv(repaid, 440, 10_000, Math.Rounding.Ceil) + rounds);
+        }
+    }
+
+    function _recordSuccessfulLiquidation(AgentWallet wallet, uint256 repaidAssets, uint256 seizedCollateral) private {
+        uint256 repaidValue = _wethValueCeil(repaidAssets);
+        uint256 bonus = seizedCollateral > repaidValue ? seizedCollateral - repaidValue : 0;
+        uint256 incentive = morpho.liquidationIncentiveFactor(_morphoParams().lltv);
+        uint256 maximumBonus = Math.mulDiv(repaidValue, incentive - 1e18, 1e18, Math.Rounding.Ceil) + 1;
+        assertLe(bonus, maximumBonus);
+        liquidationWethSpent += repaidAssets;
+        liquidationCollateralReceived += seizedCollateral;
+        liquidationBonusValue += bonus;
+        liquidationRepaidValue += repaidValue;
+        liquidationSuccesses++;
+        acceptedLossBudget[wallet.owner()] += bonus;
     }
 
     function _morphoParams() private view returns (IMorphoBlue.MarketParams memory marketParams) {
@@ -963,10 +1101,58 @@ contract CompromisedOperatorHandler is Test {
     }
 
     function _tryLiquidation(AgentWallet wallet) private {
+        _accrueMorphoAndTrackInterest();
         vm.prank(thief);
-        (bool success,) = address(morpho).call(abi.encodeWithSignature("liquidate((address,address,address,address,uint256),address,uint256,uint256,bytes)", _morphoParams(), address(wallet), 0, 0, bytes("")));
+        (bool success, bytes memory result) = address(morpho).call(abi.encodeCall(morpho.liquidate, (_morphoParams(), address(wallet), 0, type(uint256).max, bytes(""))));
         liquidationAttempts++;
-        if (!success) liquidationBlocks++;
+        if (!success) {
+            liquidationBlocks++;
+            return;
+        }
+        (uint256 repaidAssets, uint256 seizedCollateral) = abi.decode(result, (uint256, uint256));
+        _recordSuccessfulLiquidation(wallet, repaidAssets, seizedCollateral);
+        address target = morphoBlueLendingAdapter.marketTarget(morphoMarket);
+        _operatorExecute(wallet, address(morphoBlueLendingAdapter), target, abi.encodeCall(morphoBlueLendingAdapter.checkpoint, (morphoMarket)));
+    }
+
+    function _warpAndRefreshPrices(uint256 elapsed) private {
+        vm.warp(block.timestamp + elapsed);
+        int256 marketPrice = wethPriceFeed.answer();
+        uint256 now_ = block.timestamp;
+        wethPriceFeed.setPrice(marketPrice, now_);
+        usdcPriceFeed.setPrice(usdcPriceFeed.answer(), now_);
+        rewardPriceFeed.setPrice(rewardPriceFeed.answer(), now_);
+        wellPriceFeed.setPrice(wellPriceFeed.answer(), now_);
+        aaveV3LendingPool.setAssetPrice(address(weth), uint256(marketPrice));
+        aaveV4Spoke.setReservePrice(2, uint256(marketPrice));
+        morphoOracle.setPrice(Math.mulDiv(5e44, 2_000e8, uint256(marketPrice)));
+    }
+
+    function _accrueMorphoAndTrackInterest() private {
+        uint256[] memory ownerADebts = new uint256[](_ownerAWallets.length);
+        uint256[] memory ownerBDebts = new uint256[](_ownerBWallets.length);
+        for (uint256 i; i < _ownerAWallets.length; i++) {
+            ownerADebts[i] = _morphoDebt(address(_ownerAWallets[i]));
+        }
+        for (uint256 i; i < _ownerBWallets.length; i++) {
+            ownerBDebts[i] = _morphoDebt(address(_ownerBWallets[i]));
+        }
+        morpho.accrueInterest(_morphoParams());
+        _recordMorphoInterest(_ownerAWallets, ownerADebts, ownerA);
+        _recordMorphoInterest(_ownerBWallets, ownerBDebts, ownerB);
+    }
+
+    function _recordMorphoInterest(AgentWallet[] storage wallets, uint256[] memory debtsBefore, address walletOwner) private {
+        for (uint256 i; i < wallets.length; i++) {
+            AgentWallet wallet = wallets[i];
+            uint256 debtAfter = _morphoDebt(address(wallet));
+            if (debtAfter > debtsBefore[i]) {
+                uint256 interestValue = _wethValueCeil(debtAfter - debtsBefore[i]);
+                acceptedLossBudget[walletOwner] += interestValue;
+                morphoInterestBudget += interestValue;
+            }
+            if (wallet.agentProfile() == BORROW_AGENT_PROFILE) _refreshBorrowBudgets(wallet);
+        }
     }
 
     function _tryUnregisteredTargets(AgentWallet wallet) private {
@@ -1093,11 +1279,9 @@ contract CompromisedOperatorHandler is Test {
         packedUserOp.sender = address(wallet);
         packedUserOp.nonce = 0;
         packedUserOp.callData = callData;
-        packedUserOp.callGasLimit = 500_000;
-        packedUserOp.verificationGasLimit = 500_000;
+        packedUserOp.accountGasLimits = bytes32((uint256(500_000) << 128) | 500_000);
         packedUserOp.preVerificationGas = 21_000;
-        packedUserOp.maxFeePerGas = 1 gwei;
-        packedUserOp.maxPriorityFeePerGas = 1 gwei;
+        packedUserOp.gasFees = bytes32((uint256(1 gwei) << 128) | 1 gwei);
         packedUserOp.paymasterAndData = "";
         packedUserOp.signature = signature;
         userOpAttempts++;
@@ -1200,6 +1384,7 @@ contract CompromisedOperatorHandler is Test {
             feesPaidByOwner[walletOwner] += _feeCollectorValue() - feesBefore;
             if (wallet.agentProfile() == BORROW_AGENT_PROFILE) _refreshBorrowBudgets(wallet);
         }
+    }
 
     function _ownerBlocklists(AgentWallet wallet, address walletOwner, bool blockIt) private {
         address adapter = address(uniswapV3SwapAdapter);
@@ -1315,23 +1500,11 @@ contract CompromisedOperatorHandler is Test {
         if (aaveV3CollateralBalance(address(wallet)) > 0) _ownerExecute(wallet, walletOwner, address(aaveV3LendingAdapter), collateralTargetV3, abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max)));
         address collateralTargetV4 = aaveV4LendingAdapter.marketTarget(aaveV4Market);
         if (aaveV4Spoke.getUserSuppliedAssets(1, address(wallet)) > 0) {
-            _ownerExecute(
-                wallet,
-                walletOwner,
-                address(aaveV4LendingAdapter),
-                collateralTargetV4,
-                abi.encodeCall(aaveV4LendingAdapter.withdrawCollateral, (aaveV4Market, type(uint256).max))
-            );
+            _ownerExecute(wallet, walletOwner, address(aaveV4LendingAdapter), collateralTargetV4, abi.encodeCall(aaveV4LendingAdapter.withdrawCollateral, (aaveV4Market, type(uint256).max)));
         }
         address collateralTargetMorpho = morphoBlueLendingAdapter.marketTarget(morphoMarket);
         if (_morphoCollateral(address(wallet)) > 0) {
-            _ownerExecute(
-                wallet,
-                walletOwner,
-                address(morphoBlueLendingAdapter),
-                collateralTargetMorpho,
-                abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max))
-            );
+            _ownerExecute(wallet, walletOwner, address(morphoBlueLendingAdapter), collateralTargetMorpho, abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
         }
         assertEq(aaveV3VariableDebtTokenBalance(address(wallet)), 0);
         assertEq(aaveV4Spoke.getUserTotalDebt(2, address(wallet)), 0);
@@ -1439,14 +1612,17 @@ contract CompromisedOperatorHandler is Test {
 
     function _ownerGrossValue(address walletOwner) private view returns (uint256 value) {
         AgentWallet[] storage wallets = walletOwner == ownerA ? _ownerAWallets : _ownerBWallets;
-        for (uint256 i; i < wallets.length; i++) value += _walletGrossValue(wallets[i]);
+        for (uint256 i; i < wallets.length; i++) {
+            value += _walletGrossValue(wallets[i]);
+        }
     }
 
     function _ownerDebt(address walletOwner) private view returns (uint256 debt) {
         AgentWallet[] storage wallets = walletOwner == ownerA ? _ownerAWallets : _ownerBWallets;
         for (uint256 i; i < wallets.length; i++) {
             AgentWallet wallet = wallets[i];
-            debt += _wethValueCeil(borrowFeeModuleDebt(address(wallet))) + _protocolCosts(wallet);
+            uint256 tokenDebt = borrowFeeModuleDebt(address(wallet)) + _morphoUnreportedDebt(address(wallet));
+            debt += _wethValueCeil(tokenDebt) + _protocolCosts(wallet);
         }
     }
 
@@ -1475,7 +1651,7 @@ contract CompromisedOperatorHandler is Test {
 
     function _morphoCollateral(address account) private view returns (uint256 collateral) {
         (, IMorphoBlue.MarketParams memory params) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
-        (, , uint128 held) = morpho.position(keccak256(abi.encode(params)), account);
+        (,, uint128 held) = morpho.position(keccak256(abi.encode(params)), account);
         collateral = held;
     }
 
@@ -1485,6 +1661,14 @@ contract CompromisedOperatorHandler is Test {
         (, uint128 borrowShares,) = morpho.position(id, account);
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(id);
         if (borrowShares > 0) debt = Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + 1, uint256(totalBorrowShares) + 1e6, Math.Rounding.Ceil);
+    }
+
+    function _morphoUnreportedDebt(address account) private view returns (uint256) {
+        YieldSeekerBorrowFeeModule module = _borrowFeeModule();
+        address position = morphoBlueLendingAdapter.debtPosition(morphoMarket);
+        (uint128 reportedDebt,,) = module.debtPositions(account, position);
+        uint256 actualDebt = _morphoDebt(account);
+        return actualDebt > reportedDebt ? actualDebt - reportedDebt : 0;
     }
 
     function aaveV3CollateralBalance(address account) private view returns (uint256) {
@@ -1582,13 +1766,17 @@ contract CompromisedOperatorHandler is Test {
     function _snapshotOwnerState(address walletOwner) private view returns (bytes32[] memory state) {
         AgentWallet[] storage wallets = walletOwner == ownerA ? _ownerAWallets : _ownerBWallets;
         state = new bytes32[](wallets.length);
-        for (uint256 i; i < wallets.length; i++) state[i] = _walletState(address(wallets[i]));
+        for (uint256 i; i < wallets.length; i++) {
+            state[i] = _walletState(address(wallets[i]));
+        }
     }
 
     function _assertOwnerState(address walletOwner, bytes32[] memory expectedState) private view {
         AgentWallet[] storage wallets = walletOwner == ownerA ? _ownerAWallets : _ownerBWallets;
         assertEq(wallets.length, expectedState.length);
-        for (uint256 i; i < wallets.length; i++) assertEq(_walletState(address(wallets[i])), expectedState[i]);
+        for (uint256 i; i < wallets.length; i++) {
+            assertEq(_walletState(address(wallets[i])), expectedState[i]);
+        }
     }
 
     function _walletState(address account) private view returns (bytes32) {
@@ -1620,7 +1808,9 @@ contract CompromisedOperatorHandler is Test {
         if (success) {
             feesPaidByOwner[wallet.owner()] += _feeCollectorValue() - feesBefore;
             if (wallet.agentProfile() == BORROW_AGENT_PROFILE) _refreshBorrowBudgets(wallet);
-        } else adapterBlocks[adapter]++;
+        } else {
+            adapterBlocks[adapter]++;
+        }
     }
 
     function _uniswapRoute(address sellToken, address buyToken) private pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
@@ -1674,6 +1864,10 @@ contract CompromisedOperatorHandler is Test {
         assertEq(weth.balanceOf(account), 0);
         assertEq(rewardToken.balanceOf(account), 0);
         assertEq(wellToken.balanceOf(account), 0);
+        _assertNoPositions(account);
+    }
+
+    function _assertNoPositions(address account) private view {
         assertEq(erc4626Vault.balanceOf(account), 0);
         assertEq(aaveV3Vault.balanceOf(account), 0);
         assertEq(compoundV2Vault.balanceOf(account), 0);
@@ -1695,7 +1889,7 @@ contract CompromisedOperatorHandler is Test {
     }
 }
 
-contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
+contract CompromisedOperatorInvariantTest is IntegrationBase {
     address private constant ENTRY_POINT_V06 = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
     address private constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
     uint256 private constant USDC_UNIT = 1e6;
@@ -1708,10 +1902,13 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
     AgentWallet private ownerAVault;
     AgentWallet private ownerABorrow;
     AgentWallet private ownerAWethSink;
+    AgentWallet private ownerAMorpho;
     AgentWallet private ownerBVault;
     AgentWallet private ownerBBorrow;
     AgentWallet private thiefVault;
     AgentWallet private thiefBorrow;
+    OperatorMorphoBlueMarket private operatorMorpho;
+    bytes private operatorMorphoMarket;
     CompromisedOperatorHandler private handler;
     OperatorHostileToken private hostileToken;
     OperatorHostileRouter private hostileRouter;
@@ -1722,8 +1919,10 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
         super.setUp();
         (, IMorphoBlue.MarketParams memory morphoParams) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
         morphoParams.lltv = 0.86e18;
-        morphoMarket = abi.encode(address(morpho), morphoParams);
-        _registerTarget(borrowRegistry, morphoBlueLendingAdapter.marketTarget(morphoMarket), address(morphoBlueLendingAdapter));
+        operatorMorpho = new OperatorMorphoBlueMarket();
+        operatorMorphoMarket = abi.encode(address(operatorMorpho), morphoParams);
+        weth.mint(address(operatorMorpho), 1_000 * WETH_UNIT);
+        _registerTarget(borrowRegistry, morphoBlueLendingAdapter.marketTarget(operatorMorphoMarket), address(morphoBlueLendingAdapter));
         ownerB = makeAddr("other compromised-operator owner");
         thief = makeAddr("separate thief EOA");
         (address operatorAddress, uint256 operatorKey_) = makeAddrAndKey("operator");
@@ -1732,10 +1931,15 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
         ownerAVault = _createVaultWallet(owner, 1);
         ownerABorrow = _createBorrowWallet(owner, 2);
         ownerAWethSink = _createWalletWithBase(owner, 3, address(weth), VAULT_AGENT_PROFILE);
+        ownerAMorpho = _createBorrowWallet(owner, 4);
         ownerBVault = _createVaultWallet(ownerB, 1);
         ownerBBorrow = _createBorrowWallet(ownerB, 2);
         thiefVault = _createVaultWallet(thief, 1);
         thiefBorrow = _createBorrowWallet(thief, 2);
+        _fundWallet(ownerAMorpho, address(usdc), 10_000 * USDC_UNIT);
+        weth.mint(thief, 50 * WETH_UNIT);
+        vm.prank(thief);
+        weth.approve(address(operatorMorpho), type(uint256).max);
 
         _fundWallet(ownerAVault, address(usdc), 5_000 * USDC_UNIT);
         _fundWallet(ownerABorrow, address(usdc), 5_000 * USDC_UNIT);
@@ -1765,6 +1969,7 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
                 ownerABorrow: ownerABorrow,
                 ownerAWethSink: ownerAWethSink,
                 ownerBVault: ownerBVault,
+                ownerAMorpho: ownerAMorpho,
                 ownerBBorrow: ownerBBorrow,
                 thiefVault: thiefVault,
                 thiefBorrow: thiefBorrow,
@@ -1794,7 +1999,8 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
                 morphoBlueLendingAdapter: morphoBlueLendingAdapter,
                 aaveV3LendingPool: aaveV3LendingPool,
                 aaveV4Spoke: aaveV4Spoke,
-                morpho: morpho,
+                morpho: operatorMorpho,
+                morphoOracle: morphoOracle,
                 merklDistributor: merklDistributor,
                 moonwellComptroller: moonwellComptroller,
                 uniswapV3Router: uniswapV3Router,
@@ -1807,7 +2013,7 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
                 priceOracle: priceOracle,
                 aaveV3Market: aaveV3Market,
                 aaveV4Market: aaveV4Market,
-                morphoMarket: morphoMarket,
+                morphoMarket: operatorMorphoMarket,
                 hostileToken: hostileToken,
                 hostileRouter: hostileRouter,
                 hostileVault: hostileVault,
@@ -1824,7 +2030,6 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
         selectors[5] = handler.operatorCreatesOwnerAndThiefWallets.selector;
         selectors[6] = handler.operatorMovesTimeAndPrices.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
-
     }
 
     function invariant_compromisedOperatorCannotTakeOwnerValueAndOwnersCanExit() public {
@@ -1842,10 +2047,21 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
         uint256 beforeWithdrawn = handler.withdrawnValue(owner);
         uint256 beforeFees = handler.feesPaidByOwner(owner);
         uint256 beforeBudget = handler.acceptedLossBudget(owner);
+        uint256 beforeBonus = handler.liquidationBonusValue();
+        uint256 beforeRepaid = handler.liquidationRepaidValue();
+        uint256 beforeLiquidations = handler.liquidationSuccesses();
+        uint256 beforeInterest = handler.morphoInterestBudget();
+        uint256 beforeBorrowFeeGrowth = handler.morphoBorrowFeeGrowth();
         handler.runWorstCase(routeSeed);
         uint256 valueAfter = handler.ownerValue(owner) + handler.withdrawnValue(owner) - beforeWithdrawn + handler.feesPaidByOwner(owner) - beforeFees;
         uint256 budgetAfter = handler.acceptedLossBudget(owner);
         assertGe(valueAfter + budgetAfter, beforeValue + beforeBudget);
+        uint256 bonus = handler.liquidationBonusValue() - beforeBonus;
+        uint256 repaid = handler.liquidationRepaidValue() - beforeRepaid;
+        assertEq(handler.liquidationSuccesses() - beforeLiquidations, 3);
+        assertLe(bonus, Math.mulDiv(repaid, 440, 10_000, Math.Rounding.Ceil) + 3);
+        assertGt(handler.morphoInterestBudget() - beforeInterest, 0);
+        assertGt(handler.morphoBorrowFeeGrowth() - beforeBorrowFeeGrowth, 0);
     }
 
     function afterInvariant() public view {
@@ -1872,7 +2088,7 @@ contract CompromisedOperatorInvariantTest is IntegrationBase, StdInvariant {
         vm.etch(ENTRY_POINT_V06, address(implementation).code);
         vm.etch(ENTRY_POINT_V07, address(implementation).code);
         vm.deal(address(this), 1 ether);
-        AgentWallet[5] memory wallets = [ownerAVault, ownerABorrow, ownerAWethSink, ownerBVault, ownerBBorrow];
+        AgentWallet[6] memory wallets = [ownerAVault, ownerABorrow, ownerAWethSink, ownerAMorpho, ownerBVault, ownerBBorrow];
         for (uint256 i; i < wallets.length; i++) {
             vm.deal(address(wallets[i]), ETH_WALLET_BALANCE);
             IOperatorEntryPoint(ENTRY_POINT_V06).depositTo{value: ENTRY_POINT_DEPOSIT}(address(wallets[i]));
