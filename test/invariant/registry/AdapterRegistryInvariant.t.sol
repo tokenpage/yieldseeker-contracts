@@ -2,8 +2,11 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry} from "../../../src/AdapterRegistry.sol";
+import {TargetNotRegistered} from "../../../src/agentwalletkit/AWKAdapterRegistry.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract RegistryActor {
@@ -224,6 +227,75 @@ contract AdapterRegistryInvariant is StdInvariant, Test {
 
         targetContract(address(handler));
         targetSelector(FuzzSelector({addr: address(handler), selectors: handler.selectors()}));
+    }
+
+    function deployRegistry(address admin, address emergencyAdmin) external returns (YieldSeekerAdapterRegistry) {
+        return new YieldSeekerAdapterRegistry(admin, emergencyAdmin);
+    }
+
+    function test_adminAndEmergencyRejectInvalidRegistryInputsAndRecoverMappings() public {
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployRegistry(address(0), address(this));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployRegistry(address(this), address(0));
+
+        YieldSeekerAdapterRegistry registryUnderTest = new YieldSeekerAdapterRegistry(address(this), address(this));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        registryUnderTest.registerAdapter(address(0));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBEEF)));
+        registryUnderTest.registerAdapter(address(0xBEEF));
+
+        RegistryDummyAdapter firstAdapter = new RegistryDummyAdapter();
+        RegistryDummyAdapter secondAdapter = new RegistryDummyAdapter();
+        RegistryDummyTarget target = new RegistryDummyTarget();
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        registryUnderTest.setTargetAdapter(address(0), address(firstAdapter));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(firstAdapter)));
+        registryUnderTest.setTargetAdapter(address(target), address(firstAdapter));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(0)));
+        registryUnderTest.setTargetAdapter(address(target), address(0));
+
+        registryUnderTest.registerAdapter(address(firstAdapter));
+        registryUnderTest.registerAdapter(address(secondAdapter));
+        registryUnderTest.setTargetAdapter(address(target), address(firstAdapter));
+        vm.recordLogs();
+        registryUnderTest.setTargetAdapter(address(target), address(firstAdapter));
+        Vm.Log[] memory duplicateMappingLogs = vm.getRecordedLogs();
+        assertEq(duplicateMappingLogs.length, 0);
+        assertEq(registryUnderTest.getTargetAdapter(address(target)), address(firstAdapter));
+        assertEq(registryUnderTest.getAllTargets().length, 1);
+
+        registryUnderTest.setTargetAdapter(address(target), address(secondAdapter));
+        assertEq(registryUnderTest.getTargetAdapter(address(target)), address(secondAdapter));
+        assertEq(registryUnderTest.getAllTargets().length, 1);
+        registryUnderTest.removeTarget(address(target));
+        vm.expectRevert(abi.encodeWithSelector(TargetNotRegistered.selector, address(target)));
+        registryUnderTest.removeTarget(address(target));
+        assertEq(registryUnderTest.getAllTargets().length, 0);
+
+        registryUnderTest.setTargetAdapter(address(target), address(firstAdapter));
+        registryUnderTest.unregisterAdapter(address(firstAdapter));
+        assertEq(registryUnderTest.getTargetAdapter(address(target)), address(0));
+        assertEq(registryUnderTest.getAllTargets().length, 0);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(firstAdapter)));
+        registryUnderTest.unregisterAdapter(address(firstAdapter));
+        registryUnderTest.registerAdapter(address(firstAdapter));
+        assertEq(registryUnderTest.getTargetAdapter(address(target)), address(firstAdapter));
+
+        registryUnderTest.pause();
+        vm.expectRevert();
+        registryUnderTest.getTargetAdapter(address(target));
+        assertEq(registryUnderTest.getAllTargets().length, 1);
+        registryUnderTest.unpause();
+        assertEq(registryUnderTest.getTargetAdapter(address(target)), address(firstAdapter));
+
+        RegistryDummyAdapter unauthorizedAdapter = new RegistryDummyAdapter();
+        vm.expectRevert();
+        vm.prank(address(0xCAFE));
+        registryUnderTest.pause();
+        vm.expectRevert();
+        vm.prank(address(0xCAFE));
+        registryUnderTest.registerAdapter(address(unauthorizedAdapter));
     }
 
     function invariant_targetLookupOnlyReturnsActiveMappingsAndRevertsWhilePaused() public view {

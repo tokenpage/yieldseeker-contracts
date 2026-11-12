@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
-import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
-import {AgentAlreadyExists} from "../../../src/agentwalletkit/AWKAgentWalletFactory.sol";
+import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../../src/AdapterRegistry.sol";
+import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
+import {InvalidAsset, InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
+import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
+import {InvalidTransferTarget, NotOwnersAgentWallet, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
+import {UnknownOperation} from "../../../src/agentwalletkit/AWKAdapter.sol";
+import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../../src/agentwalletkit/AWKAgentWalletFactory.sol";
+import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
+import {InvalidPercentage} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
+import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {BlockedRecipientMockERC20, RejectingFeeCollector} from "./mocks/BlockedRecipientMockERC20.sol";
 import {HostileFeeModule} from "./mocks/HostileFeeModule.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
@@ -256,6 +267,7 @@ contract WalletPropertiesTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(sender)), amount * 4);
         assertEq(usdc.balanceOf(address(sameOwnerReceiver)), 0);
         assertEq(usdc.balanceOf(address(otherOwnerReceiver)), 0);
+        assertFalse(_tryTransfer(sender, address(rewardToken), address(sameOwnerReceiver), amount));
     }
 
     function testFuzz_senderPaysFeesOwedBeforeMovingFundsToAnotherAgent(uint96 amountSeed) public {
@@ -310,6 +322,206 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.expectRevert(abi.encodeWithSelector(AgentAlreadyExists.selector, walletOwner, index));
         vm.prank(operator);
         factory.createAgentWallet(walletOwner, index, address(usdc), BORROW_AGENT_PROFILE, noPlans);
+    }
+
+    function test_ownerAndOperatorRejectInvalidWalletAndAdapterInputs() public {
+        address attacker = makeAddr("attacker");
+        AgentWallet wallet = _createBorrowWallet(owner, 715);
+        assertEq(wallet.listAgentOperators().length, 1);
+        assertTrue(wallet.isAgentOperator(operator));
+        vm.prank(attacker);
+        wallet.syncFromFactory();
+        MockERC4626 wrongAssetVault = new MockERC4626(address(rewardToken), "Wrong Asset", "WRONG");
+        _registerTarget(borrowRegistry, address(erc4626Vault), address(erc4626Adapter));
+        _registerTarget(borrowRegistry, address(wrongAssetVault), address(erc4626Adapter));
+
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.deposit(1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.depositPercentage(10_000);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.withdraw(1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.execute(address(erc4626Vault), bytes(""));
+
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        agentTransferAdapter.transfer(address(usdc), address(wallet), 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3LendingAdapter.supplyCollateral(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3LendingAdapter.withdrawCollateral(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3LendingAdapter.borrow(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3LendingAdapter.repay(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3LendingAdapter.checkpoint(aaveV3Market);
+
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (0)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(0)));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (10_001)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(10_001)));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (10_000)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongAssetVault), abi.encodeCall(erc4626Adapter.deposit, (1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+
+        _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(0), 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
+        address wrongTransferTarget = address(0xCAFE);
+        borrowRegistry.setTargetAdapter(wrongTransferTarget, address(agentTransferAdapter));
+        _executeExpectRevert(
+            wallet, address(agentTransferAdapter), wrongTransferTarget, abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(wallet), 1)), abi.encodeWithSelector(InvalidTransferTarget.selector, wrongTransferTarget)
+        );
+        AgentWallet emptyReceiver = _createBorrowWallet(owner, 716);
+        _executeExpectRevert(
+            wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(emptyReceiver), 1)), abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)
+        );
+
+        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        bytes memory sameAssetMarket = abi.encode(address(aaveV3LendingPool), address(usdc), address(usdc), uint8(0));
+        address sameAssetTarget = aaveV3LendingAdapter.marketTarget(sameAssetMarket);
+        borrowRegistry.setTargetAdapter(sameAssetTarget, address(aaveV3LendingAdapter));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), sameAssetTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (sameAssetMarket, 1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+
+        address wrongMarketTarget = address(uint160(marketTarget) ^ 1);
+        borrowRegistry.setTargetAdapter(wrongMarketTarget, address(aaveV3LendingAdapter));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
+        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), wrongMarketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)), abi.encodeWithSelector(MarketTargetMismatch.selector, wrongMarketTarget, marketTarget));
+
+        address[] memory assets = new address[](1);
+        uint256[] memory amounts = new uint256[](0);
+        assets[0] = address(usdc);
+        vm.expectRevert(InvalidState.selector);
+        vm.prank(owner);
+        wallet.withdrawAssetsToUser(owner, assets, amounts);
+
+        vm.expectRevert();
+        vm.prank(operator);
+        wallet.withdrawAssetToUser(operator, address(usdc), 1);
+        vm.expectRevert();
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(address(0), address(usdc), 0);
+        vm.expectRevert();
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(owner, address(usdc), 1);
+        vm.expectRevert(InvalidAsset.selector);
+        vm.prank(owner);
+        wallet.withdrawAssetToUser(owner, address(rewardToken), 0);
+
+        address[] memory batchAdapters = new address[](1);
+        address[] memory batchTargets = new address[](0);
+        bytes[] memory batchData = new bytes[](1);
+        vm.expectRevert(InvalidState.selector);
+        vm.prank(owner);
+        wallet.executeViaAdapterBatch(batchAdapters, batchTargets, batchData);
+        vm.expectRevert();
+        vm.prank(owner);
+        wallet.execute(address(0), 0, bytes(""));
+        vm.expectRevert();
+        vm.prank(owner);
+        wallet.executeBatch(batchTargets, batchData);
+
+        assertEq(usdc.balanceOf(address(wallet)), 0);
+        assertEq(rewardToken.balanceOf(address(wallet)), 0);
+        assertEq(erc4626Vault.balanceOf(address(wallet)), 0);
+    }
+
+    function test_factoryRejectsInvalidConfigurationAndWalletCreationInputs() public {
+        address attacker = makeAddr("attacker");
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new AgentWalletFactory(address(0), address(this), operator);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new AgentWalletFactory(address(this), address(0), operator);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new AgentWalletFactory(address(this), address(this), address(0));
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, AdapterRegistry(address(0)));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBEEF)));
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, AdapterRegistry(address(0xBEEF)));
+        vm.expectRevert(abi.encodeWithSelector(UnknownAgentProfile.selector, bytes32(0)));
+        factory.setAdapterRegistry(bytes32(0), vaultRegistry);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        factory.setAgentWalletImplementation(AgentWallet(payable(address(0))));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBEEF)));
+        factory.setAgentWalletImplementation(AgentWallet(payable(address(0xBEEF))));
+        AgentWallet wrongFactoryImplementation = new AgentWallet(address(0xBEEF));
+        vm.expectRevert(InvalidImplementationFactory.selector);
+        factory.setAgentWalletImplementation(wrongFactoryImplementation);
+
+        bytes32 operatorRole = factory.AGENT_OPERATOR_ROLE();
+        for (uint256 i; i < 9; ++i) {
+            factory.grantRole(operatorRole, address(uint160(0x1000 + i)));
+        }
+        vm.expectRevert(TooManyOperators.selector);
+        factory.grantRole(operatorRole, address(0x2000));
+
+        FeePlanChoice[] memory noPlans = new FeePlanChoice[](0);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        vm.prank(operator);
+        factory.createAgentWallet(address(0), 75_000, address(usdc), VAULT_AGENT_PROFILE, noPlans);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        vm.prank(operator);
+        factory.createAgentWallet(owner, 75_001, address(0), VAULT_AGENT_PROFILE, noPlans);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBEEF)));
+        vm.prank(operator);
+        factory.createAgentWallet(owner, 75_002, address(0xBEEF), VAULT_AGENT_PROFILE, noPlans);
+        vm.expectRevert(abi.encodeWithSelector(UnknownAgentProfile.selector, bytes32(uint256(1))));
+        vm.prank(operator);
+        factory.createAgentWallet(owner, 75_003, address(usdc), bytes32(uint256(1)), noPlans);
+        vm.expectRevert();
+        vm.prank(attacker);
+        factory.createAgentWallet(owner, 75_004, address(usdc), VAULT_AGENT_PROFILE, noPlans);
+
+        AgentWalletFactory incompleteFactory = new AgentWalletFactory(address(this), address(this), operator);
+        vm.expectRevert(NoAgentWalletImplementationSet.selector);
+        vm.prank(operator);
+        incompleteFactory.createAgentWallet(owner, 75_005, address(usdc), VAULT_AGENT_PROFILE, noPlans);
+
+        AgentWallet incompleteImplementation = new AgentWallet(address(incompleteFactory));
+        incompleteFactory.setAgentWalletImplementation(incompleteImplementation);
+        AdapterRegistry incompleteRegistry = new AdapterRegistry(address(this), address(this));
+        incompleteFactory.setAdapterRegistry(VAULT_AGENT_PROFILE, incompleteRegistry);
+        vm.expectRevert(InvalidFeeTracker.selector);
+        vm.prank(operator);
+        incompleteFactory.createAgentWallet(owner, 75_006, address(usdc), VAULT_AGENT_PROFILE, noPlans);
+        vm.expectRevert(InvalidFeeTracker.selector);
+        new ERC1967Proxy(address(incompleteImplementation), _initializeCall(owner, 75_007, address(usdc), VAULT_AGENT_PROFILE));
+    }
+
+    function test_walletsBuiltOutsideTheFactoryCannotInitializeBadlyOrActAsTheOwnersAgent() public {
+        address implementation = address(factory.agentWalletImplementation());
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        AgentWallet(payable(implementation)).initialize(owner, 76_001, address(usdc), VAULT_AGENT_PROFILE);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_002, address(0), VAULT_AGENT_PROFILE));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBA5E)));
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_003, address(0xBA5E), VAULT_AGENT_PROFILE));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new ERC1967Proxy(implementation, _initializeCall(address(0), 76_004, address(usdc), VAULT_AGENT_PROFILE));
+        vm.expectRevert(InvalidRegistry.selector);
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_005, address(usdc), keccak256("unconfigured")));
+
+        AgentWallet realAgent = _createVaultWallet(owner, 76_006);
+        AgentWallet impostor = AgentWallet(payable(address(new ERC1967Proxy(implementation, _initializeCall(owner, 76_006, address(usdc), VAULT_AGENT_PROFILE)))));
+        _fundWallet(impostor, address(usdc), 50e6);
+        bytes memory transferToRealAgent = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(realAgent), 50e6));
+        _executeExpectRevert(impostor, address(agentTransferAdapter), address(agentTransferAdapter), transferToRealAgent, abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(impostor)));
+        assertEq(usdc.balanceOf(address(realAgent)), 0);
+
+        MockERC20 strayToken = new MockERC20("Stray", "STRAY");
+        strayToken.mint(address(realAgent), 1e18);
+        vm.expectRevert(InvalidAsset.selector);
+        vm.prank(owner);
+        realAgent.withdrawAllAssetToUser(owner, address(strayToken));
+        assertEq(strayToken.balanceOf(address(realAgent)), 1e18);
+    }
+
+    function _initializeCall(address walletOwner, uint256 index, address baseAsset, bytes32 profile) private pure returns (bytes memory) {
+        return abi.encodeWithSignature("initialize(address,uint256,address,bytes32)", walletOwner, index, baseAsset, profile);
     }
 
     function _validateUserOp(AgentWallet wallet, bytes memory callData, bytes memory paymaster, bytes32 userOpHash, uint256 signerKey) private returns (uint256) {

@@ -2,17 +2,33 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
+import {IYieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
+import {IYieldSeekerSwapSellPolicy, SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
-import {SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
+import {InvalidSlippage, SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../../src/swaps/VaultSwapPolicy.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 contract BorrowSwapPolicyProperties is IntegrationBase {
+    function deploySwapSellPolicy(address admin, address emergencyAdmin, bool initialAllowSellingAllTokens) external returns (SwapSellPolicy) {
+        return new SwapSellPolicy(admin, emergencyAdmin, initialAllowSellingAllTokens);
+    }
+
+    function deployVaultSwapPolicy(IYieldSeekerSwapSellPolicy sellPolicy) external returns (YieldSeekerVaultSwapPolicy) {
+        return new YieldSeekerVaultSwapPolicy(sellPolicy);
+    }
+
+    function deployBorrowSwapPolicy(IYieldSeekerSwapSellPolicy sellPolicy, IYieldSeekerPriceOracle oracle, uint16 maxSlippageBps) external returns (YieldSeekerBorrowSwapPolicy) {
+        return new YieldSeekerBorrowSwapPolicy(sellPolicy, oracle, maxSlippageBps);
+    }
+
     function testFuzz_borrowSwapPolicyMatchesOracleAndDebtReferenceModel(uint8 tokenDecimalsSeed, uint256 tokenPriceAnswerSeed, uint256 soldAmountSeed, uint256 debtSeed, uint256 heldSeed, uint256 boughtSeed, uint16 slippageSeed) public {
         uint8 tokenDecimals = uint8(bound(tokenDecimalsSeed, 0, 24));
         uint256 tokenPriceAnswer = bound(tokenPriceAnswerSeed, 1e6, 1e12);
@@ -72,6 +88,65 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
         assertFalse(_vaultCallAllowed(vaultSwapPolicy, address(wallet), address(usdc), address(rewardToken)));
         assertFalse(_vaultCallAllowed(vaultSwapPolicy, address(wallet), address(rewardToken), address(weth)));
         assertFalse(_vaultCallAllowed(vaultSwapPolicy, address(wallet), address(erc4626Vault), address(usdc)));
+    }
+
+    function test_ownerAndOperatorInputsRejectInvalidPoliciesAndSellTokens() public {
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deploySwapSellPolicy(address(0), address(this), false);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deploySwapSellPolicy(address(this), address(0), false);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployVaultSwapPolicy(IYieldSeekerSwapSellPolicy(address(0)));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployBorrowSwapPolicy(swapSellPolicy, IYieldSeekerPriceOracle(address(0)), 0);
+        vm.expectRevert(abi.encodeWithSelector(InvalidSlippage.selector, 10_000));
+        this.deployBorrowSwapPolicy(swapSellPolicy, priceOracle, 10_000);
+        vm.expectRevert(abi.encodeWithSelector(InvalidSlippage.selector, 10_001));
+        this.deployBorrowSwapPolicy(swapSellPolicy, priceOracle, 10_001);
+        assertEq(new YieldSeekerBorrowSwapPolicy(swapSellPolicy, priceOracle, 9_999).MAX_SLIPPAGE_BPS(), 9_999);
+        SwapSellPolicy openPolicy = new SwapSellPolicy(address(this), address(this), true);
+        assertTrue(openPolicy.allowSellingAllTokens());
+        address[] memory additionalTokens = new address[](2);
+        additionalTokens[0] = address(0xA11);
+        additionalTokens[1] = address(0xA12);
+        openPolicy.setAllowSellingAllTokens(false);
+        openPolicy.addSellableTokens(additionalTokens);
+        assertTrue(openPolicy.isSellableToken(additionalTokens[0]));
+        assertTrue(openPolicy.isSellableToken(additionalTokens[1]));
+        assertEq(openPolicy.getSellableTokens().length, 2);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        swapSellPolicy.addSellableToken(address(0));
+        address[] memory zeroToken = new address[](1);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        swapSellPolicy.addSellableTokens(zeroToken);
+        vm.expectRevert();
+        vm.prank(owner);
+        swapSellPolicy.addSellableToken(address(rewardToken));
+        vm.expectRevert();
+        vm.prank(owner);
+        swapSellPolicy.removeSellableToken(address(rewardToken));
+
+        address[] memory tokens = swapSellPolicy.getSellableTokens();
+        assertEq(tokens.length, 2);
+        assertTrue(swapSellPolicy.isSellableToken(address(rewardToken)));
+        swapSellPolicy.removeSellableToken(address(rewardToken));
+        vm.recordLogs();
+        swapSellPolicy.removeSellableToken(address(rewardToken));
+        Vm.Log[] memory duplicateRemovalLogs = vm.getRecordedLogs();
+        assertEq(duplicateRemovalLogs.length, 0);
+        assertFalse(swapSellPolicy.isSellableToken(address(rewardToken)));
+        vm.expectRevert(abi.encodeWithSelector(SellTokenNotAllowed.selector, address(rewardToken)));
+        swapSellPolicy.validateSellableToken(address(rewardToken));
+
+        swapSellPolicy.setAllowSellingAllTokens(true);
+        assertTrue(swapSellPolicy.isSellableToken(address(0xBEEF)));
+        swapSellPolicy.setAllowSellingAllTokens(false);
+        assertFalse(swapSellPolicy.isSellableToken(address(0xBEEF)));
+        tokens = swapSellPolicy.getSellableTokens();
+        assertEq(tokens.length, 1);
+        assertEq(tokens[0], address(wellToken));
     }
 
     function testPowerUserSellsCollateralAndRepaysUntilTheBorrowIsClosed() public {

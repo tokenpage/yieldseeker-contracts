@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IPriceFeed, SequencerDown, StalePrice} from "../../../src/PriceOracle.sol";
+import {IPriceFeed, InvalidPrice, NoPriceSource, SequencerDown, StalePrice, YieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
@@ -70,5 +71,59 @@ contract PriceOracleProperties is IntegrationBase {
 
         vm.warp(sequencerUpSince + 1 hours);
         assertGt(priceOracle.quote(address(fromToken), address(toToken), 1e18), 0, "quote stayed blocked after the sequencer grace period");
+    }
+
+    function test_adminAndEmergencyRejectInvalidOracleSourcesAndFeedData() public {
+        vm.warp(vm.getBlockTimestamp() + 2 days);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployOracle(address(0), address(this), IPriceFeed(address(sequencerFeed)));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployOracle(address(this), address(0), IPriceFeed(address(sequencerFeed)));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        this.deployOracle(address(this), address(this), IPriceFeed(address(0)));
+
+        MockERC20WithDecimals token = new MockERC20WithDecimals("Oracle Edge", "EDGE", 18);
+        MockFeePriceFeed feed = new MockFeePriceFeed(8, 200e8, block.timestamp);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        priceOracle.setSource(address(0), feed, 1 days);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        priceOracle.setSource(address(token), IPriceFeed(address(0)), 1 days);
+        vm.expectRevert(AWKErrors.ZeroAmount.selector);
+        priceOracle.setSource(address(token), feed, 0);
+        vm.expectRevert(abi.encodeWithSelector(NoPriceSource.selector, address(token)));
+        priceOracle.getPrice(address(token));
+
+        priceOracle.setSource(address(token), feed, 1 days);
+        feed.setPrice(0, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPrice.selector, address(token), int256(0)));
+        priceOracle.getPrice(address(token));
+        feed.setPrice(-1, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPrice.selector, address(token), int256(-1)));
+        priceOracle.getPrice(address(token));
+
+        feed.setPrice(200e8, 0);
+        vm.expectRevert(abi.encodeWithSelector(StalePrice.selector, address(token), uint256(0), uint256(1 days)));
+        priceOracle.getPrice(address(token));
+        feed.setPrice(200e8, block.timestamp + 1);
+        vm.expectRevert(abi.encodeWithSelector(StalePrice.selector, address(token), block.timestamp + 1, uint256(1 days)));
+        priceOracle.getPrice(address(token));
+        feed.setPrice(200e8, block.timestamp - 1 days - 1);
+        vm.expectRevert(abi.encodeWithSelector(StalePrice.selector, address(token), block.timestamp - 1 days - 1, uint256(1 days)));
+        priceOracle.getPrice(address(token));
+
+        vm.expectRevert();
+        vm.prank(owner);
+        priceOracle.setSource(address(token), feed, 1 days);
+        vm.expectRevert();
+        vm.prank(owner);
+        priceOracle.removeSource(address(token));
+        priceOracle.removeSource(address(token));
+        vm.expectRevert(abi.encodeWithSelector(NoPriceSource.selector, address(token)));
+        priceOracle.getPrice(address(token));
+    }
+
+    function deployOracle(address admin, address emergencyAdmin, IPriceFeed sequencerFeed_) external returns (YieldSeekerPriceOracle) {
+        return new YieldSeekerPriceOracle(admin, emergencyAdmin, sequencerFeed_);
     }
 }
