@@ -44,7 +44,10 @@ contract RouterBehaviorMock {
         reportedAmount = reportedAmount_;
     }
 
-    function refundETH() external payable {}
+    function refundETH() external payable {
+        (bool sent,) = msg.sender.call{value: address(this).balance}("");
+        require(sent);
+    }
 
     function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
         (address routeStart, address routeEnd) = _decodePackedEndpoints(params.path);
@@ -122,6 +125,9 @@ contract SwapAdapterProperties is IntegrationBase {
         uint256 deadline = block.timestamp;
         for (uint8 dex = 0; dex < 3; dex++) {
             routers[dex].configure(RouterBehaviorMock.Behavior.Exact, BUY_AMOUNT, BUY_AMOUNT);
+            uint256 routerEth = dex == 1 ? 0 : 1 ether;
+            vm.deal(address(routers[dex]), routerEth);
+            uint256 walletEthBefore = address(wallet).balance;
             bytes memory result = _executeDex(dex, SELL_AMOUNT, 1e6, deadline);
             assertEq(_decodeUint(result), BUY_AMOUNT);
             assertEq(routers[dex].lastAmountIn(), SELL_AMOUNT);
@@ -131,6 +137,8 @@ contract SwapAdapterProperties is IntegrationBase {
             assertEq(routers[dex].lastRouteEnd(), address(usdc));
             assertEq(routers[dex].calls(), 1);
             if (dex != 0) assertEq(routers[dex].lastDeadline(), deadline);
+            assertEq(address(routers[dex]).balance, 0);
+            assertEq(address(wallet).balance, walletEthBefore + routerEth);
         }
     }
 

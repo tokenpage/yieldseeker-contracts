@@ -5,7 +5,11 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../../src/Adapte
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {InvalidAsset, InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
+import {YieldSeekerAerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
+import {YieldSeekerAerodromeV2SwapAdapter} from "../../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {InvalidTransferTarget, NotOwnersAgentWallet, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
+import {YieldSeekerMoonwellRewardAdapter} from "../../../src/adapters/MoonwellRewardAdapter.sol";
+import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {UnknownOperation} from "../../../src/agentwalletkit/AWKAdapter.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
@@ -18,6 +22,7 @@ import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {BlockedRecipientMockERC20, RejectingFeeCollector} from "./mocks/BlockedRecipientMockERC20.sol";
+import {FailingCToken} from "./mocks/FailingCToken.sol";
 import {HostileFeeModule} from "./mocks/HostileFeeModule.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -518,6 +523,35 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.prank(owner);
         realAgent.withdrawAllAssetToUser(owner, address(strayToken));
         assertEq(strayToken.balanceOf(address(realAgent)), 1e18);
+    }
+
+    function test_adaptersRejectZeroAddressesUnknownOperationsAndFailedProtocolCalls() public {
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerUniswapV3SwapAdapter(address(0));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerAerodromeV2SwapAdapter(address(0), address(0xFAC7));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerAerodromeV2SwapAdapter(address(0xA0DE), address(0));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerAerodromeCLSwapAdapter(address(0));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerMoonwellRewardAdapter(address(0));
+
+        AgentWallet wallet = _createVaultWallet(owner, 77_001);
+        bytes memory unknownCall = abi.encodeWithSelector(bytes4(0xdeadbeef), uint256(1));
+        bytes memory unknownOperation = abi.encodeWithSelector(UnknownOperation.selector);
+        _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), unknownCall, unknownOperation);
+        _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), unknownCall, unknownOperation);
+        _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), unknownCall, unknownOperation);
+        _executeExpectRevert(wallet, address(merklAdapter), address(merklDistributor), unknownCall, unknownOperation);
+        _executeExpectRevert(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), unknownCall, unknownOperation);
+
+        FailingCToken failingMarket = new FailingCToken(address(usdc));
+        _registerTarget(vaultRegistry, address(failingMarket), address(compoundV2Adapter));
+        _fundWallet(wallet, address(usdc), 10e6);
+        _executeExpectRevert(wallet, address(compoundV2Adapter), address(failingMarket), abi.encodeCall(compoundV2Adapter.deposit, (10e6)), abi.encodeWithSignature("Error(string)", "AWKCompoundV2Adapter: mint failed"));
+        _executeExpectRevert(wallet, address(compoundV2Adapter), address(failingMarket), abi.encodeCall(compoundV2Adapter.withdraw, (1e18)), abi.encodeWithSignature("Error(string)", "AWKCompoundV2Adapter: redeem failed"));
+        assertEq(usdc.balanceOf(address(wallet)), 10e6);
     }
 
     function _initializeCall(address walletOwner, uint256 index, address baseAsset, bytes32 profile) private pure returns (bytes memory) {

@@ -58,6 +58,9 @@ prove-certora:
 		certoraRun.py certora/$$conf.conf --build_dir "$$CERTORA/runs/$$conf-$$(date +%s)" || exit 1; \
 	done
 
+test-mutation:
+	@ RESULTS_DIR="$${RESULTS_DIR:-/tmp/yieldseeker-mutation}" test/mutation/run.sh all
+
 clean:
 	@ forge clean
 	@ rm -rf cache out
