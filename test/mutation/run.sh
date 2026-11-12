@@ -105,6 +105,8 @@ if [[ "$MODE" == "--worker" ]]; then
     RESULT="SURVIVED"
   elif [[ "$TEST_STATUS" -eq 124 || "$TEST_STATUS" -eq 137 ]]; then
     RESULT="TIMEOUT"
+  elif grep -q "Compiler run failed" "$LOG_DIR/$MUTANT_ID.log"; then
+    RESULT="INVALID"
   else
     RESULT="KILLED"
   fi
