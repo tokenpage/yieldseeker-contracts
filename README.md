@@ -385,6 +385,7 @@ forge test --match-path 'test/fork/*' --fork-url "$RPC_NODE_URL_8453"
 make test-deep
 make prove-halmos
 make prove-certora
+make test-mutation
 ```
 
-`make test-deep` runs the fuzz and invariant tests with many more runs. The proofs run locally; `test/formal/halmos/README.md` and `certora/README.md` cover setup, bounds and limits.
+`make test-deep` runs the fuzz and invariant tests with many more runs; `make test-mutation` plants bugs in the core contracts and checks a test catches each one. Everything runs locally; `test/formal/halmos/README.md` and `certora/README.md` cover setup, bounds and limits.

@@ -70,7 +70,7 @@
 
 ### Verification
 
-- Property tests for the 16 promises in `test/PROPERTIES.md`: fuzz tests in `test/fuzz`, invariant suites of owner, operator and attacker workflows in `test/invariant`, Halmos proofs in `test/formal/halmos` and local Certora rules in `certora/`. `make test` runs the fuzz and invariant tests at 256 runs and 64 × 64 calls; `make test-deep`, `make prove-halmos` and `make prove-certora` run the deep profile and the proofs locally. `foundry.toml` adds `default` and `deep` fuzz and invariant profiles.
+- Property tests for the 18 promises in `test/PROPERTIES.md`: fuzz tests in `test/fuzz`; invariant suites in `test/invariant` for fees, the registry, wallets, a compromised operator and power users across every adapter; Halmos proofs in `test/formal/halmos`; local Certora rules in `certora/`; and Gambit mutation testing in `test/mutation`. `make test` runs the fuzz and invariant tests at 256 runs and 64 × 64 calls; `make test-deep`, `make prove-halmos`, `make prove-certora` and `make test-mutation` run the deep profile, the proofs and the mutation run locally. `foundry.toml` adds `default` and `deep` fuzz and invariant profiles.
 
 ### Documentation
 
