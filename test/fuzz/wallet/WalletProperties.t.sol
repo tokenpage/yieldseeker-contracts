@@ -5,10 +5,10 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../../src/Adapte
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {InvalidAsset, InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
-import {InvalidTransferTarget, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
+import {InvalidTransferTarget, NotOwnersAgentWallet, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {UnknownOperation} from "../../../src/agentwalletkit/AWKAdapter.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../../src/agentwalletkit/AWKAgentWalletFactory.sol";
-import {InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
+import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {InvalidPercentage} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
@@ -20,6 +20,8 @@ import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {BlockedRecipientMockERC20, RejectingFeeCollector} from "./mocks/BlockedRecipientMockERC20.sol";
 import {HostileFeeModule} from "./mocks/HostileFeeModule.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 
@@ -485,6 +487,41 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.expectRevert(InvalidFeeTracker.selector);
         vm.prank(operator);
         incompleteFactory.createAgentWallet(owner, 75_006, address(usdc), VAULT_AGENT_PROFILE, noPlans);
+        vm.expectRevert(InvalidFeeTracker.selector);
+        new ERC1967Proxy(address(incompleteImplementation), _initializeCall(owner, 75_007, address(usdc), VAULT_AGENT_PROFILE));
+    }
+
+    function test_walletsBuiltOutsideTheFactoryCannotInitializeBadlyOrActAsTheOwnersAgent() public {
+        address implementation = address(factory.agentWalletImplementation());
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        AgentWallet(payable(implementation)).initialize(owner, 76_001, address(usdc), VAULT_AGENT_PROFILE);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_002, address(0), VAULT_AGENT_PROFILE));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBA5E)));
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_003, address(0xBA5E), VAULT_AGENT_PROFILE));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new ERC1967Proxy(implementation, _initializeCall(address(0), 76_004, address(usdc), VAULT_AGENT_PROFILE));
+        vm.expectRevert(InvalidRegistry.selector);
+        new ERC1967Proxy(implementation, _initializeCall(owner, 76_005, address(usdc), keccak256("unconfigured")));
+
+        AgentWallet realAgent = _createVaultWallet(owner, 76_006);
+        AgentWallet impostor = AgentWallet(payable(address(new ERC1967Proxy(implementation, _initializeCall(owner, 76_006, address(usdc), VAULT_AGENT_PROFILE)))));
+        _fundWallet(impostor, address(usdc), 50e6);
+        bytes memory transferToRealAgent = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(realAgent), 50e6));
+        _executeExpectRevert(impostor, address(agentTransferAdapter), address(agentTransferAdapter), transferToRealAgent, abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(impostor)));
+        assertEq(usdc.balanceOf(address(realAgent)), 0);
+
+        MockERC20 strayToken = new MockERC20("Stray", "STRAY");
+        strayToken.mint(address(realAgent), 1e18);
+        vm.expectRevert(InvalidAsset.selector);
+        vm.prank(owner);
+        realAgent.withdrawAllAssetToUser(owner, address(strayToken));
+        assertEq(strayToken.balanceOf(address(realAgent)), 1e18);
+    }
+
+    function _initializeCall(address walletOwner, uint256 index, address baseAsset, bytes32 profile) private pure returns (bytes memory) {
+        return abi.encodeWithSignature("initialize(address,uint256,address,bytes32)", walletOwner, index, baseAsset, profile);
     }
 
     function _validateUserOp(AgentWallet wallet, bytes memory callData, bytes memory paymaster, bytes32 userOpHash, uint256 signerKey) private returns (uint256) {
