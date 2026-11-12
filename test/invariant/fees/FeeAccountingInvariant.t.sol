@@ -475,7 +475,7 @@ contract FeeAccountingInvariantTest is StdInvariant, Test {
         assertEq(handler.usdc().balanceOf(handler.feeCollector()), handler.collectorBalanceAtStart() + handler.totalGhostFeesPaid());
     }
 
-    function test_workflowCountersRecordEveryActorPath() public {
+    function test_everyFeeWorkflowOnceLeavesLedgersAndCollectorInAgreement() public {
         handler.vaultUserDeposits(0, 2 * 1e6);
         handler.vaultUserWithdrawsPartOfTheirPosition(0, 1);
         handler.vaultUserWithdrawsTheirFullPosition(0);

@@ -258,7 +258,6 @@ contract AdapterRegistryInvariant is StdInvariant, Test {
             address mappedAdapter = handler.ghostTargetAdapter(target);
             if (mappedAdapter != address(0) && handler.ghostRegistered(mappedAdapter)) expectedCount++;
         }
-        if (registry.paused()) assertEq(actualTargets.length, expectedCount, "paused registry listing differs from active ghost set");
         assertEq(actualTargets.length, expectedCount, "registry target count differs from ghost set");
 
         for (uint256 i = 0; i < actualTargets.length; i++) {

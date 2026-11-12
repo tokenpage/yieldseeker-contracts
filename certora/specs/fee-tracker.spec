@@ -11,7 +11,6 @@ function modeledModulePayment(uint256 maxPayment) returns (uint256) {
         return max_uint256;
     }
     uint256 payment;
-    require payment <= maxPayment;
     return payment;
 }
 
@@ -22,7 +21,7 @@ methods {
         modeledModulePayment(maxPayment) expect uint256 ALL;
 }
 
-// Property 1: the two-module tracker stays within the wallet's modeled base-asset balance when each callback stays within its allowance.
+// Property 1: whatever the two modules report, the tracker either reverts or never asks for more than the wallet's base-asset balance.
 rule trackerPaymentDoesNotExceedWalletBalance(env e, uint256 walletBalance, bytes32 action, bytes data) {
     require e.msg.sender == currentContract;
     require currentContract.moduleCount(e) == 2;
@@ -33,11 +32,12 @@ rule trackerPaymentDoesNotExceedWalletBalance(env e, uint256 walletBalance, byte
 
     uint256 payment;
     address collector;
-    payment, collector = currentContract.reportAction(e, action, data);
+    payment, collector = currentContract.reportAction@withrevert(e, action, data);
+    bool reverted = lastReverted;
 
-    assert payment <= balanceBefore;
-    satisfy payment > 0 && balanceBefore > 0,
-        "a bounded module can report a non-zero payment from a funded wallet";
+    assert reverted || payment <= balanceBefore;
+    satisfy !reverted && payment > 0 && balanceBefore > 0,
+        "modules can take a non-zero payment from a funded wallet";
 }
 
 // Property 1: a module that reports more than the remaining allowance makes the tracker revert, provided that balance is below max uint256.

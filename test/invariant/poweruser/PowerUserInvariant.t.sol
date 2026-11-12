@@ -1471,7 +1471,7 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         vm.revertToState(snapshot);
     }
 
-    function test_powerUserWorkflowCountersShowEveryAdapterRan() public {
+    function test_powerUserRunsEveryAdapterThenClosesOutCleanly() public {
         handler.runRepresentativeWorkflows();
         handler.assertEveryWorkflowWasCalled();
         handler.logWorkflowCalls();
