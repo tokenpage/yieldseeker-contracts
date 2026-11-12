@@ -1,0 +1,23 @@
+[
+  {"filename":"../../src/fees/FeeTracker.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":211},
+  {"filename":"../../src/fees/YieldFeeModule.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":223},
+  {"filename":"../../src/fees/BorrowFeeModule.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":227},
+  {"filename":"../../src/swaps/BorrowSwapPolicy.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":229},
+  {"filename":"../../src/swaps/IYieldSeekerSwapPolicy.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":233},
+  {"filename":"../../src/swaps/VaultSwapPolicy.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":239},
+  {"filename":"../../src/PriceOracle.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":241},
+  {"filename":"../../src/AgentWalletV3.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":251},
+  {"filename":"../../src/agentwalletkit/AWKAgentWalletV3.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":257},
+  {"filename":"../../src/agentwalletkit/AWKAdapterRegistry.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":263},
+  {"filename":"../../src/agentwalletkit/AWKAgentWalletFactory.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":269},
+  {"filename":"../../src/agentwalletkit/AWKAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":271},
+  {"filename":"../../src/adapters/AgentTransferAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":277},
+  {"filename":"../../src/adapters/SwapSellPolicy.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":281},
+  {"filename":"../../src/adapters/LendingAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":283},
+  {"filename":"../../src/adapters/VaultAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":293},
+  {"filename":"../../src/adapters/SwapAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":307},
+  {"filename":"../../src/adapters/Adapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":311},
+  {"filename":"../../src/agentwalletkit/adapters/AWKSwapAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":313},
+  {"filename":"../../src/agentwalletkit/adapters/AWKLendingAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":317},
+  {"filename":"../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol","sourceroot":"../..","solc_base_path":"../..","num_mutants":6,"seed":331}
+]

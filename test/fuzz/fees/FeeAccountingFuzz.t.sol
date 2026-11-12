@@ -1,14 +1,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
+import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
-import {YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {FeePlanChoice, InvalidFeeModule, InvalidPlan, PaymentExceedsAvailable, UnknownFeeType, UnknownPlan, YieldSeekerFeeTracker} from "../../../src/fees/FeeTracker.sol";
+import {IYieldSeekerFeeModule, InvalidFeeRate} from "../../../src/fees/IYieldSeekerFeeModule.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
+
+contract OverpayingFeeModule is IYieldSeekerFeeModule {
+    address public immutable FEE_TRACKER;
+    bytes32 public constant FEE_TYPE = keccak256("overpay");
+
+    constructor(address tracker) {
+        FEE_TRACKER = tracker;
+    }
+
+    function isValidPlan(bytes calldata) external pure returns (bool) {
+        return true;
+    }
+
+    function onAction(address, bytes32, bytes calldata, uint256 maxPayment) external pure returns (uint256) {
+        return maxPayment + 1;
+    }
+
+    function isAccountedToken(address, address) external pure returns (bool) {
+        revert();
+    }
+
+    function feesOwedInBaseAsset(address) external pure returns (uint256) {
+        revert();
+    }
+}
 
 contract FeeActionWallet {
     YieldSeekerFeeTracker public immutable tracker;
@@ -104,6 +131,120 @@ contract FeeAccountingFuzzTest is Test {
         assertEq(yieldModule.feesOwed(address(wallet)), _yieldFee(assetsOut));
     }
 
+    function testFuzz_zeroWithdrawalStatePreservesCostBasisAndChargesAllOutput(uint128 basisSeed, uint128 outputSeed) public {
+        uint256 basis = bound(basisSeed, 1, 1e30);
+        uint256 assetsOut = bound(outputSeed, 0, 1e30);
+        FeeActionWallet zeroSpentWallet = _newWallet();
+        FeeActionWallet zeroHeldWallet = _newWallet();
+
+        _deposit(zeroSpentWallet, address(0xCAFE), basis);
+        _withdraw(zeroSpentWallet, address(0xCAFE), 0, 1, assetsOut);
+        _deposit(zeroHeldWallet, address(0xBEEF), basis);
+        _withdraw(zeroHeldWallet, address(0xBEEF), 1, 0, assetsOut);
+
+        assertEq(yieldModule.costBasis(address(zeroSpentWallet), address(0xCAFE)), basis);
+        assertEq(yieldModule.costBasis(address(zeroHeldWallet), address(0xBEEF)), basis);
+        assertEq(yieldModule.feesOwed(address(zeroSpentWallet)), _yieldFee(assetsOut));
+        assertEq(yieldModule.feesOwed(address(zeroHeldWallet)), _yieldFee(assetsOut));
+    }
+
+    function test_feeConfigurationPlanAndTrackerRejections() public {
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerFeeTracker(address(0), makeAddr("fee collector"));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerFeeTracker(address(this), address(0));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        tracker.setFeeCollector(address(0));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0)));
+        tracker.setWalletFactory(address(0));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0xBEEF)));
+        tracker.setWalletFactory(address(0xBEEF));
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, address(0)));
+        tracker.setFeeModule(YIELD_FEE, IYieldSeekerFeeModule(address(0)));
+        vm.expectRevert(abi.encodeWithSelector(InvalidFeeModule.selector, YIELD_FEE, address(borrowModule)));
+        tracker.setFeeModule(YIELD_FEE, borrowModule);
+        vm.expectRevert(abi.encodeWithSelector(UnknownFeeType.selector, bytes32(uint256(1))));
+        tracker.createPlan(bytes32(uint256(1)), abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1})));
+        vm.expectRevert(abi.encodeWithSelector(InvalidPlan.selector, YIELD_FEE, uint256(1)));
+        tracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 5_001})));
+        vm.expectRevert(abi.encodeWithSelector(InvalidPlan.selector, YIELD_FEE, uint256(1)));
+        tracker.createPlan(YIELD_FEE, bytes(""));
+        vm.expectRevert(abi.encodeWithSelector(UnknownPlan.selector, YIELD_FEE, uint256(1)));
+        tracker.plan(YIELD_FEE, 1);
+
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerYieldFeeModule(YieldSeekerFeeTracker(address(0)), 5_000);
+        vm.expectRevert(InvalidFeeRate.selector);
+        new YieldSeekerYieldFeeModule(tracker, 10_001);
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        new YieldSeekerBorrowFeeModule(YieldSeekerFeeTracker(address(0)), 1_000);
+        vm.expectRevert(InvalidFeeRate.selector);
+        new YieldSeekerBorrowFeeModule(tracker, 10_001);
+
+        assertTrue(yieldModule.isValidPlan(abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: YIELD_RATE_BPS}))));
+        assertFalse(yieldModule.isValidPlan(bytes("")));
+        assertFalse(yieldModule.isValidPlan(abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 5_001}))));
+        assertTrue(borrowModule.isValidPlan(abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: BORROW_RATE_BPS}))));
+        assertFalse(borrowModule.isValidPlan(bytes("")));
+        assertFalse(borrowModule.isValidPlan(abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_001}))));
+        assertTrue(yieldModule.isValidPlan(abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 5_000}))));
+        assertTrue(borrowModule.isValidPlan(abi.encode(YieldSeekerBorrowFeeModule.Plan({rateBps: 1_000}))));
+
+        FeeActionWallet wallet = _newWallet();
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, address(this)));
+        yieldModule.onAction(address(wallet), FeeActions.CLAIM, bytes(""), 0);
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, address(this)));
+        borrowModule.onAction(address(wallet), FeeActions.DEBT_CHANGE, bytes(""), 0);
+        FeePlanChoice[] memory choices = new FeePlanChoice[](1);
+        choices[0] = FeePlanChoice({feeType: YIELD_FEE, planId: 0});
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, address(this)));
+        tracker.initWalletPlans(address(wallet), choices);
+        tracker.setWalletFactory(address(this));
+        choices[0] = FeePlanChoice({feeType: YIELD_FEE, planId: 1});
+        vm.expectRevert(abi.encodeWithSelector(UnknownPlan.selector, YIELD_FEE, uint256(1)));
+        tracker.initWalletPlans(address(wallet), choices);
+        choices[0] = FeePlanChoice({feeType: YIELD_FEE, planId: 0});
+        tracker.initWalletPlans(address(wallet), choices);
+        assertEq(tracker.walletPlanId(address(wallet), YIELD_FEE), 0);
+        assertEq(yieldModule.walletPlan(address(wallet)).rateBps, YIELD_RATE_BPS);
+        assertEq(tracker.walletPlan(address(wallet), bytes32(uint256(1))).length, 0);
+
+        bytes32[] memory feeTypes = tracker.moduleFeeTypes();
+        assertEq(feeTypes.length, 2);
+        assertEq(feeTypes[0], YIELD_FEE);
+        assertEq(feeTypes[1], BORROW_FEE);
+        YieldSeekerYieldFeeModule replacement = new YieldSeekerYieldFeeModule(tracker, 5_000);
+        tracker.setFeeModule(YIELD_FEE, replacement);
+        feeTypes = tracker.moduleFeeTypes();
+        assertEq(feeTypes.length, 2);
+        assertEq(feeTypes[0], YIELD_FEE);
+        assertEq(feeTypes[1], BORROW_FEE);
+        YieldSeekerYieldFeeModule invalidReplacement = new YieldSeekerYieldFeeModule(tracker, 1_000);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPlan.selector, YIELD_FEE, uint256(0)));
+        tracker.setFeeModule(YIELD_FEE, invalidReplacement);
+
+        assertTrue(tracker.isAccountedToken(address(wallet), address(baseAsset)));
+        assertFalse(tracker.isAccountedToken(address(wallet), address(0xBEEF)));
+        vm.expectRevert();
+        vm.prank(address(0xCAFE));
+        tracker.setFeeCollector(address(0xCAFE));
+        vm.expectRevert();
+        vm.prank(address(0xCAFE));
+        tracker.createPlan(YIELD_FEE, abi.encode(YieldSeekerYieldFeeModule.Plan({rateBps: 1})));
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), 0);
+    }
+
+    function test_feeTrackerRejectsModuleOverpaymentAndToleratesBrokenViewModules() public {
+        OverpayingFeeModule overpaying = new OverpayingFeeModule(address(tracker));
+        tracker.setFeeModule(overpaying.FEE_TYPE(), overpaying);
+        FeeActionWallet wallet = _newWallet();
+
+        assertFalse(tracker.isAccountedToken(address(wallet), address(0xBEEF)));
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), 0);
+        vm.expectRevert(abi.encodeWithSelector(PaymentExceedsAvailable.selector, address(overpaying), uint256(1), uint256(0)));
+        wallet.reportAction(FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: address(0x1), bought: address(0x2), soldAmount: 1, boughtAmount: 1})));
+    }
+
     function testFuzz_yieldFeeIsBoundedByRoundedYieldRate(uint128 yieldSeed) public {
         uint256 realizedYield = bound(yieldSeed, 0, 1e30);
         FeeActionWallet wallet = _newWallet();
@@ -116,6 +257,19 @@ contract FeeAccountingFuzzTest is Test {
         assertEq(yieldModule.feesOwed(address(wallet)), roundedFeeBound);
     }
 
+    function test_baseAssetRewardSalesAreYieldButOtherSwapsAreNot() public {
+        FeeActionWallet wallet = _newWallet();
+        FeeActions.Swap memory baseSale = FeeActions.Swap({sold: address(0xCAFE), bought: address(baseAsset), soldAmount: 100e6, boughtAmount: 200e6});
+        wallet.reportAction(FeeActions.REWARD_SALE, abi.encode(baseSale));
+        uint256 owedAfterBaseSale = yieldModule.feesOwed(address(wallet));
+        assertEq(owedAfterBaseSale, _yieldFee(baseSale.boughtAmount));
+
+        FeeActions.Swap memory nonBaseSale = FeeActions.Swap({sold: address(0xCAFE), bought: address(0xBEEF), soldAmount: 100e6, boughtAmount: 200e6});
+        wallet.reportAction(FeeActions.REWARD_SALE, abi.encode(nonBaseSale));
+        wallet.reportAction(FeeActions.SWAP, abi.encode(baseSale));
+        assertEq(yieldModule.feesOwed(address(wallet)), owedAfterBaseSale);
+    }
+
     function testFuzz_paymentIsCappedAndOwedFallsByExactPayment(uint128 yieldSeed, uint128 availableSeed) public {
         uint256 realizedYield = bound(yieldSeed, 1, 1e30);
         FeeActionWallet wallet = _newWallet();
@@ -123,11 +277,13 @@ contract FeeAccountingFuzzTest is Test {
         wallet.reportAction(FeeActions.CLAIM, claim);
 
         uint256 owedBefore = yieldModule.feesOwed(address(wallet));
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), owedBefore);
         uint256 available = bound(availableSeed, 0, owedBefore + 1e18);
         baseAsset.mint(address(wallet), available);
         uint256 payment = wallet.reportAction(FeeActions.SWAP, abi.encode(FeeActions.Swap({sold: address(0x1), bought: address(0x2), soldAmount: 1, boughtAmount: 1})));
 
         uint256 owedAfter = yieldModule.feesOwed(address(wallet));
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), owedAfter);
         assertLe(payment, available);
         assertEq(owedBefore - owedAfter, payment);
         assertEq(baseAsset.balanceOf(address(wallet)), available - payment);
@@ -144,8 +300,11 @@ contract FeeAccountingFuzzTest is Test {
         vm.warp(start + firstDelay);
         uint256 firstPending = borrowModule.pendingFee(address(wallet), MARKET);
         vm.warp(start + firstDelay + extraDelay);
+        assertEq(firstPending, Math.mulDiv(debt, BORROW_RATE_BPS * firstDelay, YEAR * 10_000, Math.Rounding.Ceil));
         uint256 laterPending = borrowModule.pendingFee(address(wallet), MARKET);
+        assertEq(laterPending, Math.mulDiv(debt, BORROW_RATE_BPS * (firstDelay + extraDelay), YEAR * 10_000, Math.Rounding.Ceil));
         _reportDebt(wallet, debt, 0, 0, 1e36);
+        assertEq(tracker.feesOwedInBaseAsset(address(wallet)), laterPending);
 
         assertGe(laterPending, firstPending);
         assertGe(borrowModule.feesOwed(address(wallet)), laterPending);
