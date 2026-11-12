@@ -485,7 +485,9 @@ contract CompromisedOperatorHandler is Test {
 
     function operatorMovesTimeAndPrices(uint32 elapsedSeed, uint32 priceSeed) external {
         vm.warp(block.timestamp + bound(elapsedSeed, 1, 1 hours));
-        int256 marketPrice = priceSeed % 2 == 0 ? int256(1_999e8) : int256(2_001e8);
+        int256 marketPrice = int256(bound(priceSeed, 1_500e8, 2_500e8));
+        uint256 ownerAValueBefore = _ownerValue(ownerA);
+        uint256 ownerBValueBefore = _ownerValue(ownerB);
         uint256 now_ = block.timestamp;
         wethPriceFeed.setPrice(marketPrice, now_);
         usdcPriceFeed.setPrice(1e8, now_);
@@ -494,6 +496,10 @@ contract CompromisedOperatorHandler is Test {
         aaveV3LendingPool.setAssetPrice(address(weth), uint256(marketPrice));
         aaveV4Spoke.setReservePrice(2, uint256(marketPrice));
         morphoOracle.setPrice(Math.mulDiv(5e44, 2_000e8, uint256(marketPrice)));
+        uint256 ownerAValueAfter = _ownerValue(ownerA);
+        uint256 ownerBValueAfter = _ownerValue(ownerB);
+        if (ownerAValueBefore > ownerAValueAfter) acceptedLossBudget[ownerA] += ownerAValueBefore - ownerAValueAfter;
+        if (ownerBValueBefore > ownerBValueAfter) acceptedLossBudget[ownerB] += ownerBValueBefore - ownerBValueAfter;
         _accrueMorphoAndTrackInterest();
         for (uint256 i; i < _ownerAWallets.length; i++) {
             if (_ownerAWallets[i].agentProfile() == BORROW_AGENT_PROFILE) _refreshBorrowBudgets(_ownerAWallets[i]);
@@ -868,7 +874,8 @@ contract CompromisedOperatorHandler is Test {
         address[] memory markets = new address[](1);
         markets[0] = address(compoundV2Vault);
         (bool success,) = _operatorExecute(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (thief, markets)));
-        if (!success) rewardWorkflowBlocks++;
+        assertFalse(success);
+        rewardWorkflowBlocks++;
     }
 
     function _tryUnregisteredRewardClaim(AgentWallet wallet) private {
@@ -880,10 +887,9 @@ contract CompromisedOperatorHandler is Test {
         proofs[0] = new bytes32[](0);
         unregisteredTargetAttempts++;
         (bool success,) = _operatorExecute(wallet, address(merklAdapter), address(hostileVault), abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs)));
-        if (!success) {
-            unregisteredTargetBlocks++;
-            rewardWorkflowBlocks++;
-        }
+        assertFalse(success);
+        unregisteredTargetBlocks++;
+        rewardWorkflowBlocks++;
     }
 
     function _sellRewardOnAllDexes(AgentWallet wallet, address token, uint96 amountSeed) private {
@@ -1221,10 +1227,9 @@ contract CompromisedOperatorHandler is Test {
         (bool success,) = _operatorExecute(wallet, address(erc4626Adapter), address(hostileVault), abi.encodeCall(erc4626Adapter.deposit, (USDC_UNIT)));
         unregisteredTargetAttempts++;
         vaultWorkflowAttempts++;
-        if (!success) {
-            unregisteredTargetBlocks++;
-            vaultWorkflowBlocks++;
-        }
+        assertFalse(success);
+        unregisteredTargetBlocks++;
+        vaultWorkflowBlocks++;
 
         address[] memory adapters = new address[](13);
         adapters[0] = address(erc4626Adapter);
@@ -1243,14 +1248,13 @@ contract CompromisedOperatorHandler is Test {
         for (uint256 i; i < adapters.length; i++) {
             unregisteredTargetAttempts++;
             (success,) = _operatorExecute(wallet, adapters[i], address(hostileRouter), bytes(""));
-            if (!success) {
-                unregisteredTargetBlocks++;
-                if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV2Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowBlocks++;
-                else if (adapters[i] == address(merklAdapter) || adapters[i] == address(moonwellRewardAdapter)) rewardWorkflowBlocks++;
-                else if (adapters[i] == address(uniswapV3SwapAdapter) || adapters[i] == address(aerodromeV2SwapAdapter) || adapters[i] == address(aerodromeCLSwapAdapter)) swapWorkflowBlocks++;
-                else if (adapters[i] == address(agentTransferAdapter)) transferWorkflowBlocks++;
-                else lendingWorkflowBlocks++;
-            }
+            assertFalse(success);
+            unregisteredTargetBlocks++;
+            if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV2Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowBlocks++;
+            else if (adapters[i] == address(merklAdapter) || adapters[i] == address(moonwellRewardAdapter)) rewardWorkflowBlocks++;
+            else if (adapters[i] == address(uniswapV3SwapAdapter) || adapters[i] == address(aerodromeV2SwapAdapter) || adapters[i] == address(aerodromeCLSwapAdapter)) swapWorkflowBlocks++;
+            else if (adapters[i] == address(agentTransferAdapter)) transferWorkflowBlocks++;
+            else lendingWorkflowBlocks++;
             if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV2Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowAttempts++;
             else if (adapters[i] == address(merklAdapter) || adapters[i] == address(moonwellRewardAdapter)) rewardWorkflowAttempts++;
             else if (adapters[i] == address(uniswapV3SwapAdapter) || adapters[i] == address(aerodromeV2SwapAdapter) || adapters[i] == address(aerodromeCLSwapAdapter)) swapWorkflowAttempts++;
@@ -1260,7 +1264,8 @@ contract CompromisedOperatorHandler is Test {
 
         unregisteredTargetAttempts++;
         (success,) = _operatorExecute(wallet, address(hostileRouter), address(uniswapV3Router), bytes(""));
-        if (!success) unregisteredTargetBlocks++;
+        assertFalse(success);
+        unregisteredTargetBlocks++;
     }
 
     function _tryHostileToken(AgentWallet wallet) private {
@@ -1268,10 +1273,12 @@ contract CompromisedOperatorHandler is Test {
         (bool success, bytes memory result) = address(hostileToken).call(abi.encodeCall(hostileToken.trySteal, (address(usdc), address(wallet), thief, 1)));
         bool stole;
         if (success && result.length >= 32) stole = abi.decode(result, (bool));
-        if (!stole) hostileTokenBlocks++;
+        assertFalse(stole);
+        hostileTokenBlocks++;
         (address adapter, address target, bytes memory data) = _swapCall(0, address(hostileToken), address(usdc), 1, 1);
         (success,) = _operatorExecute(wallet, adapter, target, data);
-        if (!success) hostileTokenBlocks++;
+        assertFalse(success);
+        hostileTokenBlocks++;
     }
 
     function _tryDirectArbitraryCalls(AgentWallet wallet) private {
@@ -1279,12 +1286,13 @@ contract CompromisedOperatorHandler is Test {
         calls[0] = abi.encodeWithSignature("execute(address,uint256,bytes)", address(hostileRouter), 0, bytes(""));
         calls[1] = abi.encodeWithSignature("executeBatch(address[],bytes[])", new address[](0), new bytes[](0));
         calls[2] = abi.encodeCall(wallet.executeViaAdapter, (address(erc4626Adapter), address(hostileVault), abi.encodeCall(erc4626Adapter.deposit, (USDC_UNIT))));
-        calls[3] = abi.encodeCall(wallet.executeViaAdapterBatch, (new address[](0), new address[](0), new bytes[](0)));
+        calls[3] = abi.encodeCall(wallet.executeViaAdapterBatch, (_singleAddress(address(erc4626Adapter)), _singleAddress(address(hostileVault)), _singleBytes(abi.encodeCall(erc4626Adapter.deposit, (USDC_UNIT)))));
         for (uint256 i; i < calls.length; i++) {
             arbitraryCallAttempts++;
             vm.prank(operator);
             (bool success,) = address(wallet).call(calls[i]);
-            if (!success) arbitraryCallBlocks++;
+            assertFalse(success);
+            arbitraryCallBlocks++;
         }
     }
 
@@ -1303,7 +1311,8 @@ contract CompromisedOperatorHandler is Test {
             privilegedCallAttempts++;
             vm.prank(operator);
             (bool success,) = address(wallet).call(calls[i]);
-            if (!success) privilegedCallBlocks++;
+            assertFalse(success);
+            privilegedCallBlocks++;
         }
     }
 
@@ -1357,7 +1366,8 @@ contract CompromisedOperatorHandler is Test {
         walletEthSpendAttempts++;
         vm.prank(operator);
         (bool success,) = address(wallet).call(abi.encodeCall(wallet.withdrawAllEthToUser, (thief)));
-        if (!success) walletEthSpendBlocks++;
+        assertFalse(success);
+        walletEthSpendBlocks++;
     }
 
     function _tryEntryPointSpend(AgentWallet wallet) private {
@@ -1365,10 +1375,12 @@ contract CompromisedOperatorHandler is Test {
         bytes memory withdrawal = abi.encodeCall(IOperatorEntryPoint.withdrawTo, (payable(thief), 1));
         vm.prank(operator);
         (bool success,) = address(wallet).call(abi.encodeCall(wallet.execute, (ENTRY_POINT_V06, 0, withdrawal)));
-        if (!success) entryPointSpendBlocks++;
+        assertFalse(success);
+        entryPointSpendBlocks++;
         entryPointSpendAttempts++;
         (success,) = _operatorExecute(wallet, address(erc4626Adapter), ENTRY_POINT_V06, withdrawal);
-        if (!success) entryPointSpendBlocks++;
+        assertFalse(success);
+        entryPointSpendBlocks++;
     }
 
     function _tryCrossOwnerTransfers() private {
@@ -1382,16 +1394,16 @@ contract CompromisedOperatorHandler is Test {
         transferWorkflowAttempts++;
         crossOwnerTransferAttempts++;
         (bool success,) = _operatorExecute(source, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(weth), address(other), 1)));
-        if (!success) {
-            transferWorkflowBlocks++;
-            crossOwnerTransferBlocks++;
-        }
+        assertFalse(success);
+        transferWorkflowBlocks++;
+        crossOwnerTransferBlocks++;
         _assertOwnerState(ownerB, otherOwnerState);
 
         AgentWallet thiefWallet = thiefBorrow;
         transferWorkflowAttempts++;
         (success,) = _operatorExecute(source, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(weth), address(thiefWallet), 1)));
-        if (!success) transferWorkflowBlocks++;
+        assertFalse(success);
+        transferWorkflowBlocks++;
     }
 
     function _tryUnregisteredFactoryCreate() private {
@@ -1399,7 +1411,18 @@ contract CompromisedOperatorHandler is Test {
         vm.prank(thief);
         (bool success,) = address(factory).call(abi.encodeCall(factory.createAgentWallet, (thief, 999_999, address(usdc), VAULT_AGENT_PROFILE, plans)));
         factoryWalletAttempts++;
-        if (!success) factoryWalletBlocks++;
+        assertFalse(success);
+        factoryWalletBlocks++;
+    }
+
+    function _singleAddress(address value) private pure returns (address[] memory values) {
+        values = new address[](1);
+        values[0] = value;
+    }
+
+    function _singleBytes(bytes memory value) private pure returns (bytes[] memory values) {
+        values = new bytes[](1);
+        values[0] = value;
     }
 
     function _ownerWithdrawSingle(AgentWallet wallet, address walletOwner, uint96 amountSeed) private {
@@ -1683,7 +1706,7 @@ contract CompromisedOperatorHandler is Test {
         AgentWallet[] storage wallets = walletOwner == ownerA ? _ownerAWallets : _ownerBWallets;
         for (uint256 i; i < wallets.length; i++) {
             AgentWallet wallet = wallets[i];
-            uint256 tokenDebt = borrowFeeModuleDebt(address(wallet)) + _morphoUnreportedDebt(address(wallet));
+            uint256 tokenDebt = aaveV3VariableDebtTokenBalance(address(wallet)) + aaveV4Spoke.getUserTotalDebt(2, address(wallet)) + _morphoDebt(address(wallet));
             debt += _wethValueCeil(tokenDebt) + _protocolCosts(wallet);
         }
     }
@@ -1723,14 +1746,6 @@ contract CompromisedOperatorHandler is Test {
         (, uint128 borrowShares,) = morpho.position(id, account);
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(id);
         if (borrowShares > 0) debt = Math.mulDiv(borrowShares, uint256(totalBorrowAssets) + 1, uint256(totalBorrowShares) + 1e6, Math.Rounding.Ceil);
-    }
-
-    function _morphoUnreportedDebt(address account) private view returns (uint256) {
-        YieldSeekerBorrowFeeModule module = _borrowFeeModule();
-        address position = morphoBlueLendingAdapter.debtPosition(morphoMarket);
-        (uint128 reportedDebt,,) = module.debtPositions(account, position);
-        uint256 actualDebt = _morphoDebt(account);
-        return actualDebt > reportedDebt ? actualDebt - reportedDebt : 0;
     }
 
     function aaveV3CollateralBalance(address account) private view returns (uint256) {
