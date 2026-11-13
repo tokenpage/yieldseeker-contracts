@@ -88,3 +88,26 @@ rule adminCanChangeCollectorAndAddPlan(env e, address newCollector, bytes32 feeT
     currentContract.createPlan(e, feeType, newPlan);
     satisfy currentContract.feeCollector(e) != collectorBefore && currentContract.planCount(e, feeType) != planCountBefore;
 }
+
+// Property 7: each admin setter stores exactly the value it was given.
+rule adminSettersStoreWhatTheyAreGiven(env e, address newCollector, address newFactory, bytes32 feeType, address module) {
+    currentContract.setFeeCollector(e, newCollector);
+    currentContract.setWalletFactory(e, newFactory);
+    currentContract.setFeeModule(e, feeType, module);
+
+    assert currentContract.feeCollector(e) == newCollector;
+    assert currentContract.walletFactory(e) == newFactory;
+    assert currentContract.feeModules(e, feeType) == module;
+}
+
+// Property 1: plugging in a module for a new fee type adds it to the modules every action runs through; replacing
+// the module of an existing fee type keeps the list the same length.
+rule setFeeModuleAddsNewTypesAndReplacesExistingOnes(env e, bytes32 feeType, address module) {
+    bool isNewType = currentContract.feeModules(e, feeType) == 0;
+    uint256 countBefore = currentContract.moduleCount(e);
+
+    currentContract.setFeeModule(e, feeType, module);
+
+    assert currentContract.moduleCount(e) == (isNewType ? countBefore + 1 : countBefore);
+    satisfy !isNewType;
+}
