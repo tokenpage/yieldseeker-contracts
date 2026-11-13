@@ -39,6 +39,11 @@ contract YieldFeeModuleHarness is YieldSeekerYieldFeeModule, FeeTrackerSurface {
         FeeActions.Withdraw memory withdrawal = FeeActions.Withdraw({target: address(0xCAFE), spent: 0, heldBefore: 0, assetsOut: 1});
         return this.reportAction(keccak256("withdraw"), abi.encode(withdrawal), 1);
     }
+
+    function reportFullWithdrawal(address target, uint256 heldBefore, uint256 assetsOut) external {
+        FeeActions.Withdraw memory withdrawal = FeeActions.Withdraw({target: target, spent: heldBefore, heldBefore: heldBefore, assetsOut: assetsOut});
+        this.reportAction(FeeActions.WITHDRAW, abi.encode(withdrawal), 0);
+    }
 }
 
 contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface {
@@ -84,6 +89,11 @@ contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface
         this.reportAction(keccak256("debtChange"), abi.encode(change), 0);
         lastDebtAfter = position.lastDebt;
         tokenDebtAfter = tokenDebt[wallet][debtToken];
+    }
+
+    function reportCheckpoint(address market, address debtToken, uint256 debtBefore, uint256 price) external {
+        FeeActions.DebtChange memory change = FeeActions.DebtChange({market: market, debtToken: debtToken, debtBefore: debtBefore, borrowed: 0, repaid: 0, debtPriceInBaseAsset: price});
+        this.reportAction(FeeActions.DEBT_CHANGE, abi.encode(change), 0);
     }
 }
 

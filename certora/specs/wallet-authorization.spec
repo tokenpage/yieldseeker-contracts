@@ -30,8 +30,6 @@ filtered {
     mathint nativeBalanceBefore = nativeBalances[walletAddress];
 
     require currentContract.walletInitialized(e);
-    require currentContract.baseAsset(e) == token;
-    require ownerBefore != 0;
     require e.msg.sender != ownerBefore;
     require !currentContract.isEntryPoint(e, e.msg.sender);
     require !currentContract.isAgentOperator(e, e.msg.sender);

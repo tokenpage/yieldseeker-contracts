@@ -20,12 +20,7 @@ invariant borrowTokenDebtMatchesPositionSum(address wallet, address token)
     preserved reportAction(bytes32 action, bytes data, uint256 maxPayment) with (env e) {
     }
     preserved onAction(address walletArg, bytes32 actionArg, bytes dataArg, uint256 maxPaymentArg) with (env e) {
-        require e.msg.sender == currentContract.FEE_TRACKER(e);
         require currentContract.hasConsistentDebtToken(e, walletArg, actionArg, dataArg);
-    }
-    preserved reachDebtChange() with (env e) {
-        require currentContract.debtPositions[currentContract][currentContract.WITNESS_MARKET(e)].lastDebt == 0;
-        require currentContract.tokenDebt[currentContract][currentContract.WITNESS_DEBT_TOKEN(e)] == 0;
     }
 }
 

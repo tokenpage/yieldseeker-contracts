@@ -54,3 +54,37 @@ rule trackerRejectsModuleOverpayment(env e, uint256 walletBalance, bytes32 actio
     assert lastReverted;
     satisfy lastReverted, "forced module overpayment reaches the tracker rejection";
 }
+
+// Property 7: the collector, factory, modules and plans change only through the admin's setters, and wallet plans only through the wallet factory.
+rule trackerConfigurationChangesOnlyThroughAuthorisedSetters(method f, bytes32 feeType, address wallet)
+filtered {
+    f -> !f.isView && f.selector != sig:setWalletBaseAssetBalance(uint256).selector
+}
+{
+    env e;
+    calldataarg args;
+    address collectorBefore = currentContract.feeCollector(e);
+    address factoryBefore = currentContract.walletFactory(e);
+    address moduleBefore = currentContract.feeModules(e, feeType);
+    uint256 planCountBefore = currentContract.planCount(e, feeType);
+    uint256 walletPlanBefore = currentContract.walletPlanId(e, wallet, feeType);
+    bool isAdmin = currentContract.hasRole(e, currentContract.DEFAULT_ADMIN_ROLE(e), e.msg.sender);
+
+    f(e, args);
+
+    assert currentContract.feeCollector(e) != collectorBefore => isAdmin && f.selector == sig:setFeeCollector(address).selector;
+    assert currentContract.walletFactory(e) != factoryBefore => isAdmin && f.selector == sig:setWalletFactory(address).selector;
+    assert currentContract.feeModules(e, feeType) != moduleBefore => isAdmin && f.selector == sig:setFeeModule(bytes32, address).selector;
+    assert currentContract.planCount(e, feeType) != planCountBefore => isAdmin && f.selector == sig:createPlan(bytes32, bytes).selector;
+    assert currentContract.walletPlanId(e, wallet, feeType) != walletPlanBefore => e.msg.sender == factoryBefore && f.selector == 0x7f9c1528;
+}
+
+// Positive control: the admin can change the collector and add a plan, so the rule above can fail.
+rule adminCanChangeCollectorAndAddPlan(env e, address newCollector, bytes32 feeType, bytes newPlan) {
+    require currentContract.hasRole(e, currentContract.DEFAULT_ADMIN_ROLE(e), e.msg.sender);
+    address collectorBefore = currentContract.feeCollector(e);
+    uint256 planCountBefore = currentContract.planCount(e, feeType);
+    currentContract.setFeeCollector(e, newCollector);
+    currentContract.createPlan(e, feeType, newPlan);
+    satisfy currentContract.feeCollector(e) != collectorBefore && currentContract.planCount(e, feeType) != planCountBefore;
+}

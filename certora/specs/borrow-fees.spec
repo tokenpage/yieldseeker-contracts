@@ -1,3 +1,8 @@
+methods {
+    // The harness is its own fee tracker; route the module's plan lookup to it instead of an arbitrary result.
+    function _.walletPlan(address, bytes32) external => DISPATCHER(true);
+}
+
 ghost mapping(address => mathint) feeCharged;
 ghost mapping(address => mathint) feePaid;
 
@@ -33,5 +38,73 @@ rule borrowFeePaymentDoesNotExceedLimit(env e, bytes32 action, bytes data, uint2
     assert payment <= maxPayment;
     satisfy payment > 0 && feeCharged[wallet] > 0 && feePaid[wallet] > 0,
         "a non-zero borrow fee can be paid within a non-zero allowance";
+}
+
+// Property 5: a checkpoint a year after the last report charges exactly the plan rate on the last reported debt, rounded up.
+// Rate, time and price are fixed so the solver only reasons about one symbolic factor; the fuzz tests and Halmos vary them.
+rule checkpointChargesPlanRateOnLastDebtForAYear(env e, address market, address debtToken, uint256 debtBefore) {
+    address wallet = currentContract;
+    uint128 lastDebt;
+    uint64 lastAccrual;
+    uint192 lastPrice;
+    lastDebt, lastAccrual, lastPrice = currentContract.debtPositions(e, wallet, market);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    require currentContract.planRateBps(e) == 100;
+    require e.block.timestamp == lastAccrual + 365 * 86400;
+
+    currentContract.reportCheckpoint(e, market, debtToken, debtBefore, 10^36);
+
+    assert currentContract.feesOwed(e, wallet) - owedBefore == (lastDebt * 100 + 9999) / 10000;
+    satisfy lastDebt > 0;
+}
+
+// Property 5: the fee is valued in the base asset at the price reported with the checkpoint, rounded up.
+rule checkpointValuesTheFeeAtTheReportedPrice(env e, address market, address debtToken, uint256 debtBefore, uint256 price) {
+    address wallet = currentContract;
+    uint128 lastDebt;
+    uint64 lastAccrual;
+    uint192 lastPrice;
+    lastDebt, lastAccrual, lastPrice = currentContract.debtPositions(e, wallet, market);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    require currentContract.planRateBps(e) == 10000;
+    require lastDebt == 10^18;
+    require e.block.timestamp == lastAccrual + 365 * 86400;
+    require price > 0 && price <= max_uint192;
+
+    currentContract.reportCheckpoint(e, market, debtToken, debtBefore, price);
+
+    assert currentContract.feesOwed(e, wallet) - owedBefore == (10^18 * price + 10^36 - 1) / 10^36;
+    satisfy price > 10^18;
+}
+
+// Property 4: fees owed, debt positions, token debt and borrowed-token flags change only when the fee tracker reports an action.
+rule borrowFeeStateChangesOnlyThroughTrackerActions(method f, address wallet, address position, address token)
+filtered {
+    f -> !f.isView &&
+        f.selector != sig:reportAction(bytes32, bytes, uint256).selector &&
+        f.selector != sig:reachDebtChange().selector &&
+        f.selector != sig:reportCheckpoint(address, address, uint256, uint256).selector &&
+        f.selector != sig:setPlanRate(uint256).selector
+}
+{
+    env e;
+    calldataarg args;
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    uint128 lastDebtBefore;
+    uint64 lastAccrualBefore;
+    uint192 lastPriceBefore;
+    lastDebtBefore, lastAccrualBefore, lastPriceBefore = currentContract.debtPositions(e, wallet, position);
+    uint256 tokenDebtBefore = currentContract.tokenDebt(e, wallet, token);
+    bool borrowedBefore = currentContract.isBorrowedToken(e, wallet, token);
+
+    f(e, args);
+
+    uint128 lastDebtAfter;
+    uint64 lastAccrualAfter;
+    uint192 lastPriceAfter;
+    lastDebtAfter, lastAccrualAfter, lastPriceAfter = currentContract.debtPositions(e, wallet, position);
+    bool changed = currentContract.feesOwed(e, wallet) != owedBefore || lastDebtAfter != lastDebtBefore || lastAccrualAfter != lastAccrualBefore ||
+        lastPriceAfter != lastPriceBefore || currentContract.tokenDebt(e, wallet, token) != tokenDebtBefore || currentContract.isBorrowedToken(e, wallet, token) != borrowedBefore;
+    assert changed => f.selector == sig:onAction(address, bytes32, bytes, uint256).selector && e.msg.sender == currentContract.FEE_TRACKER(e);
 }
 
