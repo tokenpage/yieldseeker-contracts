@@ -189,3 +189,23 @@ rule otherActionsAreNotYield(env e, bytes32 action, bytes data, address target) 
     assert currentContract.feesOwed(e, wallet) == owedBefore;
     assert currentContract.costBasis(e, wallet, target) == basis;
 }
+
+// Property 3: withdrawing a position in two halves never charges less yield fee than withdrawing it in one go.
+rule splittingAWithdrawalCannotAvoidYieldFees(env e, address target, uint256 firstOut, uint256 secondOut) {
+    address wallet = currentContract;
+    require currentContract.planRateBps(e) == 2000;
+    require currentContract.costBasis(e, wallet, target) <= max_uint128;
+    require firstOut <= max_uint64 && secondOut <= max_uint64;
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    storage initial = lastStorage;
+
+    currentContract.reportWithdrawal(e, target, 1, 2, firstOut);
+    currentContract.reportWithdrawal(e, target, 1, 1, secondOut);
+    mathint split = currentContract.feesOwed(e, wallet) - owedBefore;
+
+    currentContract.reportWithdrawal(e, target, 2, 2, require_uint256(firstOut + secondOut)) at initial;
+    mathint whole = currentContract.feesOwed(e, wallet) - owedBefore;
+
+    assert split >= whole;
+    satisfy whole > 0;
+}
