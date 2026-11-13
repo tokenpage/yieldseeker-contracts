@@ -12,6 +12,7 @@ CONFS=(
   "fee-tracker:src/fees/FeeTracker.sol"
   "wallet-authorization:src/AgentWalletV3.sol src/agentwalletkit/AWKAgentWalletV3.sol"
   "wallet-state-changes:src/AgentWalletV3.sol src/agentwalletkit/AWKAgentWalletV3.sol"
+  "wallet-behaviour:src/agentwalletkit/AWKAgentWalletV3.sol"
 )
 
 if [[ "${1:-}" == "--worker" ]]; then

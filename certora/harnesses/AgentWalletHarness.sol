@@ -7,6 +7,8 @@ import {AgentWalletStorageV3} from "../../src/agentwalletkit/AWKAgentWalletV3.so
 import {YieldSeekerFeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerSwapPolicy} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 contract MockBaseAsset {
     mapping(address account => uint256) private _balances;
@@ -27,6 +29,7 @@ contract MockBaseAsset {
 contract AgentWalletHarness is YieldSeekerAgentWalletV3 {
     address private constant OWNER = address(0xA11CE);
     address private constant OPERATOR = address(0xB0B);
+    mapping(address target => address) public registeredAdapterFor;
 
     constructor() YieldSeekerAgentWalletV3(address(this)) {
         AgentWalletStorageV3.Layout storage wallet = AgentWalletStorageV3.getLayout();
@@ -58,6 +61,22 @@ contract AgentWalletHarness is YieldSeekerAgentWalletV3 {
 
     function swapPolicy(bytes32) external pure returns (IYieldSeekerSwapPolicy) {
         return IYieldSeekerSwapPolicy(address(0));
+    }
+
+    function getTargetAdapter(address target) external view returns (address) {
+        return registeredAdapterFor[target];
+    }
+
+    function validateSignature(bytes calldata signature, bytes calldata callData, bytes calldata paymasterAndData, bytes32 userOpHash) external view returns (uint256) {
+        return _validateUserOpSignature(signature, callData, paymasterAndData, userOpHash);
+    }
+
+    function validateCall(bytes calldata signature, bytes4 selector, bytes calldata arguments, address paymaster, bytes calldata paymasterData, bytes32 userOpHash) external view returns (uint256) {
+        return this.validateSignature(signature, abi.encodePacked(selector, arguments), abi.encodePacked(paymaster, paymasterData), userOpHash);
+    }
+
+    function recoverSigner(bytes32 userOpHash, bytes calldata signature) external pure returns (address signer) {
+        (signer,,) = ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(userOpHash), signature);
     }
 
     function currentImplementation() external view returns (address implementation) {

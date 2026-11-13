@@ -54,7 +54,7 @@ prove-halmos:
 	done
 
 prove-certora:
-	@ . certora/env.sh && test -f "$$CERTORA/emv.jar" && for conf in yield-fees borrow-fees borrow-debt-invariant fee-tracker wallet-authorization wallet-state-changes; do \
+	@ . certora/env.sh && test -f "$$CERTORA/emv.jar" && for conf in yield-fees borrow-fees borrow-debt-invariant fee-tracker wallet-authorization wallet-state-changes wallet-behaviour; do \
 		certoraRun.py certora/$$conf.conf --build_dir "$$CERTORA/runs/$$conf-$$(date +%s)" || exit 1; \
 	done
 
