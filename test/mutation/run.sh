@@ -22,22 +22,7 @@ AFTER_STATUS_FILE="${MUTATION_AFTER_RESULTS_FILE:-$RESULTS_DIR/results-after.csv
 GENERATOR="$RESULTS_DIR/generator"
 TIMEOUT_SECONDS="${MUTATION_TIMEOUT_SECONDS:-300}"
 STARTED_AT=$SECONDS
-if [[ "$MODE" != "--worker" ]]; then
-  CPU_COUNT="$(sysctl -n hw.ncpu)"
-  MEMORY_BYTES="$(sysctl -n hw.memsize)"
-  RESERVED_BYTES=$((8 * 1024 * 1024 * 1024))
-  WORKER_MEMORY_BYTES=$((8 * 1024 * 1024 * 1024))
-  MEMORY_JOBS=$(((MEMORY_BYTES - RESERVED_BYTES) / WORKER_MEMORY_BYTES))
-  ((MEMORY_JOBS > 0)) || MEMORY_JOBS=1
-  if [[ -n "${MUTATION_JOBS:-}" ]]; then
-    JOBS="$MUTATION_JOBS"
-  elif ((CPU_COUNT < MEMORY_JOBS)); then
-    JOBS="$CPU_COUNT"
-  else
-    JOBS="$MEMORY_JOBS"
-  fi
-  printf 'Host capacity: %s CPUs, %s bytes RAM; reserving 8 GiB and budgeting 8 GiB per via-IR worker; using %s jobs.\n' "$CPU_COUNT" "$MEMORY_BYTES" "$JOBS"
-fi
+JOBS="${MUTATION_JOBS:-4}"
 
 FILES=(
   src/fees/FeeTracker.sol
@@ -93,10 +78,14 @@ if [[ "$MODE" == "--worker" ]]; then
   cp -cR "$SOURCE_ROOT/src" "$SOURCE_ROOT/test" "$SOURCE_ROOT/lib" "$SOURCE_ROOT/foundry.toml" "$SCRATCH/"
   cp "$MUTANT_DIR/$MUTATED_FILE" "$SCRATCH/$MUTATED_FILE"
   WORKER_STARTED=$SECONDS
+  # NOTE(krishan711): these six files kill 92% of killed mutants and compile in a fraction of the full suite's time,
+  # so they run first; only mutants that survive them pay for the full suite.
+  FIRST_TESTS="test/{integration/Fees,integration/Wallet,fuzz/swaps/BorrowSwapPolicyProperties,fuzz/wallet/WalletProperties,fuzz/fees/FeeAccountingFuzz,fuzz/swaps/PriceOracleProperties}.t.sol"
   set +e
   (
     cd "$SCRATCH"
-    FOUNDRY_PROFILE=default gtimeout --signal=TERM --kill-after=10s "${TIMEOUT_SECONDS}s" forge test --no-match-path "test/fork/*"
+    gtimeout --signal=TERM --kill-after=10s "${TIMEOUT_SECONDS}s" forge test --fail-fast --match-path "$FIRST_TESTS" &&
+      gtimeout --signal=TERM --kill-after=10s "${TIMEOUT_SECONDS}s" forge test --fail-fast --no-match-path "test/fork/*"
   ) > "$LOG_DIR/$MUTANT_ID.log" 2>&1
   TEST_STATUS=$?
   set -e
@@ -120,8 +109,8 @@ if [[ "$MODE" != "all" ]] && { ! command -v gtimeout >/dev/null || ! command -v 
 fi
 
 if [[ "$MODE" == "all" ]]; then
-  if ! command -v gambit >/dev/null || ! command -v gtimeout >/dev/null || ! command -v forge >/dev/null; then
-    printf 'gambit, gtimeout, and forge are required on PATH\n' >&2
+  if ! command -v gambit >/dev/null || ! command -v gtimeout >/dev/null || ! command -v forge >/dev/null || ! command -v jq >/dev/null; then
+    printf 'gambit, gtimeout, forge and jq are required on PATH\n' >&2
     exit 2
   fi
   if [[ "$(solc --version)" != *"0.8.38"* ]]; then
@@ -129,19 +118,44 @@ if [[ "$MODE" == "all" ]]; then
     exit 2
   fi
 
+  TARGET_FILES=()
+  if [[ "${FULL:-}" == "1" ]]; then
+    TARGET_FILES=("${FILES[@]}")
+  else
+    BASE="${MUTATION_BASE:-origin/main}"
+    CHANGED="$(git -C "$ROOT" diff --name-only "$BASE" -- src)"
+    for FILE in "${FILES[@]}"; do
+      grep -qxF "$FILE" <<< "$CHANGED" && TARGET_FILES+=("$FILE")
+    done
+    if [[ "${#TARGET_FILES[@]}" -eq 0 ]]; then
+      printf 'No core contract changed since %s, so there is nothing to mutate. Set FULL=1 to mutate every core contract.\n' "$BASE"
+      exit 0
+    fi
+  fi
+  printf '%s\n' "${TARGET_FILES[@]}" > "$RESULTS_DIR/targets.next"
+  if ! cmp -s "$RESULTS_DIR/targets.next" "$RESULTS_DIR/targets" 2>/dev/null; then
+    rm -rf "$GENERATOR" "$RESULTS_DIR/results.csv" "$RESULTS_DIR/logs-before"
+    mv "$RESULTS_DIR/targets.next" "$RESULTS_DIR/targets"
+  else
+    rm "$RESULTS_DIR/targets.next"
+  fi
+  printf 'Mutating %s contract(s):\n' "${#TARGET_FILES[@]}"
+  printf '  %s\n' "${TARGET_FILES[@]}"
+
   if [[ ! -f "$GENERATOR/.generation-complete" ]]; then
     rm -rf "$GENERATOR"
     mkdir -p "$GENERATOR"
     cp -cR "$ROOT/src" "$ROOT/test" "$ROOT/lib" "$ROOT/foundry.toml" "$GENERATOR/"
+    jq --rawfile targets "$RESULTS_DIR/targets" '[.[] | select(.filename[6:] as $file | $targets | split("\n") | index($file))]' "$ROOT/test/mutation/gambit.json" > "$GENERATOR/test/mutation/selected-gambit.json"
     MUTATION_REAL_SOLC="$(command -v solc)"
     export MUTATION_REAL_SOLC
     (
       cd "$GENERATOR"
-      gambit mutate --json "$GENERATOR/test/mutation/gambit.json"
+      gambit mutate --json "$GENERATOR/test/mutation/selected-gambit.json"
     )
     MANIFEST="$RESULTS_DIR/mutants-per-file.csv"
     printf 'source,total\n' > "$MANIFEST"
-    for FILE in "${FILES[@]}"; do
+    for FILE in "${TARGET_FILES[@]}"; do
       COUNT=0
       for MUTANT_DIR in "$GENERATOR/gambit_out"/mutants/*; do
         [[ -d "$MUTANT_DIR" ]] || continue
@@ -225,5 +239,6 @@ fi
 export RESULTS_DIR TIMEOUT_SECONDS
 mkdir -p "$RESULTS_DIR/scratch-$LABEL" "$RESULTS_DIR/logs-$LABEL"
 printf 'Running %s unscored mutants (%s mode, %s parallel, %s-second timeout). Results: %s\n' "${#MUTANT_IDS[@]}" "$MODE" "$JOBS" "$TIMEOUT_SECONDS" "$STATUS_FILE"
-printf '%s\0' "${MUTANT_IDS[@]}" | xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
+# NOTE(krishan711): background QoS keeps these compiles on the efficiency cores so a run doesn't drain the battery.
+printf '%s\0' "${MUTANT_IDS[@]}" | taskpolicy -b xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
 printf 'Completed %s mutant runs (%s mode). Elapsed: %s seconds.\n' "${#MUTANT_IDS[@]}" "$MODE" "$((SECONDS - STARTED_AT))"

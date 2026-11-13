@@ -1455,20 +1455,17 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
+    // NOTE(krishan711): each handler call runs a whole workflow across several adapters, so 400 deep runs (80,000 calls) keep the deep profile near five minutes.
+    /// forge-config: deep.invariant.runs = 400
     function invariant_powerUserPositionsAndFeeLedgersMatchWalletActivity() public view {
         handler.assertPositionAccounting();
         handler.assertFeeAccounting();
     }
 
+    /// forge-config: deep.invariant.runs = 400
     function invariant_powerUserValueAndWithdrawableBalanceStayWithinAllowedCosts() public view {
         handler.assertOwnerValueBound();
         handler.assertWithdrawableBalances();
-    }
-
-    function invariant_powerUserCanAlwaysCloseOutEveryPosition() public {
-        uint256 snapshot = vm.snapshotState();
-        handler.closeOutAll();
-        vm.revertToState(snapshot);
     }
 
     function test_powerUserRunsEveryAdapterThenClosesOutCleanly() public {
@@ -1484,7 +1481,11 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         vm.revertToState(snapshot);
     }
 
-    function afterInvariant() public view {
+    // NOTE(krishan711): a full close-out after every one of 200,000 calls dominated the deep run, so it runs at the end of each random sequence instead.
+    function afterInvariant() public {
+        uint256 snapshot = vm.snapshotState();
+        handler.closeOutAll();
+        vm.revertToState(snapshot);
         handler.logWorkflowCalls();
     }
 }

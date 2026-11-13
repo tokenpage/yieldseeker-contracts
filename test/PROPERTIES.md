@@ -2,7 +2,7 @@
 
 Each property is a promise the V3 contracts make to owners, operators or YieldSeeker, written as something an owner, power user or attacker could try to break. Four layers check them:
 
-- **Fuzz and invariant tests (Foundry):** real workflows with random amounts, prices, times and callers. Invariant suites run random sequences of owner, operator and attacker actions and check every promise after each step.
+- **Fuzz and invariant tests (Foundry):** real workflows with random amounts, prices, times and callers. Invariant suites run random sequences of owner, operator and attacker actions and check every promise after each step; the full "every owner can close out" checks run at the end of each sequence.
 - **Halmos:** proves a small function for every input in a bounded range.
 - **Certora:** proves a rule for every input and, for parametric rules, every wallet method.
 - **Mutation testing (Gambit):** plants small bugs in `src/` and checks that some test fails.
@@ -11,11 +11,12 @@ Each property is a promise the V3 contracts make to owners, operators or YieldSe
 
 | Command | What it runs | Time on a 12-core M-series Mac |
 | --- | --- | ---: |
-| `make test` | Unit, integration, fuzz (256 runs) and invariant (64 × 64 calls) tests; this is what CI runs | ~3 min |
-| `make test-deep` | Fuzz at 20,000 runs and invariants at 1,000 × 200 calls | ~70 min |
+| `make test` | Unit, integration, fuzz (256 runs) and invariant (64 × 64 calls) tests; this is what CI runs | ~2 min |
+| `make test-deep` | Fuzz at 20,000 runs and invariants at 1,000 × 200 calls (the compromised-operator and power-user suites, whose calls each bundle many actions, at 250 and 400 runs) | ~5 min |
 | `make prove-halmos` | Halmos proofs, see `test/formal/halmos/README.md` | ~6 min |
 | `make prove-certora` | Local Certora Prover, see `certora/README.md` for one-time setup | ~5 min |
-| `make test-mutation` | Every mutant of the core contracts against `make test`; needs Gambit (`cargo install --locked --git https://github.com/Certora/gambit.git`) and solc 0.8.38 (`solc-select`). Results go to `$RESULTS_DIR` (default `/tmp/yieldseeker-mutation`) and the run resumes if stopped | ~6 h |
+| `make test-mutation` | Plants small bugs in the core contracts changed since `main` and checks a test catches each one; `FULL=1` does every core contract (pre-audit, plugged in). Needs Gambit (`cargo install --locked --git https://github.com/Certora/gambit.git`) and solc 0.8.38 (`solc-select`) | instant when no contract changed; ~20 min for one changed contract; `FULL=1` (792 mutants) overnight |
+| `make prove-certora-mutation` | The same for the Certora proofs: checks a proof fails for each planted bug in a changed, proven contract; `FULL=1` does all of them | instant when no contract changed; ~1 h for one changed contract; `FULL=1` overnight or longer |
 | `make test-fork` | Fork tests against the real protocols on Base | ~1 min |
 
 Everything runs locally; no hosted prover is used.
@@ -40,12 +41,14 @@ Everything runs locally; no hosted prover is used.
 | 14 | Only the admin changes the adapter registry; pause blocks execution lookups but not the read-only target list | `invariant_attackerWorkflowsNeverChangeRegistryState`, `invariant_targetLookupOnlyReturnsActiveMappingsAndRevertsWhilePaused`, `invariant_getAllTargetsMatchesActiveGhostSetWhilePausedOrRunning` | — |
 | 15 | An owner's agents can move exact amounts between each other after paying fees; other owners, wallets built outside the factory, self and mid-execution receivers are rejected | `testFuzz_ownersAgentsCanMoveExactAmountsBetweenEachOther`, `testFuzz_transfersToOtherOwnersSpoofedWalletsOrSelfAreRejected`, `testFuzz_senderPaysFeesOwedBeforeMovingFundsToAnotherAgent`, `testFuzz_walletMidExecutionCannotReceiveAgentTransfers`, `test_walletsBuiltOutsideTheFactoryCannotInitializeBadlyOrActAsTheOwnersAgent` | — |
 | 16 | A wallet lands at its predicted address, cannot be created twice, and neither the factory nor a directly deployed proxy accepts a bad owner, base asset or configuration | `testFuzz_walletLandsAtPredictedAddressAndCannotBeCreatedTwice`, `test_factoryRejectsInvalidConfigurationAndWalletCreationInputs`, `test_walletsBuiltOutsideTheFactoryCannotInitializeBadlyOrActAsTheOwnersAgent` | — |
-| 17 | A stolen operator key cannot take owner value beyond the README's accepted losses (reward dumps, the 1% swap floor, the 3% debt buffer, Morpho's ≈4.4% liquidation bonus, vault fees, interest and borrow fees), cannot touch other owners, wallet ETH or EntryPoint deposits, and every forbidden call fails; owners can still exit everything | `invariant_compromisedOperatorCannotTakeOwnerValueAndOwnersCanExit`, `testFuzz_compromisedOperatorWorstCaseStaysWithinReadmeBounds` | — |
-| 18 | Honest owners using every adapter for months keep positions, cost basis, debt and fees in agreement with an independent model, lose value only to fees, interest, market moves and allowed slippage, and can always close out completely | `invariant_powerUserPositionsAndFeeLedgersMatchWalletActivity`, `invariant_powerUserValueAndWithdrawableBalanceStayWithinAllowedCosts`, `invariant_powerUserCanAlwaysCloseOutEveryPosition`, `testFuzz_vaultOwnerLifecycleFromFirstDepositToFullExit`, `testFuzz_borrowOwnerLifecycleFromFirstDepositToFullExit`, `test_powerUserRunsEveryAdapterThenClosesOutCleanly` | — |
+| 17 | A stolen operator key cannot take owner value beyond the README's accepted losses (reward dumps, the 1% swap floor, the 3% debt buffer, Morpho's ≈4.4% liquidation bonus, vault fees, interest and borrow fees), cannot touch other owners, wallet ETH or EntryPoint deposits, and every forbidden call fails; owners can still exit everything | `invariant_compromisedOperatorCannotTakeOwnerValue`, `CompromisedOperatorInvariantTest.afterInvariant` (every owner exits every wallet), `testFuzz_compromisedOperatorWorstCaseStaysWithinReadmeBounds` | — |
+| 18 | Honest owners using every adapter for months keep positions, cost basis, debt and fees in agreement with an independent model, lose value only to fees, interest, market moves and allowed slippage, and can always close out completely | `invariant_powerUserPositionsAndFeeLedgersMatchWalletActivity`, `invariant_powerUserValueAndWithdrawableBalanceStayWithinAllowedCosts`, `PowerUserInvariantTest.afterInvariant` (full close-out), `testFuzz_vaultOwnerLifecycleFromFirstDepositToFullExit`, `testFuzz_borrowOwnerLifecycleFromFirstDepositToFullExit`, `test_powerUserRunsEveryAdapterThenClosesOutCleanly` | — |
 
 `invariant_feeAccountingHoldsAcrossUserAndOperatorWorkflows` compares the modules' fee events with their stored balances and the collector's real balance; the expected fee amounts themselves are computed independently in the fee fuzz tests and the power-user suite.
 
 ## Mutation testing
+
+Mutation testing answers "would the tests notice a bug?": it plants one small bug at a time (for example `>` becomes `>=`), rebuilds, reruns the tests and counts how many bugs some test catches. Each bug needs a full rebuild, which is why a full run takes hours; it is a pre-audit measurement, not something to run on every change. By default both commands only mutate contracts changed since `main` and run at background priority with a few workers, so they stay cheap.
 
 The last full run generated 792 mutants of 20 core contracts (fees, swap policies, oracle, wallet, factory, registry, transfer, swap, lending and vault adapters). 9 did not compile. Of the other 783, 768 make at least one test fail (98.1%). The 15 that survive cannot change behaviour that matters:
 

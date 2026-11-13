@@ -2109,16 +2109,15 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
-    function invariant_compromisedOperatorCannotTakeOwnerValueAndOwnersCanExit() public {
+    // NOTE(krishan711): each handler call bundles dozens of attacks, so 250 deep runs (50,000 calls) keep the deep profile near five minutes.
+    /// forge-config: deep.invariant.runs = 250
+    function invariant_compromisedOperatorCannotTakeOwnerValue() public view {
         handler.assertOwnerConservation();
         handler.assertNoThiefAssetsOrPositions();
         handler.assertWalletEthAndEntryPointDeposits();
-        uint256 snapshot = vm.snapshotState();
-        handler.ownerExitsEveryWallet();
-        assertTrue(vm.revertToState(snapshot));
-        handler.assertWalletEthAndEntryPointDeposits();
     }
 
+    /// forge-config: deep.fuzz.runs = 256
     function testFuzz_compromisedOperatorWorstCaseStaysWithinReadmeBounds(uint8 routeSeed) public {
         uint256 beforeValue = handler.ownerValue(owner);
         uint256 beforeWithdrawn = handler.withdrawnValue(owner);
@@ -2141,7 +2140,12 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
         assertGt(handler.morphoBorrowFeeGrowth() - beforeBorrowFeeGrowth, 0);
     }
 
-    function afterInvariant() public view {
+    // NOTE(krishan711): a full exit after every one of 200,000 calls dominated the deep run, so it runs at the end of each random sequence instead.
+    function afterInvariant() public {
+        uint256 snapshot = vm.snapshotState();
+        handler.ownerExitsEveryWallet();
+        assertTrue(vm.revertToState(snapshot));
+        handler.assertWalletEthAndEntryPointDeposits();
         handler.assertAllWorkflowCounts();
         handler.logWorkflowCounts();
     }

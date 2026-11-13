@@ -59,10 +59,10 @@ prove-certora:
 	done
 
 test-mutation:
-	@ RESULTS_DIR="$${RESULTS_DIR:-/tmp/yieldseeker-mutation}" test/mutation/run.sh all
+	@ FULL="$(FULL)" RESULTS_DIR="$${RESULTS_DIR:-/tmp/yieldseeker-mutation}" test/mutation/run.sh all
 
 prove-certora-mutation:
-	@ RESULTS_DIR="$${RESULTS_DIR:-/tmp/yieldseeker-certora-mutation}" certora/mutate.sh
+	@ FULL="$(FULL)" RESULTS_DIR="$${RESULTS_DIR:-/tmp/yieldseeker-certora-mutation}" certora/mutate.sh
 
 clean:
 	@ forge clean
