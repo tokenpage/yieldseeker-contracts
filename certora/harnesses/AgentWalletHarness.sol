@@ -69,4 +69,8 @@ contract AgentWalletHarness is YieldSeekerAgentWalletV3 {
     function walletInitialized() external view returns (bool) {
         return _getInitializedVersion() != 0;
     }
+
+    function reentrancyGuardEntered() external view returns (bool) {
+        return _reentrancyGuardEntered();
+    }
 }
