@@ -44,6 +44,27 @@ contract YieldFeeModuleHarness is YieldSeekerYieldFeeModule, FeeTrackerSurface {
         FeeActions.Withdraw memory withdrawal = FeeActions.Withdraw({target: target, spent: heldBefore, heldBefore: heldBefore, assetsOut: assetsOut});
         this.reportAction(FeeActions.WITHDRAW, abi.encode(withdrawal), 0);
     }
+
+    function reportWithdrawal(address target, uint256 spent, uint256 heldBefore, uint256 assetsOut) external {
+        FeeActions.Withdraw memory withdrawal = FeeActions.Withdraw({target: target, spent: spent, heldBefore: heldBefore, assetsOut: assetsOut});
+        this.reportAction(FeeActions.WITHDRAW, abi.encode(withdrawal), 0);
+    }
+
+    function reportDeposit(address target, uint256 assetsIn) external {
+        this.reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: target, assetsIn: assetsIn})), 0);
+    }
+
+    function reportClaim(address token, uint256 amount) external {
+        this.reportAction(FeeActions.CLAIM, abi.encode(FeeActions.Claim({token: token, amount: amount})), 0);
+    }
+
+    function reportRewardSale(address sold, uint256 soldAmount, address bought, uint256 boughtAmount) external {
+        this.reportAction(FeeActions.REWARD_SALE, abi.encode(FeeActions.Swap({sold: sold, soldAmount: soldAmount, bought: bought, boughtAmount: boughtAmount})), 0);
+    }
+
+    function isValidRate(uint256 rateBps) external view returns (bool) {
+        return this.isValidPlan(abi.encode(rateBps));
+    }
 }
 
 contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface {
@@ -94,6 +115,11 @@ contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface
     function reportCheckpoint(address market, address debtToken, uint256 debtBefore, uint256 price) external {
         FeeActions.DebtChange memory change = FeeActions.DebtChange({market: market, debtToken: debtToken, debtBefore: debtBefore, borrowed: 0, repaid: 0, debtPriceInBaseAsset: price});
         this.reportAction(FeeActions.DEBT_CHANGE, abi.encode(change), 0);
+    }
+
+    function reportNonDebtAction(bytes32 action, bytes calldata data) external {
+        require(action != FeeActions.DEBT_CHANGE);
+        this.reportAction(action, data, 0);
     }
 }
 

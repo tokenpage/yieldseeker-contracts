@@ -85,6 +85,7 @@ mkdir -p "$RESULTS_DIR/scratch" "$RESULTS_DIR/logs"
 TASKS=()
 for ENTRY in "${CONFS[@]}"; do
   CONF="${ENTRY%%:*}"
+  [[ -n "${MUTATION_CONFS:-}" && " $MUTATION_CONFS " != *" $CONF "* ]] && continue
   for FILE in ${ENTRY#*:}; do
     for MUTANT_PATH in "$MUTANTS_DIR"/*/"$FILE"; do
       [[ -f "$MUTANT_PATH" ]] || continue

@@ -1,6 +1,7 @@
 methods {
     // The harness is its own fee tracker; route the module's plan lookup to it instead of an arbitrary result.
     function _.walletPlan(address, bytes32) external => DISPATCHER(true);
+    function _.baseAsset() external => DISPATCHER(true);
 }
 
 ghost mapping(address => mathint) feeCharged;
@@ -73,6 +74,10 @@ filtered {
         f.selector != sig:reportAction(bytes32, bytes, uint256).selector &&
         f.selector != sig:reachFeeChargeAndPayment().selector &&
         f.selector != sig:reportFullWithdrawal(address, uint256, uint256).selector &&
+        f.selector != sig:reportWithdrawal(address, uint256, uint256, uint256).selector &&
+        f.selector != sig:reportDeposit(address, uint256).selector &&
+        f.selector != sig:reportClaim(address, uint256).selector &&
+        f.selector != sig:reportRewardSale(address, uint256, address, uint256).selector &&
         f.selector != sig:setPlanRate(uint256).selector
 }
 {
@@ -85,4 +90,89 @@ filtered {
 
     bool changed = currentContract.feesOwed(e, wallet) != owedBefore || currentContract.costBasis(e, wallet, target) != basisBefore;
     assert changed => f.selector == sig:onAction(address, bytes32, bytes, uint256).selector && e.msg.sender == currentContract.FEE_TRACKER(e);
+}
+
+function feeAtTwentyPercent(mathint yieldAmount) returns mathint {
+    return (yieldAmount * 2000 + 9999) / 10000;
+}
+
+// Property 2: a deposit adds exactly its assets to the position's cost basis and charges nothing.
+rule depositAddsItsAssetsToCostBasisAndChargesNothing(env e, address target, uint256 assetsIn) {
+    address wallet = currentContract;
+    uint256 basis = currentContract.costBasis(e, wallet, target);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+
+    currentContract.reportDeposit(e, target, assetsIn);
+
+    assert currentContract.costBasis(e, wallet, target) == basis + assetsIn;
+    assert currentContract.feesOwed(e, wallet) == owedBefore;
+}
+
+// Property 2: base asset from a claim or a reward sale is all yield; other tokens are not yield.
+rule baseAssetClaimsAndRewardSalesAreYield(env e, address claimed, uint256 claimAmount, address sold, uint256 soldAmount, address bought, uint256 boughtAmount) {
+    address wallet = currentContract;
+    address baseAsset = currentContract.baseAsset(e);
+    require currentContract.planRateBps(e) == 2000;
+    require claimAmount <= max_uint128 && boughtAmount <= max_uint128;
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+
+    currentContract.reportClaim(e, claimed, claimAmount);
+    uint256 owedAfterClaim = currentContract.feesOwed(e, wallet);
+    currentContract.reportRewardSale(e, sold, soldAmount, bought, boughtAmount);
+
+    assert owedAfterClaim - owedBefore == (claimed == baseAsset ? feeAtTwentyPercent(claimAmount) : 0);
+    assert currentContract.feesOwed(e, wallet) - owedAfterClaim == (bought == baseAsset ? feeAtTwentyPercent(boughtAmount) : 0);
+    satisfy claimed == baseAsset && claimAmount > 0;
+}
+
+// Property 2: withdrawing half a position releases half its basis (rounded down) and charges the plan rate on the rest of the output.
+rule halfWithdrawalReleasesHalfTheBasis(env e, address target, uint256 assetsOut) {
+    address wallet = currentContract;
+    uint256 basis = currentContract.costBasis(e, wallet, target);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    require currentContract.planRateBps(e) == 2000;
+    require assetsOut <= max_uint128 && basis <= max_uint128;
+
+    currentContract.reportWithdrawal(e, target, 1, 2, assetsOut);
+
+    mathint released = basis / 2;
+    mathint gain = assetsOut > released ? assetsOut - released : 0;
+    assert currentContract.costBasis(e, wallet, target) == basis - released;
+    assert currentContract.feesOwed(e, wallet) - owedBefore == feeAtTwentyPercent(gain);
+    satisfy released > 0 && gain > 0;
+}
+
+// Property 2: output from a position the wallet held nothing in is all yield and leaves the basis alone.
+rule withdrawalFromAnEmptyPositionIsAllYield(env e, address target, uint256 spent, uint256 assetsOut) {
+    address wallet = currentContract;
+    uint256 basis = currentContract.costBasis(e, wallet, target);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    require currentContract.planRateBps(e) == 2000;
+    require assetsOut <= max_uint128;
+
+    currentContract.reportWithdrawal(e, target, spent, 0, assetsOut);
+
+    assert currentContract.costBasis(e, wallet, target) == basis;
+    assert currentContract.feesOwed(e, wallet) - owedBefore == feeAtTwentyPercent(assetsOut);
+}
+
+// Property 8: a withdrawal at a loss never reverts and charges nothing.
+rule withdrawalAtALossNeverRevertsAndChargesNothing(env e, address target, uint256 heldBefore, uint256 assetsOut) {
+    address wallet = currentContract;
+    uint256 basis = currentContract.costBasis(e, wallet, target);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+    require currentContract.FEE_TRACKER(e) == currentContract;
+    require currentContract.planRateBps(e) <= 10000;
+    require e.msg.value == 0;
+    require heldBefore > 0 && assetsOut <= basis;
+
+    currentContract.reportFullWithdrawal@withrevert(e, target, heldBefore, assetsOut);
+
+    assert !lastReverted;
+    assert currentContract.feesOwed(e, wallet) == owedBefore;
+}
+
+// Plans: a yield plan is valid exactly when its rate is at most the module's maximum.
+rule plansAreValidExactlyUpToTheMaximumRate(env e, uint256 rateBps) {
+    assert currentContract.isValidRate(e, rateBps) == (rateBps <= currentContract.MAX_FEE_RATE_BPS(e));
 }
