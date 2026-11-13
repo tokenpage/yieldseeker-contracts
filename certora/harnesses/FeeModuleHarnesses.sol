@@ -62,6 +62,11 @@ contract YieldFeeModuleHarness is YieldSeekerYieldFeeModule, FeeTrackerSurface {
         this.reportAction(FeeActions.REWARD_SALE, abi.encode(FeeActions.Swap({sold: sold, soldAmount: soldAmount, bought: bought, boughtAmount: boughtAmount})), 0);
     }
 
+    function reportOtherAction(bytes32 action, bytes calldata data) external {
+        require(action != FeeActions.DEPOSIT && action != FeeActions.WITHDRAW && action != FeeActions.REWARD_SALE && action != FeeActions.CLAIM);
+        this.reportAction(action, data, 0);
+    }
+
     function isValidRate(uint256 rateBps) external view returns (bool) {
         return this.isValidPlan(abi.encode(rateBps));
     }

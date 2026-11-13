@@ -78,6 +78,7 @@ filtered {
         f.selector != sig:reportDeposit(address, uint256).selector &&
         f.selector != sig:reportClaim(address, uint256).selector &&
         f.selector != sig:reportRewardSale(address, uint256, address, uint256).selector &&
+        f.selector != sig:reportOtherAction(bytes32, bytes).selector &&
         f.selector != sig:setPlanRate(uint256).selector
 }
 {
@@ -175,4 +176,16 @@ rule withdrawalAtALossNeverRevertsAndChargesNothing(env e, address target, uint2
 // Plans: a yield plan is valid exactly when its rate is at most the module's maximum.
 rule plansAreValidExactlyUpToTheMaximumRate(env e, uint256 rateBps) {
     assert currentContract.isValidRate(e, rateBps) == (rateBps <= currentContract.MAX_FEE_RATE_BPS(e));
+}
+
+// Property 2: swaps, transfers and any other action are not yield and leave every cost basis alone.
+rule otherActionsAreNotYield(env e, bytes32 action, bytes data, address target) {
+    address wallet = currentContract;
+    uint256 basis = currentContract.costBasis(e, wallet, target);
+    uint256 owedBefore = currentContract.feesOwed(e, wallet);
+
+    currentContract.reportOtherAction(e, action, data);
+
+    assert currentContract.feesOwed(e, wallet) == owedBefore;
+    assert currentContract.costBasis(e, wallet, target) == basis;
 }
