@@ -2,6 +2,10 @@
 cache/
 out/
 
+# Certora
+.certora_internal/
+emv-*/
+
 # IDE
 .vscode/
 .idea/

@@ -68,6 +68,10 @@
 - The storage libraries' `layout()` is renamed `getLayout()` because `layout` is becoming a keyword. Virtual modifiers and contract-type comparisons, deprecated in Solidity `0.8.31`, were removed.
 - `foundry.toml` turns off compiler metadata (`bytecode_hash = "none"`, `cbor_metadata = false`) so bytecode, and with it the factory address, depends on code rather than file contents. `foundry.lock` matches the pinned libraries and `make install` installs Foundry `v1.9.0`.
 
+### Verification
+
+- Property tests for the 18 promises in `test/PROPERTIES.md`: fuzz tests in `test/fuzz`; invariant suites in `test/invariant` for fees, the registry, wallets, a compromised operator and power users across every adapter; Halmos proofs in `test/formal/halmos`; local Certora rules in `certora/`; and Gambit mutation testing of the tests (`test/mutation`) and of the proofs (`certora/mutate.sh`). `make test` runs the fuzz and invariant tests at 256 runs and 64 × 64 calls; `make test-deep`, `make prove-halmos` and `make prove-certora` run the deep profile and the proofs locally. `make test-mutation` and `make prove-certora-mutation` only mutate contracts changed since `main` and run at background priority; `FULL=1` mutates every core contract. `foundry.toml` adds `default` and `deep` fuzz and invariant profiles.
+
 ### Documentation
 
 - README rewritten: shared machinery, agent profiles as peers, roles, security model with a Known risks list, deployment and operations, upgrades and fee changes, with paths to code. Stale sections (the removed 0x adapter, an ERC-7201 claim, the cache rationale) were corrected.
