@@ -44,7 +44,7 @@ This runs every configuration in turn. The open-source CLI runs locally when `$C
 source certora/env.sh && certoraRun.py certora/wallet-authorization.conf --build_dir "$CERTORA/runs/wallet-authorization-$(date +%s)"
 ```
 
-`make prove-certora-mutation` checks the proofs themselves: it runs every configuration against every Gambit mutant of the contracts it verifies, locally, and records which mutants each proof catches (`certora/mutate.sh`; results in `$RESULTS_DIR`, default `/tmp/yieldseeker-certora-mutation`; it resumes if stopped). It reuses the mutants of a previous `make test-mutation` when `MUTANTS_DIR` points at them.
+`make prove-certora-mutation` checks the proofs themselves: it plants one small bug at a time in a proven contract and checks some proof fails (`certora/mutate.sh`). By default it only mutates proven contracts changed since `main` (none means it exits at once); `FULL=1` mutates all of them, which takes many hours. Each mutant runs through the configurations that verify its contract, fastest first, and stops at the first one that catches it. It runs two workers at background priority, writes results to `$RESULTS_DIR` (default `/tmp/yieldseeker-certora-mutation`), and resumes if stopped.
 
 ## What is proven
 

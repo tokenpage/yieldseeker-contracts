@@ -14,7 +14,7 @@ Each property is a promise the V3 contracts make to owners, operators or YieldSe
 | `make test` | Unit, integration, fuzz (256 runs) and invariant (64 × 64 calls) tests; this is what CI runs | ~2 min |
 | `make test-deep` | Fuzz at 20,000 runs and invariants at 1,000 × 200 calls (the compromised-operator and power-user suites, whose calls each bundle many actions, at 250 and 400 runs) | ~5 min |
 | `make prove-halmos` | Halmos proofs, see `test/formal/halmos/README.md` | ~6 min |
-| `make prove-certora` | Local Certora Prover, see `certora/README.md` for one-time setup | ~5 min |
+| `make prove-certora` | Local Certora Prover, see `certora/README.md` for one-time setup | ~20 min |
 | `make test-mutation` | Plants small bugs in the core contracts changed since `main` and checks a test catches each one; `FULL=1` does every core contract (pre-audit, plugged in). Needs Gambit (`cargo install --locked --git https://github.com/Certora/gambit.git`) and solc 0.8.38 (`solc-select`) | instant when no contract changed; ~20 min for one changed contract; `FULL=1` (792 mutants) overnight |
 | `make prove-certora-mutation` | The same for the Certora proofs: checks a proof fails for each planted bug in a changed, proven contract; `FULL=1` does all of them | instant when no contract changed; ~1 h for one changed contract; `FULL=1` overnight or longer |
 | `make test-fork` | Fork tests against the real protocols on Base | ~1 min |
@@ -64,6 +64,8 @@ The last full run generated 792 mutants of 20 core contracts (fees, swap policie
 | `AWKAgentWalletV3` 560 | Removes a zero-asset check the YieldSeeker wallet never reaches (`InvalidAsset` comes first) |
 | `AWKAgentWalletV3` 555, 556 | Change generic withdraw hooks that the YieldSeeker wallet overrides |
 | `FeeTracker` 92 | Moves the module gas margin by 10,000 gas; pinning it would pin exact gas costs |
+
+The proofs were mutation-tested too, on the same mutants of the contracts they verify. That run was stopped part-way, so these numbers are partial: the proofs catch 94 of 107 `BorrowFeeModule` mutants and 76 of 87 `YieldFeeModule` mutants (most survivors are constructor checks the harness fixes, or the equivalent mutants above), and 30 of 105 `FeeTracker` mutants (the proofs cover payments and settings, not its view helpers). The wallet files were only partly scored. Proofs check the specific promises listed above, so a lower catch rate than the Foundry tests is expected; every mutant they miss is still caught by a Foundry test unless listed in the table above.
 
 ## Known limits
 
