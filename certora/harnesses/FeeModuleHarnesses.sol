@@ -122,6 +122,11 @@ contract BorrowFeeModuleHarness is YieldSeekerBorrowFeeModule, FeeTrackerSurface
         this.reportAction(FeeActions.DEBT_CHANGE, abi.encode(change), 0);
     }
 
+    function reportDebtChange(address market, address debtToken, uint256 debtBefore, uint256 borrowed, uint256 repaid) external {
+        FeeActions.DebtChange memory change = FeeActions.DebtChange({market: market, debtToken: debtToken, debtBefore: debtBefore, borrowed: borrowed, repaid: repaid, debtPriceInBaseAsset: 1e36});
+        this.reportAction(FeeActions.DEBT_CHANGE, abi.encode(change), 0);
+    }
+
     function reportNonDebtAction(bytes32 action, bytes calldata data) external {
         require(action != FeeActions.DEBT_CHANGE);
         this.reportAction(action, data, 0);

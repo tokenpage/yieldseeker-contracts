@@ -85,6 +85,7 @@ filtered {
         f.selector != sig:reachDebtChange().selector &&
         f.selector != sig:reportCheckpoint(address, address, uint256, uint256).selector &&
         f.selector != sig:reportNonDebtAction(bytes32, bytes).selector &&
+        f.selector != sig:reportDebtChange(address, address, uint256, uint256, uint256).selector &&
         f.selector != sig:setPlanRate(uint256).selector
 }
 {
@@ -147,5 +148,31 @@ rule checkpointKeepsTheLastUsablePrice(env e, address market, address debtToken,
     assert price > 0 && price <= max_uint192 => lastPriceAfter == price;
     assert price == 0 || price > max_uint192 => lastPriceAfter == lastPriceBefore;
     satisfy price == 0 && lastPriceBefore > 0;
+}
+
+// Property 4: a debt report records debt before + borrowed − repaid (never below zero), the report time, the token's
+// running debt, and marks the token as borrowed once anything has been borrowed.
+rule debtChangeRecordsTheNewDebtTimeAndBorrowedToken(env e, address market, address debtToken, uint256 debtBefore, uint256 borrowed, uint256 repaid) {
+    address wallet = currentContract;
+    bool borrowedBefore = currentContract.isBorrowedToken(e, wallet, debtToken);
+    uint256 tokenDebtBefore = currentContract.tokenDebt(e, wallet, debtToken);
+    uint128 lastDebtBefore;
+    uint64 lastAccrualBefore;
+    uint192 lastPriceBefore;
+    lastDebtBefore, lastAccrualBefore, lastPriceBefore = currentContract.debtPositions(e, wallet, market);
+    require e.block.timestamp <= max_uint64;
+
+    currentContract.reportDebtChange(e, market, debtToken, debtBefore, borrowed, repaid);
+
+    uint128 lastDebtAfter;
+    uint64 lastAccrualAfter;
+    uint192 lastPriceAfter;
+    lastDebtAfter, lastAccrualAfter, lastPriceAfter = currentContract.debtPositions(e, wallet, market);
+    mathint expected = debtBefore + borrowed > repaid ? debtBefore + borrowed - repaid : 0;
+    assert lastDebtAfter == expected;
+    assert lastAccrualAfter == e.block.timestamp;
+    assert currentContract.tokenDebt(e, wallet, debtToken) == tokenDebtBefore + expected - lastDebtBefore;
+    assert currentContract.isBorrowedToken(e, wallet, debtToken) == (borrowedBefore || borrowed > 0);
+    satisfy borrowed > 0 && repaid > 0 && lastDebtAfter > 0;
 }
 
