@@ -88,7 +88,6 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         YieldSeekerStorageV1.Layout storage ys = YieldSeekerStorageV1.getLayout();
         ys.baseAsset = IERC20(_baseAsset);
 
-        // Call parent initializer
         super._initializeV3(_owner, _ownerAgentIndex, _agentProfile);
     }
 
@@ -125,7 +124,6 @@ contract YieldSeekerAgentWalletV3 is AWKAgentWalletV3, IAgentWallet {
         bytes32 profile = agentProfile();
 
         FeeTracker newTracker = factory.feeTracker(profile);
-        if (address(newTracker) == address(0)) revert InvalidFeeTracker();
         if (address(newTracker).code.length == 0) revert InvalidFeeTracker();
         ys.feeTracker = newTracker;
         IYieldSeekerSwapPolicy newSwapPolicy = factory.swapPolicy(profile);

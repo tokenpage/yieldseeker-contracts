@@ -116,7 +116,6 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     modifier onlyExecutors() {
-        if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
         if (!isEntryPoint(msg.sender) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
             revert AWKErrors.Unauthorized(msg.sender);
         }
@@ -281,13 +280,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      */
     function _syncFromFactory() internal virtual {
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
-
-        // Operators
         _setAgentOperators(FACTORY.listAgentOperators());
-
-        // AdapterRegistry
         address registryAddr = FACTORY.adapterRegistry(agentProfile());
-        if (registryAddr == address(0)) revert InvalidRegistry();
         if (registryAddr.code.length == 0) revert InvalidRegistry();
         $.adapterRegistry = AdapterRegistry(registryAddr);
 

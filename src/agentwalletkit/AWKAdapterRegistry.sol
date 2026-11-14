@@ -80,16 +80,10 @@ contract AWKAdapterRegistry is AccessControl, Pausable {
         if (target == address(0)) revert AWKErrors.ZeroAddress();
         if (!isRegisteredAdapter[adapter]) revert AWKErrors.AdapterNotRegistered(adapter);
         (bool exists, address previousAdapter) = _targetToAdapter.tryGet(target);
-        if (exists) {
-            if (previousAdapter != adapter) {
-                _targetToAdapter.set(target, adapter);
-                emit TargetRemoved(target, previousAdapter);
-                emit TargetRegistered(target, adapter);
-            }
-        } else {
-            _targetToAdapter.set(target, adapter);
-            emit TargetRegistered(target, adapter);
-        }
+        if (exists && previousAdapter == adapter) return;
+        _targetToAdapter.set(target, adapter);
+        if (exists) emit TargetRemoved(target, previousAdapter);
+        emit TargetRegistered(target, adapter);
     }
 
     /**

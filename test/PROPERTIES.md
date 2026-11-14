@@ -50,14 +50,12 @@ Everything runs locally; no hosted prover is used.
 
 Mutation testing answers "would the tests notice a bug?": it plants one small bug at a time (for example `>` becomes `>=`), rebuilds, reruns the tests and counts how many bugs some test catches. Each bug needs a full rebuild, which is why a full run takes hours; it is a pre-audit measurement, not something to run on every change. By default both commands only mutate contracts changed since `main` and run at background priority with a few workers, so they stay cheap.
 
-The last full run generated 792 mutants of 20 core contracts (fees, swap policies, oracle, wallet, factory, registry, transfer, swap, lending and vault adapters). 9 did not compile. Of the other 783, 768 make at least one test fail (98.1%). The 15 that survive cannot change behaviour that matters:
+The last full run generated 792 mutants of 20 core contracts (fees, swap policies, oracle, wallet, factory, registry, transfer, swap, lending and vault adapters). 9 did not compile. Of the other 783, 768 make at least one test fail (98.1%). Of the 15 that survived, 3 pointed at redundant checks in the wallets that have since been removed. The other 12 cannot change behaviour that matters:
 
 | Mutants | Why they survive |
 | --- | --- |
 | `BorrowFeeModule` 208, 278; `YieldFeeModule` 148 | Remove an early `return 0` where the formula already gives 0 |
-| `AgentWalletV3` 425; `AWKAgentWalletV3` 489 | Remove a zero-address check; the next `code.length == 0` check rejects zero with the same error |
 | `AgentWalletV3` 454 | Sends a zero-amount fee transfer, a no-op for standard ERC-20s |
-| `AWKAgentWalletV3` 463 | Removes a reentrancy check from `onlyExecutors`; both functions using it are also `nonReentrant` |
 | `AWKAgentWalletV3` 509 | Removes a call to `_validateNonce`, an empty hook; the EntryPoint checks nonces |
 | `AWKAgentWalletFactory` 600 | Removes the zero-owner check; the wallet's initializer rejects it with the same error |
 | `AgentWalletV3` 427; `AWKAgentWalletV3` 491 | Remove a no-code check on the tracker or registry; the factory setters only accept contracts |

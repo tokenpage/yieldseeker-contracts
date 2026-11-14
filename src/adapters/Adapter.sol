@@ -34,7 +34,6 @@ error AssetNotAllowed();
 abstract contract YieldSeekerAdapter is AWKAdapter {
     using SafeERC20 for IERC20;
 
-    // Helper to get the wallet as IAgentWallet instead of IAWKAgentWallet
     function _ysAgentWallet() internal view returns (IAgentWallet) {
         return IAgentWallet(address(this));
     }

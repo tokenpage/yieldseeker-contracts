@@ -74,7 +74,7 @@
 
 ### Documentation
 
-- README rewritten: shared machinery, agent profiles as peers, roles, security model with a Known risks list, deployment and operations, upgrades and fee changes, with paths to code. Stale sections (the removed 0x adapter, an ERC-7201 claim, the cache rationale) were corrected.
+- README rewritten: shared machinery, agent profiles as peers, roles, security model with a Known risks list grouped by keys and operators, fees and accounting, and protocols and tokens; incident response runbooks in their own section; deployment and operations, upgrades and fee changes, with paths to code; and a command table with run times. Stale sections (the removed 0x adapter, an ERC-7201 claim, the cache rationale) were corrected.
 
 ## Agent wallet V2
 
