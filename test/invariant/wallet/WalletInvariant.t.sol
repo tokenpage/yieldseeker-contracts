@@ -14,7 +14,6 @@ import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {MockUniswapV3Router} from "../../mocks/MockIntegrationMocks.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 
 struct WalletHandlerSetup {
     address owner;
@@ -110,7 +109,6 @@ contract WalletWorkflowHandler is Test {
     }
 
     function operatorRunsVault(uint96 amountSeed, uint96 yieldSeed) external {
-        vaultCalls++;
         uint256 available = usdc.balanceOf(address(ownerAgent));
         if (available == 0) return;
         uint256 amount = bound(amountSeed, 1, available);
@@ -123,11 +121,10 @@ contract WalletWorkflowHandler is Test {
         uint256 yieldAmount = bound(yieldSeed, 0, 10e6);
         if (yieldAmount > 0) usdc.mint(address(vault), yieldAmount);
         bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
-        _operatorExecute(ownerAgent, address(vaultAdapter), address(vault), withdrawData);
+        if (_operatorExecute(ownerAgent, address(vaultAdapter), address(vault), withdrawData)) vaultCalls++;
     }
 
     function operatorSellsEarnedRewards(uint96 amountSeed) external {
-        swapCalls++;
         uint256 amount = bound(amountSeed, 1e18, 5e18);
         rewardToken.mint(address(ownerAgent), amount);
         router.setBuyAmount(1e6);
@@ -139,7 +136,7 @@ contract WalletWorkflowHandler is Test {
         route.fees = new uint24[](1);
         route.fees[0] = 3000;
         bytes memory data = abi.encodeCall(swapAdapter.swap, (address(rewardToken), address(usdc), route, amount, uint256(1e6), block.timestamp));
-        _operatorExecute(ownerAgent, address(swapAdapter), address(router), data);
+        if (_operatorExecute(ownerAgent, address(swapAdapter), address(router), data)) swapCalls++;
     }
 
     function ownerWithdrawsEverything(bool useSecondAgent) external {
@@ -174,14 +171,13 @@ contract WalletWorkflowHandler is Test {
     }
 
     function operatorMovesFundsBetweenAgents(uint96 amountSeed, bool moveForward) external {
-        transferCalls++;
         AgentWallet sender = moveForward ? ownerAgent : ownerSecondAgent;
         AgentWallet receiver = moveForward ? ownerSecondAgent : ownerAgent;
         uint256 balance = usdc.balanceOf(address(sender));
         if (balance < 2) return;
         uint256 amount = bound(amountSeed, 1, balance / 2);
         bytes memory data = abi.encodeCall(transferAdapter.transfer, (address(usdc), address(receiver), amount));
-        _operatorExecute(sender, address(transferAdapter), address(transferAdapter), data);
+        if (_operatorExecute(sender, address(transferAdapter), address(transferAdapter), data)) transferCalls++;
     }
 
     function attackerTriesEveryPrivilegedCall(uint8 walletChoice, uint96 amountSeed) external {
@@ -346,17 +342,40 @@ contract WalletInvariantTest is IntegrationBase {
         _assertOperatorSetMatchesFactory(otherOwnerAgent);
     }
 
-    function afterInvariant() public view {
-        console2.log("wallet invariant user deposits", handler.depositCalls());
-        console2.log("wallet invariant vault workflows", handler.vaultCalls());
-        console2.log("wallet invariant swap workflows", handler.swapCalls());
-        console2.log("wallet invariant withdrawals", handler.ownerWithdrawalCalls() + handler.otherOwnerWithdrawalCalls());
-        console2.log("wallet invariant owner blocklist changes", handler.blocklistCalls());
-        console2.log("wallet invariant agent transfers", handler.transferCalls());
-        console2.log("wallet invariant attacker attempts", handler.attackCalls());
-        console2.log("wallet invariant donations", handler.donationCalls());
-        console2.log("wallet invariant registry emergency calls", handler.emergencyCalls());
-        console2.log("wallet invariant operator syncs", handler.operatorSyncCalls());
+    function test_everyWalletWorkflowRunsOnceAndKeepsEveryInvariant() public {
+        handler.userDeposits(10_000e6, false);
+        handler.userDeposits(10_000e6, true);
+        handler.operatorRunsVault(5_000e6, 1e6);
+        handler.operatorSellsEarnedRewards(1e18);
+        handler.operatorMovesFundsBetweenAgents(1_000e6, true);
+        handler.ownerBlocksAdapter(true, true);
+        handler.ownerBlocksAdapter(true, false);
+        handler.ownerBlocksTarget(false, true);
+        handler.ownerBlocksTarget(false, false);
+        handler.attackerDonatesTokensToWallet(1e6, 0);
+        handler.attackerTriesEveryPrivilegedCall(0, 1e6);
+        handler.emergencyPausesOrUnpausesRegistry(true);
+        handler.emergencyPausesOrUnpausesRegistry(false);
+        handler.factoryOperatorChangesThenSyncs(false);
+        handler.factoryOperatorChangesThenSyncs(true);
+        handler.ownerWithdrawsEverything(false);
+        handler.ownerWithdrawsEverything(true);
+        handler.otherOwnerWithdrawsEverything();
+
+        assertEq(handler.depositCalls(), 2);
+        assertEq(handler.vaultCalls(), 1);
+        assertEq(handler.swapCalls(), 1);
+        assertEq(handler.transferCalls(), 1);
+        assertEq(handler.blocklistCalls(), 4);
+        assertEq(handler.donationCalls(), 1);
+        assertEq(handler.attackCalls(), 1);
+        assertEq(handler.emergencyCalls(), 2);
+        assertEq(handler.operatorSyncCalls(), 2);
+        assertEq(handler.ownerWithdrawalCalls(), 2);
+        assertEq(handler.otherOwnerWithdrawalCalls(), 1);
+        invariant_walletFundsStayWithOwnersOrRegisteredProtocolTargets();
+        invariant_attackerCannotPullOrReceiveWalletTokens();
+        invariant_operatorSetMatchesFactoryAfterSync();
     }
 
     function _assertAllSupplyIsAtOwnersCollectorsWalletsOrRegisteredTargets(IERC20 token) private view {

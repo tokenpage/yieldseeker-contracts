@@ -18,7 +18,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {console2} from "forge-std/console2.sol";
 
 contract PowerUserDualRewards {
     IERC20 private immutable WELL;
@@ -770,38 +769,6 @@ contract PowerUserHandler is Test {
         assertGt(ownerDonationCalls, 0);
     }
 
-    function logWorkflowCalls() external view {
-        for (uint256 i; i < 4; i++) {
-            console2.log("poweruser vault deposit adapter", i, vaultDepositCalls[i]);
-            console2.log("poweruser vault withdrawal adapter", i, vaultWithdrawalCalls[i]);
-            console2.log("poweruser vault gain adapter", i, vaultGainCalls[i]);
-            console2.log("poweruser vault loss adapter", i, vaultLossCalls[i]);
-        }
-        for (uint256 i; i < 3; i++) {
-            console2.log("poweruser lending supply market", i, lendingSupplyCalls[i]);
-            console2.log("poweruser lending borrow market", i, lendingBorrowCalls[i]);
-            console2.log("poweruser lending repay market", i, lendingRepayCalls[i]);
-            console2.log("poweruser lending withdrawal market", i, lendingWithdrawalCalls[i]);
-            console2.log("poweruser lending checkpoint market", i, lendingCheckpointCalls[i]);
-            console2.log("poweruser reward sales dex", i, rewardSaleCalls[i]);
-            console2.log("poweruser borrow swaps dex", i, borrowSwapCalls[i]);
-        }
-        console2.log("poweruser lending collateral yield", lendingCollateralYieldCalls);
-        console2.log("poweruser interest accrual", interestAccrualCalls);
-        console2.log("poweruser Merkl claims", merklCalls);
-        console2.log("poweruser Moonwell claims", moonwellCalls);
-        console2.log("poweruser agent transfers", transferCalls);
-        console2.log("poweruser single withdrawals", singleWithdrawalCalls);
-        console2.log("poweruser all withdrawals", allWithdrawalCalls);
-        console2.log("poweruser batch withdrawals", batchWithdrawalCalls);
-        console2.log("poweruser ETH withdrawals", ethWithdrawalCalls);
-        console2.log("poweruser owner blocklists", ownerBlockCalls);
-        console2.log("poweruser admin registry changes and syncs", registrySyncCalls);
-        console2.log("poweruser time advances", timeAdvanceCalls);
-        console2.log("poweruser market price moves", priceMoveCalls);
-        console2.log("poweruser owner vault donations", ownerDonationCalls);
-    }
-
     function totalOwnerValue() public view returns (uint256 value) {
         uint256 assets;
         uint256 debts;
@@ -1471,7 +1438,6 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
     function test_powerUserRunsEveryAdapterThenClosesOutCleanly() public {
         handler.runRepresentativeWorkflows();
         handler.assertEveryWorkflowWasCalled();
-        handler.logWorkflowCalls();
         handler.assertPositionAccounting();
         handler.assertFeeAccounting();
         handler.assertWithdrawableBalances();
@@ -1486,7 +1452,6 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         uint256 snapshot = vm.snapshotState();
         handler.closeOutAll();
         vm.revertToState(snapshot);
-        handler.logWorkflowCalls();
     }
 }
 

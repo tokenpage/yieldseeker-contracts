@@ -57,11 +57,12 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         (address token, address to, uint256 amount) = abi.decode(data[4:], (address, address, uint256));
         if (amount == 0) revert AWKErrors.ZeroAmount();
         YieldSeekerAgentWalletV3 wallet = YieldSeekerAgentWalletV3(payable(address(this)));
+        YieldSeekerAgentWalletV3 receiver = YieldSeekerAgentWalletV3(payable(to));
         AWKAgentWalletFactory factory = AWKAgentWalletFactory(address(wallet.FACTORY()));
         address owner = wallet.owner();
         if (factory.userWallets(owner, wallet.ownerAgentIndex()) != address(this)) revert NotOwnersAgentWallet(address(this));
-        if (factory.userWallets(owner, YieldSeekerAgentWalletV3(payable(to)).ownerAgentIndex()) != to || YieldSeekerAgentWalletV3(payable(to)).owner() != owner) revert NotOwnersAgentWallet(to);
-        if (YieldSeekerAgentWalletV3(payable(to)).isExecuting()) revert ReceiverIsExecuting(to);
+        if (factory.userWallets(owner, receiver.ownerAgentIndex()) != to || receiver.owner() != owner) revert NotOwnersAgentWallet(to);
+        if (receiver.isExecuting()) revert ReceiverIsExecuting(to);
         if (!IAgentWallet(to).feeTracker().isAccountedToken(to, token) || !_feeTracker().isAccountedToken(address(this), token)) revert InvalidAsset();
         _reportAction(FeeActions.TRANSFER_OUT, abi.encode(FeeActions.TransferOut({token: token, to: to, amount: amount})));
         if (IERC20(token).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();

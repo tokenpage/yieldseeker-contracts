@@ -7,7 +7,6 @@ import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {console2} from "forge-std/console2.sol";
 
 contract RegistryActor {
     address private immutable owner;
@@ -360,7 +359,5 @@ contract AdapterRegistryInvariant is StdInvariant, Test {
         assertGt(handler.emergencyPauseCalls(), 0, "emergency pause path was never exercised");
         assertGt(handler.adminUnpauseCalls(), 0, "admin unpause path was never exercised");
         assertGt(handler.attackerCalls(), 0, "attacker path was never exercised");
-        console2.log("registry handler calls", handler.totalCalls());
-        console2.log("registry attacker calls", handler.attackerCalls());
     }
 }

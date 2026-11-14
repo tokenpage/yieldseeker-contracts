@@ -41,7 +41,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 
 interface IOperatorEntryPoint {
     function depositTo(address account) external payable;
@@ -359,22 +358,6 @@ contract CompromisedOperatorHandler is Test {
         _updateDebtBufferBudget(ownerAMorpho);
     }
 
-    function ownerWalletCount(address walletOwner) external view returns (uint256) {
-        return walletOwner == ownerA ? _ownerAWallets.length : _ownerBWallets.length;
-    }
-
-    function ownerWalletAt(address walletOwner, uint256 index) external view returns (AgentWallet) {
-        return walletOwner == ownerA ? _ownerAWallets[index] : _ownerBWallets[index];
-    }
-
-    function thiefWalletCount() external view returns (uint256) {
-        return _thiefWallets.length;
-    }
-
-    function thiefWalletAt(uint256 index) external view returns (AgentWallet) {
-        return _thiefWallets[index];
-    }
-
     function ownerValue(address walletOwner) external view returns (uint256) {
         return _ownerValue(walletOwner);
     }
@@ -663,75 +646,6 @@ contract CompromisedOperatorHandler is Test {
         _assertAdapterBlocked(address(aaveV3LendingAdapter));
         _assertAdapterBlocked(address(aaveV4LendingAdapter));
         _assertAdapterBlocked(address(morphoBlueLendingAdapter));
-    }
-
-    function logWorkflowCounts() external view {
-        console2.log("vault attempts", vaultWorkflowAttempts);
-        console2.log("vault blocked", vaultWorkflowBlocks);
-        console2.log("reward attempts", rewardWorkflowAttempts);
-        console2.log("reward blocked", rewardWorkflowBlocks);
-        console2.log("lending attempts", lendingWorkflowAttempts);
-        console2.log("lending blocked", lendingWorkflowBlocks);
-        console2.log("swap attempts", swapWorkflowAttempts);
-        console2.log("swap blocked", swapWorkflowBlocks);
-        console2.log("transfer attempts", transferWorkflowAttempts);
-        console2.log("transfer blocked", transferWorkflowBlocks);
-        console2.log("arbitrary call attempts", arbitraryCallAttempts);
-        console2.log("arbitrary call blocked", arbitraryCallBlocks);
-        console2.log("privileged attempts", privilegedCallAttempts);
-        console2.log("privileged blocked", privilegedCallBlocks);
-        console2.log("UserOp attempts", userOpAttempts);
-        console2.log("UserOps without paymaster blocked", userOpWithoutPaymasterBlocks);
-        console2.log("sponsored UserOps accepted", sponsoredUserOpSuccesses);
-        console2.log("unregistered attempts", unregisteredTargetAttempts);
-        console2.log("unregistered blocked", unregisteredTargetBlocks);
-        console2.log("hostile token attempts", hostileTokenAttempts);
-        console2.log("hostile token blocked", hostileTokenBlocks);
-        console2.log("factory wallet attempts", factoryWalletAttempts);
-        console2.log("factory wallet blocked", factoryWalletBlocks);
-        console2.log("owner withdraw attempts", ownerWithdrawAttempts);
-        console2.log("owner withdraw successes", ownerWithdrawSuccesses);
-        console2.log("owner blocklist calls", ownerBlocklistCalls);
-        console2.log("cross-owner transfer attempts", crossOwnerTransferAttempts);
-        console2.log("cross-owner transfer blocked", crossOwnerTransferBlocks);
-        console2.log("wallet ETH spend attempts", walletEthSpendAttempts);
-        console2.log("wallet ETH spend blocked", walletEthSpendBlocks);
-        console2.log("EntryPoint spend attempts", entryPointSpendAttempts);
-        console2.log("EntryPoint spend blocked", entryPointSpendBlocks);
-        console2.log("price/time moves", priceAndTimeMoves);
-        console2.log("liquidation attempts", liquidationAttempts);
-        console2.log("liquidation blocked", liquidationBlocks);
-        console2.log("liquidation successes", liquidationSuccesses);
-        console2.log("Morpho liquidation bonus (USDC)", liquidationBonusValue);
-        console2.log("Morpho repaid value (USDC)", liquidationRepaidValue);
-        console2.log("Morpho interest budget (USDC)", morphoInterestBudget);
-        console2.log("Morpho borrow-fee growth (WETH)", morphoBorrowFeeGrowth);
-        console2.log("ERC4626 adapter attempts", adapterAttempts[address(erc4626Adapter)]);
-        console2.log("ERC4626 adapter blocked", adapterBlocks[address(erc4626Adapter)]);
-        console2.log("Aave V3 vault attempts", adapterAttempts[address(aaveV3Adapter)]);
-        console2.log("Aave V3 vault blocked", adapterBlocks[address(aaveV3Adapter)]);
-        console2.log("Compound V2 attempts", adapterAttempts[address(compoundV2Adapter)]);
-        console2.log("Compound V2 blocked", adapterBlocks[address(compoundV2Adapter)]);
-        console2.log("Compound V3 attempts", adapterAttempts[address(compoundV3Adapter)]);
-        console2.log("Compound V3 blocked", adapterBlocks[address(compoundV3Adapter)]);
-        console2.log("Merkl attempts", adapterAttempts[address(merklAdapter)]);
-        console2.log("Merkl blocked", adapterBlocks[address(merklAdapter)]);
-        console2.log("Moonwell attempts", adapterAttempts[address(moonwellRewardAdapter)]);
-        console2.log("Moonwell blocked", adapterBlocks[address(moonwellRewardAdapter)]);
-        console2.log("Uniswap attempts", adapterAttempts[address(uniswapV3SwapAdapter)]);
-        console2.log("Uniswap blocked", adapterBlocks[address(uniswapV3SwapAdapter)]);
-        console2.log("Aerodrome V2 attempts", adapterAttempts[address(aerodromeV2SwapAdapter)]);
-        console2.log("Aerodrome V2 blocked", adapterBlocks[address(aerodromeV2SwapAdapter)]);
-        console2.log("Aerodrome CL attempts", adapterAttempts[address(aerodromeCLSwapAdapter)]);
-        console2.log("Aerodrome CL blocked", adapterBlocks[address(aerodromeCLSwapAdapter)]);
-        console2.log("agent transfer attempts", adapterAttempts[address(agentTransferAdapter)]);
-        console2.log("agent transfer blocked", adapterBlocks[address(agentTransferAdapter)]);
-        console2.log("Aave V3 lending attempts", adapterAttempts[address(aaveV3LendingAdapter)]);
-        console2.log("Aave V3 lending blocked", adapterBlocks[address(aaveV3LendingAdapter)]);
-        console2.log("Aave V4 lending attempts", adapterAttempts[address(aaveV4LendingAdapter)]);
-        console2.log("Aave V4 lending blocked", adapterBlocks[address(aaveV4LendingAdapter)]);
-        console2.log("Morpho attempts", adapterAttempts[address(morphoBlueLendingAdapter)]);
-        console2.log("Morpho blocked", adapterBlocks[address(morphoBlueLendingAdapter)]);
     }
 
     function ownerExitsEveryWallet() external {
@@ -2147,7 +2061,6 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
         assertTrue(vm.revertToState(snapshot));
         handler.assertWalletEthAndEntryPointDeposits();
         handler.assertAllWorkflowCounts();
-        handler.logWorkflowCounts();
     }
 
     function _createWalletWithBase(address walletOwner, uint256 index, address baseAsset, bytes32 profile) private returns (AgentWallet wallet) {
