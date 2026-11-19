@@ -7,7 +7,7 @@ interface HalmosOracleCheatcodes {
     function warp(uint256 timestamp) external;
 }
 
-contract HalmosSequencerFeed is IPriceFeed {
+contract HalmosSequencerFeed {
     function decimals() external pure returns (uint8) {
         return 0;
     }
@@ -17,7 +17,7 @@ contract HalmosSequencerFeed is IPriceFeed {
     }
 }
 
-contract HalmosPriceFeed is IPriceFeed {
+contract HalmosPriceFeed {
     uint8 private immutable _decimals;
     int256 private immutable _answer;
 
@@ -56,12 +56,12 @@ contract PriceOracleHalmos {
     function setUp() public {
         vm.warp(10_000);
         HalmosSequencerFeed sequencer = new HalmosSequencerFeed();
-        oracle = new YieldSeekerPriceOracle(address(this), address(this), sequencer);
+        oracle = new YieldSeekerPriceOracle(address(this), address(this), IPriceFeed(address(sequencer)));
         HalmosPriceFeed usdFeed = new HalmosPriceFeed(8, 100_000_000);
         token6Decimals = address(new HalmosTokenDecimals(6));
         token18Decimals = address(new HalmosTokenDecimals(18));
-        oracle.setSource(token6Decimals, usdFeed, 1 days);
-        oracle.setSource(token18Decimals, usdFeed, 1 days);
+        oracle.setSource(token6Decimals, IPriceFeed(address(usdFeed)), 1 days);
+        oracle.setSource(token18Decimals, IPriceFeed(address(usdFeed)), 1 days);
     }
 
     function check_property13_quoteScalesSixDecimalsIntoEighteen(uint8 amount) external view {

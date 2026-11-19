@@ -16,6 +16,16 @@ remappings = [
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
     "forge-std/=lib/forge-std/src/",
     "account-abstraction/=lib/account-abstraction/contracts/",
+    "morpho-blue/=lib/morpho-blue/src/",
+    "aave-v3-origin/=lib/aave-v3-origin/src/contracts/",
+    "lib/aave-v3-origin/:openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "@uniswap/v3-core/=lib/v3-core/",
+    "@uniswap/v3-periphery/=lib/v3-periphery/",
+    "@uniswap/swap-router-contracts/=lib/swap-router-contracts/",
+    "slipstream/=lib/slipstream/contracts/",
+    "lib/slipstream/:contracts/=lib/slipstream/contracts/",
+    "aerodrome/=lib/aerodrome-contracts/contracts/",
+    "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./" }]

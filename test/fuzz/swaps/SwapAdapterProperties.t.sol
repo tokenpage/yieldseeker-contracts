@@ -10,15 +10,18 @@ import {FeesOwed, NoSwapPolicy} from "../../../src/adapters/SwapAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {AWKAerodromeCLSwapAdapterCore, IAerodromeCLSwapRouter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapterCore, IAerodromeV2Router} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress, SwapExpired, SwapInputMismatch} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
-import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IRouter} from "aerodrome/interfaces/IRouter.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {ISwapRouter} from "slipstream/periphery/interfaces/ISwapRouter.sol";
 
 contract RouterBehaviorMock {
     enum Behavior {
@@ -49,17 +52,17 @@ contract RouterBehaviorMock {
         require(sent);
     }
 
-    function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
+    function exactInput(IV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
         (address routeStart, address routeEnd) = _decodePackedEndpoints(params.path);
         return _swap(IERC20(routeStart), IERC20(routeEnd), params.recipient, params.amountIn, params.amountOutMinimum, 0, routeStart, routeEnd);
     }
 
-    function exactInput(IAerodromeCLSwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
+    function exactInput(ISwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
         (address routeStart, address routeEnd) = _decodePackedEndpoints(params.path);
         return _swap(IERC20(routeStart), IERC20(routeEnd), params.recipient, params.amountIn, params.amountOutMinimum, params.deadline, routeStart, routeEnd);
     }
 
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMinimum, IAerodromeV2Router.Route[] memory routes, address recipient, uint256 deadline) external returns (uint256[] memory amounts) {
+    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMinimum, IRouter.Route[] memory routes, address recipient, uint256 deadline) external returns (uint256[] memory amounts) {
         require(routes.length > 0, "empty route");
         address routeStart = routes[0].from;
         address routeEnd = routes[routes.length - 1].to;

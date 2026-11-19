@@ -86,15 +86,15 @@ contract PriceOracleProperties is IntegrationBase {
         MockERC20WithDecimals token = new MockERC20WithDecimals("Oracle Edge", "EDGE", 18);
         MockFeePriceFeed feed = new MockFeePriceFeed(8, 200e8, block.timestamp);
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
-        priceOracle.setSource(address(0), feed, 1 days);
+        priceOracle.setSource(address(0), IPriceFeed(address(feed)), 1 days);
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
         priceOracle.setSource(address(token), IPriceFeed(address(0)), 1 days);
         vm.expectRevert(AWKErrors.ZeroAmount.selector);
-        priceOracle.setSource(address(token), feed, 0);
+        priceOracle.setSource(address(token), IPriceFeed(address(feed)), 0);
         vm.expectRevert(abi.encodeWithSelector(NoPriceSource.selector, address(token)));
         priceOracle.getPrice(address(token));
 
-        priceOracle.setSource(address(token), feed, 1 days);
+        priceOracle.setSource(address(token), IPriceFeed(address(feed)), 1 days);
         feed.setPrice(0, block.timestamp);
         vm.expectRevert(abi.encodeWithSelector(InvalidPrice.selector, address(token), int256(0)));
         priceOracle.getPrice(address(token));
@@ -114,7 +114,7 @@ contract PriceOracleProperties is IntegrationBase {
 
         vm.expectRevert();
         vm.prank(owner);
-        priceOracle.setSource(address(token), feed, 1 days);
+        priceOracle.setSource(address(token), IPriceFeed(address(feed)), 1 days);
         vm.expectRevert();
         vm.prank(owner);
         priceOracle.removeSource(address(token));

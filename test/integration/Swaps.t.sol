@@ -12,17 +12,20 @@ import {SellTokenNotAllowed} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {AWKAerodromeCLSwapAdapterCore, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapterCore, IAerodromeV2Router, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapterCore, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress, SwapExpired, SwapInputMismatch} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
-import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IRouter} from "aerodrome/interfaces/IRouter.sol";
+import {ISwapRouter} from "slipstream/periphery/interfaces/ISwapRouter.sol";
 
 contract RecipientAwareSwapRouter {
     uint256 public configuredBuyAmount;
@@ -32,18 +35,18 @@ contract RecipientAwareSwapRouter {
         configuredBuyAmount = amount;
     }
 
-    function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
+    function exactInput(IV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
         (address sellToken, address buyToken) = _decodePathEndpoints(params.path);
         amountOut = _swap(sellToken, buyToken, params.amountIn, params.amountOutMinimum, params.recipient);
     }
 
-    function exactInput(IAerodromeCLSwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
+    function exactInput(ISwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
         lastDeadline = params.deadline;
         (address sellToken, address buyToken) = _decodePathEndpoints(params.path);
         amountOut = _swap(sellToken, buyToken, params.amountIn, params.amountOutMinimum, params.recipient);
     }
 
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, IAerodromeV2Router.Route[] memory routes, address to, uint256 deadline) external returns (uint256[] memory amounts) {
+    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, IRouter.Route[] memory routes, address to, uint256 deadline) external returns (uint256[] memory amounts) {
         require(routes.length > 0);
         lastDeadline = deadline;
         uint256 amountOut = _swap(routes[0].from, routes[routes.length - 1].to, amountIn, amountOutMin, to);
@@ -73,7 +76,7 @@ contract MidSwapHookRouter {
         HOOK = hook;
     }
 
-    function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
+    function exactInput(IV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
         address sellToken = address(bytes20(params.path[:20]));
         address buyToken = address(bytes20(params.path[params.path.length - 20:]));
         require(IERC20(sellToken).transferFrom(msg.sender, address(this), params.amountIn));
@@ -116,7 +119,7 @@ contract MidSwapInflowRouter {
         payout = payout_;
     }
 
-    function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
+    function exactInput(IV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256) {
         address sellToken = address(bytes20(params.path[:20]));
         address buyToken = address(bytes20(params.path[params.path.length - 20:]));
         require(IERC20(sellToken).transferFrom(msg.sender, address(this), params.amountIn));

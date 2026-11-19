@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IAerodromeCLSwapRouter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {IAerodromeV2Router} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IRouter} from "aerodrome/interfaces/IRouter.sol";
+import {ISwapRouter} from "slipstream/periphery/interfaces/ISwapRouter.sol";
 
 contract MockMerklDistributor {
     struct Claim {
@@ -71,7 +71,7 @@ contract MockUniswapV3Router {
         shouldRevert = value;
     }
 
-    function exactInput(IUniswapV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
+    function exactInput(IV3SwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
         if (shouldRevert) revert("swap failed");
         (address sellToken, address buyToken) = _decodePathEndpoints(params.path);
         require(MockERC20(sellToken).transferFrom(msg.sender, address(this), params.amountIn), "TransferFrom failed");
@@ -100,7 +100,7 @@ contract MockAerodromeV2Router {
         shouldRevert = value;
     }
 
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, IAerodromeV2Router.Route[] memory routes, address, uint256) external returns (uint256[] memory amounts) {
+    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, IRouter.Route[] memory routes, address, uint256) external returns (uint256[] memory amounts) {
         if (shouldRevert) revert("swap failed");
         require(routes.length > 0, "invalid routes");
         address sellToken = routes[0].from;
@@ -126,7 +126,7 @@ contract MockAerodromeCLRouter {
         shouldRevert = value;
     }
 
-    function exactInput(IAerodromeCLSwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
+    function exactInput(ISwapRouter.ExactInputParams calldata params) external payable returns (uint256 amountOut) {
         if (shouldRevert) revert("swap failed");
         (address sellToken, address buyToken) = _decodePathEndpoints(params.path);
         require(MockERC20(sellToken).transferFrom(msg.sender, address(this), params.amountIn), "TransferFrom failed");

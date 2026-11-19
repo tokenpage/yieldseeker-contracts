@@ -19,21 +19,11 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IPeripheryPayments} from "@uniswap/v3-periphery/contracts/interfaces/IPeripheryPayments.sol";
 
 error InvalidUniswapV3RouterTarget(address target, address expected);
 error InvalidUniswapV3FeeTier(uint24 fee);
-
-interface IUniswapV3SwapRouter {
-    struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-    }
-
-    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
-    function refundETH() external payable;
-}
 
 /**
  * @title AWKUniswapV3SwapAdapterCore
@@ -93,13 +83,13 @@ abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
         // The router pays a WETH input from its own ETH when it holds enough, so the wallet would spend nothing;
         // sweeping it to the wallet first keeps the swap paid from the wallet
-        if (router.balance != 0) IUniswapV3SwapRouter(router).refundETH();
+        if (router.balance != 0) IPeripheryPayments(router).refundETH();
         IERC20(sellToken).forceApprove(router, sellAmount);
         bytes memory encodedPath = abi.encodePacked(route.path[0]);
         for (uint256 i = 0; i < route.fees.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.fees[i]), abi.encodePacked(route.path[i + 1]));
         }
-        return IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
+        return IV3SwapRouter(router).exactInput(IV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 }
 

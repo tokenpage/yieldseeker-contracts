@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IMorphoBlue, IMorphoOracle} from "../../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
+import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 
 contract OperatorHostileToken is ERC20 {
     constructor() ERC20("Operator Hostile Token", "OHT") {}
@@ -95,7 +96,7 @@ contract OperatorMockEntryPoint {
     }
 }
 
-contract OperatorMorphoBlueMarket is IMorphoBlue {
+contract OperatorMorphoBlueMarket {
     uint256 private constant VIRTUAL_SHARES = 1e6;
     uint256 private constant VIRTUAL_ASSETS = 1;
     uint256 private constant YEAR = 365 days;
@@ -127,13 +128,13 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
     error InvalidLiquidationAmount();
     error InsufficientCollateral();
 
-    function supplyCollateral(MarketParams memory params, uint256 assets, address onBehalf, bytes memory) external override {
+    function supplyCollateral(MarketParams memory params, uint256 assets, address onBehalf, bytes memory) external {
         _accrueInterest(params);
         require(IERC20(params.collateralToken).transferFrom(msg.sender, address(this), assets));
         _positions[_marketId(params)][onBehalf].collateral += uint128(assets);
     }
 
-    function withdrawCollateral(MarketParams memory params, uint256 assets, address onBehalf, address receiver) external override {
+    function withdrawCollateral(MarketParams memory params, uint256 assets, address onBehalf, address receiver) external {
         if (msg.sender != onBehalf) revert Unauthorized();
         _accrueInterest(params);
         Position storage position_ = _positions[_marketId(params)][onBehalf];
@@ -144,7 +145,7 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
         require(IERC20(params.collateralToken).transfer(receiver, withdrawn));
     }
 
-    function borrow(MarketParams memory params, uint256 assets, uint256 shares, address onBehalf, address receiver) external override returns (uint256 assetsBorrowed, uint256 sharesBorrowed) {
+    function borrow(MarketParams memory params, uint256 assets, uint256 shares, address onBehalf, address receiver) external returns (uint256 assetsBorrowed, uint256 sharesBorrowed) {
         if (msg.sender != onBehalf) revert Unauthorized();
         _accrueInterest(params);
         bytes32 id = _marketId(params);
@@ -167,7 +168,7 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
         require(IERC20(params.loanToken).transfer(receiver, assetsBorrowed));
     }
 
-    function repay(MarketParams memory params, uint256 assets, uint256 shares, address onBehalf, bytes memory) external override returns (uint256 assetsRepaid, uint256 sharesRepaid) {
+    function repay(MarketParams memory params, uint256 assets, uint256 shares, address onBehalf, bytes memory) external returns (uint256 assetsRepaid, uint256 sharesRepaid) {
         _accrueInterest(params);
         bytes32 id = _marketId(params);
         MarketState storage market_ = _markets[id];
@@ -187,7 +188,7 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
         market_.totalBorrowShares -= uint128(sharesRepaid);
     }
 
-    function accrueInterest(MarketParams memory params) external override {
+    function accrueInterest(MarketParams memory params) external {
         _accrueInterest(params);
     }
 
@@ -207,10 +208,10 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
             repaidAssets = sharesToRepay == availableShares ? debt : Math.mulDiv(sharesToRepay, uint256(market_.totalBorrowAssets) + VIRTUAL_ASSETS, uint256(market_.totalBorrowShares) + VIRTUAL_SHARES, Math.Rounding.Ceil);
             repaidShares = sharesToRepay;
             uint256 collateralValue = Math.mulDiv(repaidAssets, liquidationIncentiveFactor(params.lltv), WAD, Math.Rounding.Ceil);
-            seizedCollateral = Math.mulDiv(collateralValue, 1e36, IMorphoOracle(params.oracle).price(), Math.Rounding.Ceil);
+            seizedCollateral = Math.mulDiv(collateralValue, 1e36, IOracle(params.oracle).price(), Math.Rounding.Ceil);
         } else if (seizedAssets != 0) {
             seizedCollateral = seizedAssets > position_.collateral ? position_.collateral : seizedAssets;
-            uint256 loanValue = Math.mulDiv(seizedCollateral, IMorphoOracle(params.oracle).price(), 1e36);
+            uint256 loanValue = Math.mulDiv(seizedCollateral, IOracle(params.oracle).price(), 1e36);
             repaidAssets = Math.mulDiv(loanValue, WAD, liquidationIncentiveFactor(params.lltv));
             if (repaidAssets > debt) repaidAssets = debt;
             repaidShares = repaidAssets == debt ? availableShares : Math.mulDiv(repaidAssets, uint256(market_.totalBorrowShares) + VIRTUAL_SHARES, uint256(market_.totalBorrowAssets) + VIRTUAL_ASSETS, Math.Rounding.Ceil);
@@ -227,12 +228,12 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
         require(IERC20(params.collateralToken).transfer(msg.sender, seizedCollateral));
     }
 
-    function position(bytes32 id, address user) external view override returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral) {
+    function position(bytes32 id, address user) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral) {
         Position storage position_ = _positions[id][user];
         return (position_.supplyShares, position_.borrowShares, position_.collateral);
     }
 
-    function market(bytes32 id) external view override returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee) {
+    function market(bytes32 id) external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee) {
         MarketState storage market_ = _markets[id];
         return (market_.totalSupplyAssets, market_.totalSupplyShares, market_.totalBorrowAssets, market_.totalBorrowShares, market_.lastUpdate, market_.fee);
     }
@@ -267,7 +268,7 @@ contract OperatorMorphoBlueMarket is IMorphoBlue {
 
     function _isHealthy(MarketParams memory params, Position storage position_, uint256 collateral, uint256 borrowShares, uint256 totalBorrowAssets, uint256 totalBorrowShares) private view returns (bool) {
         if (borrowShares == 0) return true;
-        uint256 price = IMorphoOracle(params.oracle).price();
+        uint256 price = IOracle(params.oracle).price();
         if (price == 0) return false;
         uint256 debt = Math.mulDiv(borrowShares, totalBorrowAssets + VIRTUAL_ASSETS, totalBorrowShares + VIRTUAL_SHARES, Math.Rounding.Ceil);
         uint256 collateralValue = Math.mulDiv(collateral, price, 1e36);

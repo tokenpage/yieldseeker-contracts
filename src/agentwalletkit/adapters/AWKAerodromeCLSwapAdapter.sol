@@ -19,21 +19,10 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPeripheryPayments} from "slipstream/periphery/interfaces/IPeripheryPayments.sol";
+import {ISwapRouter} from "slipstream/periphery/interfaces/ISwapRouter.sol";
 
 error InvalidAerodromeCLRouterTarget(address target, address expected);
-
-interface IAerodromeCLSwapRouter {
-    struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-    }
-
-    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
-    function refundETH() external payable;
-}
 
 /**
  * @title AWKAerodromeCLSwapAdapterCore
@@ -89,13 +78,13 @@ abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
         // The router pays a WETH input from its own ETH when it holds enough, so the wallet would spend nothing;
         // sweeping it to the wallet first keeps the swap paid from the wallet
-        if (router.balance != 0) IAerodromeCLSwapRouter(router).refundETH();
+        if (router.balance != 0) IPeripheryPayments(router).refundETH();
         IERC20(sellToken).forceApprove(router, sellAmount);
         bytes memory encodedPath = abi.encodePacked(route.path[0]);
         for (uint256 i = 0; i < route.tickSpacings.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.tickSpacings[i]), abi.encodePacked(route.path[i + 1]));
         }
-        return IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
+        return ISwapRouter(router).exactInput(ISwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 }
 

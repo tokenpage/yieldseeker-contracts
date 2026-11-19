@@ -15,18 +15,9 @@
 pragma solidity 0.8.38;
 
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-/**
- * @title IERC4626
- * @notice Minimal ERC4626 interface
- */
-interface IERC4626 {
-    function asset() external view returns (address);
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
-}
 
 /**
  * @title AWKERC4626Adapter
