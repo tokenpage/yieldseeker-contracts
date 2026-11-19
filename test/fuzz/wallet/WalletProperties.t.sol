@@ -7,7 +7,6 @@ import {InvalidAsset, InvalidFeeTracker, YieldSeekerAgentWalletV3 as AgentWallet
 import {AssetNotAllowed} from "../../../src/adapters/Adapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter} from "../../../src/adapters/AerodromeV2SwapAdapter.sol";
-import {IYieldSeekerAgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {InvalidTransferTarget, NotOwnersAgentWallet, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {UnknownOperation} from "../../../src/agentwalletkit/AWKAdapter.sol";
@@ -15,9 +14,7 @@ import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplement
 import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
-import {IAWKVaultAdapter} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {InvalidPercentage} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
-import {IAWKBorrowAdapter} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
@@ -304,7 +301,7 @@ contract WalletPropertiesTest is IntegrationBase {
         sender.syncFromFactory();
         receiver.syncFromFactory();
 
-        bytes memory transferData = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(receiver), amount));
+        bytes memory transferData = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(receiver), amount));
         bytes memory nestedCall = abi.encodeCall(receiver.executeViaAdapter, (address(agentTransferAdapter), address(agentTransferAdapter), transferData));
         bytes memory outerData = abi.encode(address(sender), nestedCall);
         vm.prank(operator);
@@ -342,55 +339,64 @@ contract WalletPropertiesTest is IntegrationBase {
         _registerTarget(borrowRegistry, address(wrongAssetVault), address(erc4626Adapter));
 
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.deposit(1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.depositPercentage(10_000);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        erc4626Adapter.withdraw(1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
         erc4626Adapter.execute(address(erc4626Vault), bytes(""));
-        (bool vaultCallRan,) = address(erc4626Adapter).call(abi.encodeCall(IAWKVaultAdapter.deposit, (1)));
-        assertFalse(vaultCallRan, "the adapter has no deposit function of its own");
-        (bool borrowCallRan,) = address(aaveV3BorrowAdapter).call(abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, 1)));
-        assertFalse(borrowCallRan, "the adapter has no borrow function of its own");
-        (bool transferCallRan,) = address(agentTransferAdapter).call(abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(wallet), 1)));
-        assertFalse(transferCallRan, "the adapter has no transfer function of its own");
 
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.depositPercentage, (0)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(0)));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.depositPercentage, (10_001)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(10_001)));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.depositPercentage, (10_000)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        agentTransferAdapter.transfer(address(usdc), address(wallet), 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3BorrowAdapter.supplyCollateral(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3BorrowAdapter.withdrawCollateral(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3BorrowAdapter.borrow(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3BorrowAdapter.repay(aaveV3Market, 1);
+        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
+        aaveV3BorrowAdapter.checkpoint(aaveV3Market);
+
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (0)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(0)));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (10_001)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(10_001)));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (10_000)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongAssetVault), abi.encodeCall(IAWKVaultAdapter.deposit, (1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongAssetVault), abi.encodeCall(erc4626Adapter.deposit, (1)), abi.encodeWithSelector(AssetNotAllowed.selector));
 
-        _executeExpectRevert(
-            wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(0), 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector)
-        );
+        address unregisteredVault = address(new MockERC4626(address(usdc), "Unregistered", "UNREG"));
+        bytes memory nestedExecute = abi.encodeCall(erc4626Adapter.execute, (unregisteredVault, abi.encodeCall(erc4626Adapter.deposit, (1))));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), nestedExecute, abi.encodeWithSelector(AWKErrors.DirectCallForbidden.selector));
+        bytes memory nestedOtherAdapter = abi.encodeCall(aaveV3Adapter.execute, (unregisteredVault, abi.encodeCall(aaveV3Adapter.deposit, (1))));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), nestedOtherAdapter, abi.encodeWithSelector(AWKErrors.DirectCallForbidden.selector));
+
+        _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(0), 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
         address wrongTransferTarget = address(0xCAFE);
         borrowRegistry.setTargetAdapter(wrongTransferTarget, address(agentTransferAdapter));
         _executeExpectRevert(
-            wallet,
-            address(agentTransferAdapter),
-            wrongTransferTarget,
-            abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(wallet), 1)),
-            abi.encodeWithSelector(InvalidTransferTarget.selector, wrongTransferTarget)
+            wallet, address(agentTransferAdapter), wrongTransferTarget, abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(wallet), 1)), abi.encodeWithSelector(InvalidTransferTarget.selector, wrongTransferTarget)
         );
         AgentWallet emptyReceiver = _createBorrowWallet(owner, 716);
         _executeExpectRevert(
-            wallet,
-            address(agentTransferAdapter),
-            address(agentTransferAdapter),
-            abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(emptyReceiver), 1)),
-            abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)
+            wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(emptyReceiver), 1)), abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)
         );
 
         address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         bytes memory sameAssetMarket = abi.encode(address(aaveV3LendingPool), address(usdc), address(usdc), uint8(0));
         address sameAssetTarget = aaveV3BorrowAdapter.marketTarget(sameAssetMarket);
         borrowRegistry.setTargetAdapter(sameAssetTarget, address(aaveV3BorrowAdapter));
-        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), sameAssetTarget, abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (sameAssetMarket, 1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), sameAssetTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (sameAssetMarket, 1)), abi.encodeWithSelector(AssetNotAllowed.selector));
 
         address wrongMarketTarget = address(uint160(marketTarget) ^ 1);
         borrowRegistry.setTargetAdapter(wrongMarketTarget, address(aaveV3BorrowAdapter));
-        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
-        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), wrongMarketTarget, abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market)), abi.encodeWithSelector(MarketTargetMismatch.selector, wrongMarketTarget, marketTarget));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), wrongMarketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)), abi.encodeWithSelector(MarketTargetMismatch.selector, wrongMarketTarget, marketTarget));
 
         address[] memory assets = new address[](1);
         uint256[] memory amounts = new uint256[](0);
@@ -511,7 +517,7 @@ contract WalletPropertiesTest is IntegrationBase {
         AgentWallet realAgent = _createVaultWallet(owner, 76_006);
         AgentWallet impostor = AgentWallet(payable(address(new ERC1967Proxy(implementation, _initializeCall(owner, 76_006, address(usdc), VAULT_AGENT_PROFILE)))));
         _fundWallet(impostor, address(usdc), 50e6);
-        bytes memory transferToRealAgent = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(realAgent), 50e6));
+        bytes memory transferToRealAgent = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(realAgent), 50e6));
         _executeExpectRevert(impostor, address(agentTransferAdapter), address(agentTransferAdapter), transferToRealAgent, abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(impostor)));
         assertEq(usdc.balanceOf(address(realAgent)), 0);
 
@@ -587,21 +593,21 @@ contract WalletPropertiesTest is IntegrationBase {
     function _accrueBorrowFees(AgentWallet wallet, uint256 collateral, uint256 borrowed) private returns (uint256 feeOwed) {
         address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(wallet, address(usdc), collateral);
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateral)));
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowed)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateral)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowed)));
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         feeOwed = borrowFeeModule.feesOwed(address(wallet));
         assertGt(feeOwed, 0);
     }
 
     function _transferBetweenAgents(AgentWallet sender, AgentWallet receiver, address token, uint256 amount) private {
-        bytes memory data = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (token, address(receiver), amount));
+        bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (token, address(receiver), amount));
         _execute(sender, address(agentTransferAdapter), address(agentTransferAdapter), data);
     }
 
     function _tryTransfer(AgentWallet sender, address token, address receiver, uint256 amount) private returns (bool success) {
-        bytes memory data = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (token, receiver, amount));
+        bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (token, receiver, amount));
         vm.prank(operator);
         (success,) = address(sender).call(abi.encodeCall(sender.executeViaAdapter, (address(agentTransferAdapter), address(agentTransferAdapter), data)));
     }

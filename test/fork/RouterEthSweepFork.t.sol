@@ -5,9 +5,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {YieldSeekerAerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {IAWKAerodromeCLSwapAdapter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {IAWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
 import {toArray} from "../helpers/Arrays.sol";
@@ -87,7 +85,7 @@ contract RouterEthSweepForkTest is ForkBase {
         path[1] = USDC;
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
-        return abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees}), SELL_AMOUNT, uint256(1), block.timestamp));
+        return abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees}), SELL_AMOUNT, uint256(1), block.timestamp));
     }
 
     function _clSwap() internal view returns (bytes memory) {
@@ -96,6 +94,6 @@ contract RouterEthSweepForkTest is ForkBase {
         path[1] = USDC;
         int24[] memory tickSpacings = new int24[](1);
         tickSpacings[0] = 100;
-        return abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: path, tickSpacings: tickSpacings}), SELL_AMOUNT, uint256(1), block.timestamp));
+        return abi.encodeCall(clAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: path, tickSpacings: tickSpacings}), SELL_AMOUNT, uint256(1), block.timestamp));
     }
 }

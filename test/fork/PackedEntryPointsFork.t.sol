@@ -3,7 +3,6 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
-import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {ISafe, ISafeProxyFactory} from "./SafeOwnerFork.t.sol";
@@ -89,7 +88,7 @@ contract PackedEntryPointsForkTest is ForkBase {
         entryPoint.depositTo{value: 1 ether}(address(paymaster));
         (, uint256 strangerKey) = makeAddrAndKey("stranger");
 
-        PackedUserOperation memory deposit = _userOp(entryPoint, address(wallet), abi.encodeCall(wallet.executeViaAdapter, (address(adapter), STEAKHOUSE_USDC, abi.encodeCall(IAWKVaultAdapter.deposit, (DEPOSIT_AMOUNT)))));
+        PackedUserOperation memory deposit = _userOp(entryPoint, address(wallet), abi.encodeCall(wallet.executeViaAdapter, (address(adapter), STEAKHOUSE_USDC, abi.encodeCall(adapter.deposit, (DEPOSIT_AMOUNT)))));
         deposit.signature = _sign(entryPoint, deposit, signingOperatorKey);
         _expectFailedOp(entryPoint, deposit, "AA24 signature error");
 
@@ -112,7 +111,7 @@ contract PackedEntryPointsForkTest is ForkBase {
         for (uint256 i; i < 2; ++i) {
             adapters[i] = address(adapter);
             targets[i] = STEAKHOUSE_USDC;
-            datas[i] = abi.encodeCall(IAWKVaultAdapter.deposit, (BATCH_DEPOSIT_AMOUNT));
+            datas[i] = abi.encodeCall(adapter.deposit, (BATCH_DEPOSIT_AMOUNT));
         }
         PackedUserOperation memory batch = _userOp(entryPoint, address(wallet), abi.encodeCall(wallet.executeViaAdapterBatch, (adapters, targets, datas)));
         _sponsor(batch);

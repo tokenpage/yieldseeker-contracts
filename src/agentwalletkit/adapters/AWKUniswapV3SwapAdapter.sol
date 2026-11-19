@@ -14,7 +14,6 @@
 //
 pragma solidity 0.8.38;
 
-import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -25,16 +24,11 @@ import {IPeripheryPayments} from "@uniswap/v3-periphery/contracts/interfaces/IPe
 error InvalidUniswapV3RouterTarget(address target, address expected);
 error InvalidUniswapV3FeeTier(uint24 fee);
 
-/// @notice The call a wallet can pass to this adapter's execute. The adapter decodes it; it doesn't implement it
-interface IAWKUniswapV3SwapAdapter {
-    function swap(address sellToken, address buyToken, AWKUniswapV3SwapAdapterCore.SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external returns (uint256);
-}
-
 /**
  * @title AWKUniswapV3SwapAdapterCore
  * @notice Uniswap V3 swaps using structured route parameters, without an operations layer
- * @dev Swap execution runs via delegatecall from AgentWallet.
- *      Accepts multi-hop routes through path+fee arrays with strict validation.
+ * @dev Accepts multi-hop routes through path+fee arrays with strict validation. The router is the target of the
+ *      execute call.
  */
 abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
     using SafeERC20 for IERC20;
@@ -51,27 +45,14 @@ abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
         UNISWAP_V3_ROUTER = uniswapV3Router;
     }
 
-    // ============ Swap Operations ============
-
-    // ============ Swap Execution (delegatecall only) ============
-
-    /**
-     * @notice Validate a swap call and run it
-     * @param target The Uniswap V3 router target contract
-     * @param data ABI-encoded call data (must match swap() selector)
-     * @return ABI-encoded buy amount
-     */
-    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != IAWKUniswapV3SwapAdapter.swap.selector) revert UnknownOperation();
-        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
-        if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
+    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external onlyExecute returns (uint256 buyAmount) {
+        if (_target() != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(_target(), UNISWAP_V3_ROUTER);
         _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.fees.length);
         for (uint256 i = 0; i < route.fees.length; i++) {
             uint24 fee = route.fees[i];
             if (fee != 100 && fee != 500 && fee != 3000 && fee != 10000) revert InvalidUniswapV3FeeTier(fee);
         }
-        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
-        return abi.encode(buyAmount);
+        (, buyAmount) = _swapOperation(UNISWAP_V3_ROUTER, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
     }
 
     // ============ Internal Implementations ============

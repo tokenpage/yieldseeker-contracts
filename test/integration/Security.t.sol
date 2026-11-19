@@ -4,7 +4,6 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
-import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -34,7 +33,7 @@ contract SecurityTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         uint256 depositAmount = 100e6;
         _fundWallet(wallet, address(usdc), depositAmount * 3);
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (depositAmount));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (depositAmount));
 
         _execute(wallet, address(erc4626Adapter), address(erc4626Vault), depositData);
 
@@ -52,7 +51,7 @@ contract SecurityTest is IntegrationBase {
     function test_UnregisteringAdapterBlocksExecutionAndReregisteringRestoresIt() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 100e6);
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (50e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (50e6));
 
         vaultRegistry.unregisterAdapter(address(erc4626Adapter));
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(erc4626Adapter)));
@@ -69,7 +68,7 @@ contract SecurityTest is IntegrationBase {
     function test_RegistryPauseBlocksExecutionUntilUnpaused() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 100e6);
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (50e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (50e6));
 
         vaultRegistry.pause();
         vm.expectRevert(Pausable.EnforcedPause.selector);
@@ -86,7 +85,7 @@ contract SecurityTest is IntegrationBase {
     function test_RemovingTargetPreventsExecutionAfterAdapterReregistration() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 100e6);
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (50e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (50e6));
 
         vaultRegistry.unregisterAdapter(address(erc4626Adapter));
         vaultRegistry.removeTarget(address(erc4626Vault));
@@ -102,8 +101,8 @@ contract SecurityTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 100e6);
 
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
 
         assertEq(usdc.balanceOf(address(wallet)), 100e6);
         assertEq(erc4626Vault.balanceOf(address(wallet)), 0);
@@ -121,7 +120,7 @@ contract SecurityTest is IntegrationBase {
         adapters[1] = address(reenterExecute);
         targets[0] = address(erc4626Vault);
         targets[1] = address(reenterExecute);
-        datas[0] = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
+        datas[0] = abi.encodeCall(erc4626Adapter.deposit, (100e6));
         datas[1] = "";
 
         vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector)));

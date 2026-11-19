@@ -4,7 +4,6 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
 import {MockCompoundV3Comet} from "../mocks/MockCompoundV3.sol";
@@ -32,20 +31,20 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 donatedAssets = 1_000e6;
         _fundWallet(wallet, address(usdc), firstDeposit + secondDeposit);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (firstDeposit)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (firstDeposit)));
         _fund(address(usdc), address(erc4626Vault), donatedAssets);
-        bytes memory secondDepositResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (secondDeposit)));
+        bytes memory secondDepositResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (secondDeposit)));
         (uint256 secondShares, uint256 assetsDeposited) = abi.decode(abi.decode(secondDepositResult, (bytes)), (uint256, uint256));
         assertEq(secondShares, 250e6);
         assertEq(assetsDeposited, secondDeposit);
         assertEq(erc4626Vault.balanceOf(address(wallet)), 1_250e6);
 
-        bytes memory firstWithdrawalResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (1_000e6)));
+        bytes memory firstWithdrawalResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (1_000e6)));
         assertEq(_decodeUint(firstWithdrawalResult), 2_000e6);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 300e6);
         assertEq(_feesCollected(address(usdc)), 80e6);
 
-        bytes memory finalWithdrawalResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (250e6)));
+        bytes memory finalWithdrawalResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (250e6)));
         assertEq(_decodeUint(finalWithdrawalResult), 500e6);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
         assertEq(_feesCollected(address(usdc)), 100e6);
@@ -77,12 +76,12 @@ contract VaultAdaptersTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         bytes memory zeroAmount = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
 
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), zeroAmount);
-        _executeExpectRevert(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), zeroAmount);
-        _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), zeroAmount);
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (0)), zeroAmount);
-        _executeExpectRevert(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (0)), zeroAmount);
-        _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (0)), zeroAmount);
+        _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (0)), zeroAmount);
 
         MockERC4626 wrongERC4626 = new MockERC4626(address(rewardToken), "Wrong ERC4626", "w4626");
         MockAaveV3Pool wrongAavePool = new MockAaveV3Pool(address(rewardToken));
@@ -93,15 +92,15 @@ contract VaultAdaptersTest is IntegrationBase {
         vaultRegistry.setTargetAdapter(address(wrongComet), address(compoundV3Adapter));
         bytes memory invalidAsset = abi.encodeWithSelector(AssetNotAllowed.selector);
 
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongERC4626), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6)), invalidAsset);
-        _executeExpectRevert(wallet, address(aaveV3Adapter), address(wrongAToken), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6)), invalidAsset);
-        _executeExpectRevert(wallet, address(compoundV3Adapter), address(wrongComet), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6)), invalidAsset);
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongERC4626), abi.encodeCall(erc4626Adapter.deposit, (1e6)), invalidAsset);
+        _executeExpectRevert(wallet, address(aaveV3Adapter), address(wrongAToken), abi.encodeCall(aaveV3Adapter.deposit, (1e6)), invalidAsset);
+        _executeExpectRevert(wallet, address(compoundV3Adapter), address(wrongComet), abi.encodeCall(compoundV3Adapter.deposit, (1e6)), invalidAsset);
 
         uint256 foreignShares = 1e18;
         _fund(address(rewardToken), address(this), foreignShares);
         rewardToken.approve(address(wrongERC4626), foreignShares);
         wrongERC4626.deposit(foreignShares, address(wallet));
-        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongERC4626), abi.encodeCall(IAWKVaultAdapter.withdraw, (foreignShares)), invalidAsset);
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongERC4626), abi.encodeCall(erc4626Adapter.withdraw, (foreignShares)), invalidAsset);
         assertEq(wrongERC4626.balanceOf(address(wallet)), foreignShares);
     }
 
@@ -110,14 +109,14 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 principal = 1_000e6;
         uint256 yieldAmount = 100e6;
         _fundWallet(wallet, address(usdc), principal);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (principal)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (principal)));
         _fund(address(usdc), address(erc4626Vault), yieldAmount);
         erc4626Vault.setRedeemFee(100);
         uint256 received = (principal + yieldAmount) * 9_900 / 10_000;
         uint256 expectedFee = Math.mulDiv(received - principal, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         uint256 shares = erc4626Vault.balanceOf(address(wallet));
 
-        bytes memory result = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (shares)));
+        bytes memory result = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (shares)));
 
         assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), received);
         assertEq(_feesCollected(address(usdc)), expectedFee);
@@ -131,7 +130,7 @@ contract VaultAdaptersTest is IntegrationBase {
         erc4626Vault.deposit(1, address(this));
         usdc.transfer(address(erc4626Vault), 1_000_000e6);
         _fundWallet(wallet, address(usdc), 1_000e6);
-        bytes memory data = abi.encodeCall(IAWKVaultAdapter.deposit, (1_000e6));
+        bytes memory data = abi.encodeCall(erc4626Adapter.deposit, (1_000e6));
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), data, abi.encodeWithSignature("Error(string)", "AWKERC4626Adapter: zero shares minted"));
     }
 
@@ -141,18 +140,18 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 yieldAmount = 100e6;
         uint256 withdrawal = 550e6;
         _fundWallet(wallet, address(usdc), principal);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (principal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (principal)));
         aaveV3Vault.addYield(address(wallet), yieldAmount);
         _fund(address(usdc), address(aaveV3Vault), yieldAmount);
 
         uint256 releasedBasis = principal * withdrawal / (principal + yieldAmount);
         uint256 expectedPartialFee = (withdrawal - releasedBasis) * YIELD_FEE_BPS / 10_000;
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (withdrawal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (withdrawal)));
         assertEq(_feesCollected(address(usdc)), expectedPartialFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(aaveV3Vault)), principal - releasedBasis);
 
         uint256 remainingShares = aaveV3Vault.balanceOf(address(wallet));
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (remainingShares)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (remainingShares)));
         assertEq(_feesCollected(address(usdc)), yieldAmount * YIELD_FEE_BPS / 10_000);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(aaveV3Vault)), 0);
         assertEq(usdc.balanceOf(address(wallet)), principal + yieldAmount - yieldAmount * YIELD_FEE_BPS / 10_000);
@@ -170,23 +169,23 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 firstWithdrawal = 275e6;
         uint256 secondYield = 127e6;
         _fundWallet(wallet, address(usdc), firstDeposit + secondDeposit);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (firstDeposit)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (firstDeposit)));
         aaveV3Vault.addYield(address(wallet), firstYield);
         _fund(address(usdc), address(aaveV3Vault), firstYield);
 
         uint256 firstReleasedBasis = firstDeposit * firstWithdrawal / (firstDeposit + firstYield);
         uint256 firstFee = (firstWithdrawal - firstReleasedBasis) * YIELD_FEE_BPS / 10_000;
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (firstWithdrawal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (firstWithdrawal)));
         assertEq(_feesCollected(address(usdc)), firstFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(aaveV3Vault)), firstDeposit - firstReleasedBasis);
 
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (secondDeposit)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (secondDeposit)));
         aaveV3Vault.addYield(address(wallet), secondYield);
         _fund(address(usdc), address(aaveV3Vault), secondYield);
         uint256 remaining = aaveV3Vault.balanceOf(address(wallet));
         uint256 totalDeposited = firstDeposit + secondDeposit;
         uint256 expectedTotalFee = (firstYield + secondYield) * YIELD_FEE_BPS / 10_000;
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (remaining)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (remaining)));
 
         assertEq(_feesCollected(address(usdc)), expectedTotalFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(aaveV3Vault)), 0);
@@ -204,7 +203,7 @@ contract VaultAdaptersTest is IntegrationBase {
         _fund(address(usdc), address(aaveV3Vault), giftedShares);
         uint256 expectedFee = withdrawal * YIELD_FEE_BPS / 10_000;
 
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (withdrawal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (withdrawal)));
 
         assertEq(_feesCollected(address(usdc)), expectedFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(aaveV3Vault)), 0);
@@ -218,12 +217,12 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 yieldAmount = 100e6;
         uint256 withdrawal = 110e6;
         _fundWallet(wallet, address(usdc), principal);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (principal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (principal)));
         aaveV3Vault.addYield(address(wallet), yieldAmount);
         _fund(address(usdc), address(aaveV3Vault), yieldAmount);
 
         for (uint256 i; i < 10; ++i) {
-            _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (withdrawal)));
+            _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (withdrawal)));
         }
 
         uint256 expectedFee = yieldAmount * YIELD_FEE_BPS / 10_000;
@@ -238,14 +237,14 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 yieldAmount = 10_000e6;
         uint256 withdrawal = 5e6;
         _fundWallet(wallet, address(usdc), principal);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (principal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (principal)));
         aaveV3Vault.addYield(address(wallet), yieldAmount);
         _fund(address(usdc), address(aaveV3Vault), yieldAmount);
 
         uint256 heldBefore = principal + yieldAmount;
         uint256 releasedBasis = principal * withdrawal / heldBefore;
         uint256 expectedFee = Math.mulDiv(withdrawal - releasedBasis, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (withdrawal)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (withdrawal)));
 
         assertEq(_feesCollected(address(usdc)), expectedFee);
         assertLe(expectedFee, withdrawal);
@@ -261,18 +260,18 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 yieldAmount = 100e6;
         uint256 withdrawal = 550e6;
         _fundWallet(wallet, address(usdc), principal);
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.deposit, (principal)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (principal)));
         compoundV3Market.addYield(address(wallet), yieldAmount);
         _fund(address(usdc), address(compoundV3Market), yieldAmount);
 
         uint256 releasedBasis = principal * withdrawal / (principal + yieldAmount);
         uint256 expectedPartialFee = (withdrawal - releasedBasis) * YIELD_FEE_BPS / 10_000;
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (withdrawal)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (withdrawal)));
         assertEq(_feesCollected(address(usdc)), expectedPartialFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(compoundV3Market)), principal - releasedBasis);
 
         uint256 remainingBalance = compoundV3Market.balanceOf(address(wallet));
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (remainingBalance)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (remainingBalance)));
         assertEq(_feesCollected(address(usdc)), yieldAmount * YIELD_FEE_BPS / 10_000);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(compoundV3Market)), 0);
         assertEq(usdc.balanceOf(address(wallet)), principal + yieldAmount - yieldAmount * YIELD_FEE_BPS / 10_000);
@@ -289,15 +288,15 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 trackedDeposit = 1_000e6;
         compoundV3Market.addYield(address(wallet), giftedBalance);
         _fund(address(usdc), address(compoundV3Market), giftedBalance);
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (firstWithdrawal)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (firstWithdrawal)));
         assertEq(_feesCollected(address(usdc)), firstWithdrawal * YIELD_FEE_BPS / 10_000);
 
         _fundWallet(wallet, address(usdc), trackedDeposit);
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.deposit, (trackedDeposit)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (trackedDeposit)));
         assertEq(compoundV3Market.balanceOf(address(wallet)), 250e6 + trackedDeposit);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(compoundV3Market)), trackedDeposit);
         uint256 remaining = compoundV3Market.balanceOf(address(wallet));
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (remaining)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (remaining)));
 
         assertEq(_feesCollected(address(usdc)), 2 * firstWithdrawal * YIELD_FEE_BPS / 10_000);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(compoundV3Market)), 0);
@@ -310,14 +309,14 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 requestedWithdrawal = 1_500e6;
         uint256 thirdPartyCollateral = 1_000e6;
         _fundWallet(wallet, address(usdc), suppliedBalance);
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.deposit, (suppliedBalance)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (suppliedBalance)));
         _fund(address(usdc), address(compoundV3Market), requestedWithdrawal - suppliedBalance);
         address collateralProvider = makeAddr("collateral provider");
         vm.prank(collateralProvider);
         compoundV3Market.supplyCollateralTo(address(wallet), thirdPartyCollateral);
         assertEq(compoundV3Market.collateralOf(address(wallet)), thirdPartyCollateral);
 
-        bytes memory withdrawal = _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (requestedWithdrawal)));
+        bytes memory withdrawal = _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (requestedWithdrawal)));
         assertEq(_decodeUint(withdrawal), suppliedBalance);
         assertEq(usdc.balanceOf(address(wallet)), suppliedBalance);
         assertEq(compoundV3Market.balanceOf(address(wallet)), 0);
@@ -330,7 +329,7 @@ contract VaultAdaptersTest is IntegrationBase {
 
     function testCompoundV3WithdrawalWithNoSuppliedBalanceRevertsZeroAmount() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
-        bytes memory data = abi.encodeCall(IAWKVaultAdapter.withdraw, (1e6));
+        bytes memory data = abi.encodeCall(compoundV3Adapter.withdraw, (1e6));
         _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), data, abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         assertEq(compoundV3Market.borrowBalanceOf(address(wallet)), 0);
     }
@@ -357,9 +356,9 @@ contract VaultAdaptersTest is IntegrationBase {
         uint256 yieldAmount = amountPerProtocol / 10;
         _fund(address(asset), address(wallet), 3 * amountPerProtocol);
 
-        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(IAWKVaultAdapter.deposit, (amountPerProtocol)));
-        _execute(wallet, address(aaveV3Adapter), address(aToken), abi.encodeCall(IAWKVaultAdapter.deposit, (amountPerProtocol)));
-        _execute(wallet, address(compoundV3Adapter), address(comet), abi.encodeCall(IAWKVaultAdapter.deposit, (amountPerProtocol)));
+        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(erc4626Adapter.deposit, (amountPerProtocol)));
+        _execute(wallet, address(aaveV3Adapter), address(aToken), abi.encodeCall(aaveV3Adapter.deposit, (amountPerProtocol)));
+        _execute(wallet, address(compoundV3Adapter), address(comet), abi.encodeCall(compoundV3Adapter.deposit, (amountPerProtocol)));
 
         _fund(address(asset), address(vault), yieldAmount);
         aToken.addYield(address(wallet), yieldAmount);
@@ -367,9 +366,9 @@ contract VaultAdaptersTest is IntegrationBase {
         comet.addYield(address(wallet), yieldAmount);
         _fund(address(asset), address(comet), yieldAmount);
 
-        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (amountPerProtocol)));
-        _execute(wallet, address(aaveV3Adapter), address(aToken), abi.encodeCall(IAWKVaultAdapter.withdraw, (amountPerProtocol + yieldAmount)));
-        _execute(wallet, address(compoundV3Adapter), address(comet), abi.encodeCall(IAWKVaultAdapter.withdraw, (amountPerProtocol + yieldAmount)));
+        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(erc4626Adapter.withdraw, (amountPerProtocol)));
+        _execute(wallet, address(aaveV3Adapter), address(aToken), abi.encodeCall(aaveV3Adapter.withdraw, (amountPerProtocol + yieldAmount)));
+        _execute(wallet, address(compoundV3Adapter), address(comet), abi.encodeCall(compoundV3Adapter.withdraw, (amountPerProtocol + yieldAmount)));
 
         uint256 feePerProtocol = yieldAmount * YIELD_FEE_BPS / 10_000;
         uint256 expectedOwnerBalance = 3 * (amountPerProtocol + yieldAmount) - 3 * feePerProtocol;
@@ -384,7 +383,7 @@ contract VaultAdaptersTest is IntegrationBase {
     function testExistingWalletUsesNewVaultRegistrationsAndLosesRemovedTargets() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         MockERC4626 vault = new MockERC4626(address(usdc), "Late Vault", "lateVault");
-        bytes memory data = abi.encodeCall(IAWKVaultAdapter.deposit, (1_000e6));
+        bytes memory data = abi.encodeCall(erc4626Adapter.deposit, (1_000e6));
         bytes memory notRegistered = abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(erc4626Adapter));
         vm.expectRevert(notRegistered);
         vm.prank(operator);
@@ -410,21 +409,21 @@ contract VaultAdaptersTest is IntegrationBase {
         vaultRegistry.setTargetAdapter(address(thirdVault), address(erc4626Adapter));
         _fundWallet(wallet, address(usdc), 9_000e6);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
-        _execute(wallet, address(erc4626Adapter), address(secondVault), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
-        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (3_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(secondVault), abi.encodeCall(erc4626Adapter.deposit, (3_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(erc4626Adapter.deposit, (3_000e6)));
         assertEq(erc4626Vault.balanceOf(address(wallet)), 3_000e6);
         assertEq(secondVault.balanceOf(address(wallet)), 3_000e6);
         assertEq(thirdVault.balanceOf(address(wallet)), 3_000e6);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (3_000e6)));
-        _execute(wallet, address(erc4626Adapter), address(secondVault), abi.encodeCall(IAWKVaultAdapter.withdraw, (3_000e6)));
-        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(IAWKVaultAdapter.deposit, (6_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (3_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(secondVault), abi.encodeCall(erc4626Adapter.withdraw, (3_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(erc4626Adapter.deposit, (6_000e6)));
         assertEq(erc4626Vault.balanceOf(address(wallet)), 0);
         assertEq(secondVault.balanceOf(address(wallet)), 0);
         assertEq(thirdVault.balanceOf(address(wallet)), 9_000e6);
 
-        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(IAWKVaultAdapter.withdraw, (9_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(thirdVault), abi.encodeCall(erc4626Adapter.withdraw, (9_000e6)));
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, address(usdc));
         assertEq(usdc.balanceOf(owner), 9_000e6);
@@ -436,17 +435,17 @@ contract VaultAdaptersTest is IntegrationBase {
         AgentWallet secondWallet = _createVaultWallet(secondOwner, 1);
         _fundWallet(firstWallet, address(usdc), 5_000e6);
         _fundWallet(secondWallet, address(usdc), 3_000e6);
-        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (5_000e6)));
-        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
+        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (5_000e6)));
+        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (3_000e6)));
 
-        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (2_000e6)));
+        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (2_000e6)));
         assertEq(erc4626Vault.balanceOf(address(firstWallet)), 3_000e6);
         assertEq(erc4626Vault.balanceOf(address(secondWallet)), 3_000e6);
         vm.prank(owner);
         firstWallet.withdrawAllAssetToUser(owner, address(usdc));
         assertEq(usdc.balanceOf(owner), 2_000e6);
 
-        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (3_000e6)));
+        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (3_000e6)));
         vm.prank(secondOwner);
         secondWallet.withdrawAllAssetToUser(secondOwner, address(usdc));
         assertEq(usdc.balanceOf(secondOwner), 3_000e6);
@@ -457,20 +456,20 @@ contract VaultAdaptersTest is IntegrationBase {
     function testVaultWalletMovesPositionAcrossProtocolsAndConsolidatesToBaseAsset() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 6_000e6);
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.deposit, (3_000e6)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (3_000e6)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (3_000e6)));
         assertEq(aaveV3Vault.balanceOf(address(wallet)), 3_000e6);
         assertEq(compoundV3Market.balanceOf(address(wallet)), 3_000e6);
 
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (3_000e6)));
-        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(IAWKVaultAdapter.withdraw, (3_000e6)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.withdraw, (3_000e6)));
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.withdraw, (3_000e6)));
         assertEq(aaveV3Vault.balanceOf(address(wallet)), 0);
         assertEq(compoundV3Market.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 6_000e6);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (6_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (6_000e6)));
         assertEq(erc4626Vault.balanceOf(address(wallet)), 6_000e6);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (6_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (6_000e6)));
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, address(usdc));
         assertEq(usdc.balanceOf(owner), 6_000e6);

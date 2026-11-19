@@ -6,9 +6,6 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
-import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
-import {IAWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
@@ -33,12 +30,12 @@ contract FactoryTest is IntegrationBase {
         uint256 borrowedAmount = 1e18;
 
         _fundWallet(borrowWallet, address(usdc), collateralAmount);
-        bytes memory supplyData = abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
+        bytes memory supplyData = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
         _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supplyData);
-        bytes memory borrowData = abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
+        bytes memory borrowData = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
         _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrowData);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        bytes memory repayData = abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
         _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
 
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 5e6);
@@ -168,7 +165,7 @@ contract FactoryTest is IntegrationBase {
         factory.setFeeTracker(VAULT_AGENT_PROFILE, nextVaultTracker);
         factory.setSwapPolicy(VAULT_AGENT_PROFILE, nextVaultPolicy);
 
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (uint256(100e6)));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (uint256(100e6)));
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(erc4626Adapter)));
         vm.prank(operator);
         vaultWallet.executeViaAdapter(address(erc4626Adapter), address(nextVault), depositData);
@@ -183,7 +180,7 @@ contract FactoryTest is IntegrationBase {
         uint256 shares = nextVault.balanceOf(address(vaultWallet));
         _fund(address(usdc), address(nextVault), yieldAmount);
         uint256 feesBefore = _feesCollected(address(usdc));
-        bytes memory withdrawData = abi.encodeCall(IAWKVaultAdapter.withdraw, (shares));
+        bytes memory withdrawData = abi.encodeCall(erc4626Adapter.withdraw, (shares));
         _execute(vaultWallet, address(erc4626Adapter), address(nextVault), withdrawData);
 
         uint256 expectedYieldFee = yieldAmount * YIELD_FEE_BPS / 10_000;
@@ -205,7 +202,7 @@ contract FactoryTest is IntegrationBase {
         wellToUsdc.path[1] = address(usdc);
         wellToUsdc.fees = new uint24[](1);
         wellToUsdc.fees[0] = 3000;
-        bytes memory swapData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(wellToken), address(usdc), wellToUsdc, uint256(10e18), uint256(1), block.timestamp));
+        bytes memory swapData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(wellToken), address(usdc), wellToUsdc, uint256(10e18), uint256(1), block.timestamp));
         bytes memory sellBlocked = abi.encodeWithSelector(SellTokenNotAllowed.selector, address(wellToken));
         _executeExpectRevert(vaultWallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), swapData, sellBlocked);
 

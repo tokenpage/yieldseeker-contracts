@@ -4,9 +4,6 @@ import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/A
 import {AdapterExecutionFailed, AdapterIsBlocked, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
-import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
-import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
-import {IAWKMerklAdapter} from "../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -165,8 +162,8 @@ contract WalletIntegrationTest is IntegrationBase {
         _fundWallet(firstWallet, address(usdc), 100e6);
         _fundWallet(secondWallet, address(usdc), 200e6);
 
-        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
-        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (150e6)));
+        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
+        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (150e6)));
 
         assertTrue(address(firstWallet) != address(secondWallet));
         assertEq(firstWallet.ownerAgentIndex(), 2);
@@ -183,7 +180,7 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_OperatorExecutesAdaptersButCannotCallOwnerFunctions() public {
-        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
+        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertGt(erc4626Vault.balanceOf(address(_wallet)), 0);
 
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, operator));
@@ -207,7 +204,7 @@ contract WalletIntegrationTest is IntegrationBase {
         _wallet.executeBatch(new address[](0), new bytes[](0));
 
         vm.prank(_walletOwner);
-        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
+        _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertGt(erc4626Vault.balanceOf(address(_wallet)), 100e6);
     }
 
@@ -239,7 +236,7 @@ contract WalletIntegrationTest is IntegrationBase {
             assertEq(_validateWithSigner(_wallet, ownerCalls[i], _signedOperatorKey), SIG_VALIDATION_FAILED);
         }
 
-        bytes memory adapterCall = abi.encodeWithSelector(_wallet.executeViaAdapter.selector, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
+        bytes memory adapterCall = abi.encodeWithSelector(_wallet.executeViaAdapter.selector, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertEq(_validateWithSigner(_wallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
         assertEq(_validateWithSigner(_wallet, adapterCall, _ownerKey), SIG_VALIDATION_SUCCESS);
         (address stranger, uint256 strangerKey) = makeAddrAndKey("wallet stranger");
@@ -252,7 +249,7 @@ contract WalletIntegrationTest is IntegrationBase {
         bytes[] memory datas = new bytes[](1);
         adapters[0] = address(erc4626Adapter);
         targets[0] = address(erc4626Vault);
-        datas[0] = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
+        datas[0] = abi.encodeCall(erc4626Adapter.deposit, (100e6));
         bytes memory batchCall = abi.encodeWithSelector(_wallet.executeViaAdapterBatch.selector, adapters, targets, datas);
         assertEq(_validateWithSigner(_wallet, batchCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
 
@@ -306,14 +303,14 @@ contract WalletIntegrationTest is IntegrationBase {
         contractOwnedWallet.withdrawAssetToUser(_recipient, address(usdc), amount);
         assertEq(usdc.balanceOf(_recipient), amount);
 
-        bytes memory adapterCall = abi.encodeCall(contractOwnedWallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6))));
+        bytes memory adapterCall = abi.encodeCall(contractOwnedWallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
         assertEq(_validateWithSigner(contractOwnedWallet, abi.encodeCall(contractOwnedWallet.withdrawAssetToUser, (_recipient, address(usdc), 1)), _signedOperatorKey), SIG_VALIDATION_FAILED);
         vm.expectCall(address(contractOwner), abi.encodeWithSelector(ApprovedHashOwner.isValidSignature.selector), 0);
         assertEq(_validateWithSigner(contractOwnedWallet, adapterCall, _signedOperatorKey), SIG_VALIDATION_SUCCESS);
     }
 
     function test_OperatorUserOperationsNeedAPaymasterAndAdapterCallsNeverReachERC1271() public {
-        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6))));
+        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
         bytes32 userOpHash = keccak256("unsponsored operator op");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(_signedOperatorKey, userOpHash.toEthSignedMessageHash());
         UserOperation memory userOp = _buildUserOp(_wallet, adapterCall, abi.encodePacked(r, s, v));
@@ -345,7 +342,7 @@ contract WalletIntegrationTest is IntegrationBase {
     function test_PackedEntryPointsValidateWithTheSameRulesAndActAsEntryPoint() public {
         address[3] memory packedEntryPoints = [ENTRY_POINT_V07, ENTRY_POINT_V08, ENTRY_POINT_V09];
         bytes memory withdrawCall = abi.encodeCall(_wallet.withdrawAssetToUser, (_recipient, address(usdc), 1));
-        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (1e6))));
+        bytes memory adapterCall = abi.encodeCall(_wallet.executeViaAdapter, (address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (1e6))));
         (, uint256 strangerKey) = makeAddrAndKey("packed stranger");
         vm.deal(address(_wallet), 1 ether);
         for (uint256 i; i < packedEntryPoints.length; ++i) {
@@ -392,7 +389,7 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_EmergencyOperatorRemovalReachesWalletsThroughAnyonesSync() public {
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (100e6));
         address stranger = makeAddr("sync stranger");
         bytes memory notEmergency = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, factory.EMERGENCY_ROLE());
         vm.expectRevert(notEmergency);
@@ -415,7 +412,7 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_AdapterBlocklistsRegistryChecksAndExecutionFailure() public {
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (100e6));
 
         vm.prank(_walletOwner);
         _wallet.setAdapterBlocked(address(erc4626Adapter), true);
@@ -463,7 +460,7 @@ contract WalletIntegrationTest is IntegrationBase {
         );
         assertEq(usdc.balanceOf(_recipient), 0);
 
-        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
+        bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (100e6));
         _executeExpectRevert(
             _wallet,
             address(nestedAdapter),
@@ -510,7 +507,7 @@ contract WalletIntegrationTest is IntegrationBase {
         adapters[1] = address(merklAdapter);
         targets[0] = address(erc4626Vault);
         targets[1] = address(merklDistributor);
-        datas[0] = abi.encodeCall(IAWKVaultAdapter.deposit, (50e6));
+        datas[0] = abi.encodeCall(erc4626Adapter.deposit, (50e6));
 
         address[] memory tokens = new address[](1);
         uint256[] memory amounts = new uint256[](1);
@@ -518,7 +515,7 @@ contract WalletIntegrationTest is IntegrationBase {
         tokens[0] = address(rewardToken);
         amounts[0] = 10e18;
         proofs[0] = new bytes32[](0);
-        datas[1] = abi.encodeCall(IAWKMerklAdapter.claim, (tokens, amounts, proofs));
+        datas[1] = abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs));
 
         vm.prank(operator);
         bytes[] memory results = batchWallet.executeViaAdapterBatch(adapters, targets, datas);
@@ -532,8 +529,8 @@ contract WalletIntegrationTest is IntegrationBase {
         uint256 vaultBalanceBefore = usdc.balanceOf(address(erc4626Vault));
         adapters[1] = address(erc4626Adapter);
         targets[1] = address(erc4626Vault);
-        datas[0] = abi.encodeCall(IAWKVaultAdapter.deposit, (100e6));
-        datas[1] = abi.encodeCall(IAWKVaultAdapter.deposit, (0));
+        datas[0] = abi.encodeCall(erc4626Adapter.deposit, (100e6));
+        datas[1] = abi.encodeCall(erc4626Adapter.deposit, (0));
         vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(AWKErrors.ZeroAmount.selector)));
         vm.prank(operator);
         batchWallet.executeViaAdapterBatch(adapters, targets, datas);
@@ -545,9 +542,9 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_AdapterFailureDoesNotLeaveWalletLocked() public {
-        _executeExpectRevert(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
 
-        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
+        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertGt(erc4626Vault.balanceOf(address(_wallet)), 0);
     }
 
@@ -833,7 +830,7 @@ contract WalletIntegrationTest is IntegrationBase {
     }
 
     function test_OwnerUpgradeUsesOnlyFactoryApprovedImplementation() public {
-        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (100e6)));
+        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertEq(vaultYieldFeeModule.costBasis(address(_wallet), address(erc4626Vault)), 100e6);
         vm.prank(_walletOwner);
         _wallet.setAdapterBlocked(address(erc4626Adapter), true);
@@ -869,7 +866,7 @@ contract WalletIntegrationTest is IntegrationBase {
         _wallet.setAdapterBlocked(address(erc4626Adapter), false);
         _fund(address(usdc), address(erc4626Vault), 10e6);
         uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
-        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (100e6)));
+        _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (100e6)));
         assertEq(usdc.balanceOf(feeCollector) - collectorBalanceBefore, 1e6);
         assertEq(vaultYieldFeeModule.feesOwed(address(_wallet)), 0);
         uint256 remainingBalance = usdc.balanceOf(address(_wallet));
@@ -883,10 +880,10 @@ contract WalletIntegrationTest is IntegrationBase {
 
     function _accrueVaultYield(AgentWallet targetWallet, uint256 depositAmount, uint256 yieldAmount) private {
         _fundWallet(targetWallet, address(usdc), depositAmount);
-        _execute(targetWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (depositAmount)));
+        _execute(targetWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (depositAmount)));
         uint256 shares = erc4626Vault.balanceOf(address(targetWallet));
         _fund(address(usdc), address(erc4626Vault), yieldAmount);
-        _execute(targetWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.withdraw, (shares)));
+        _execute(targetWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (shares)));
     }
 
     function _prepareBorrowWalletWithFees(uint256 index) private returns (AgentWallet borrowWallet, uint256 feeOwed) {
@@ -898,10 +895,10 @@ contract WalletIntegrationTest is IntegrationBase {
         uint256 collateralAmount = 100e6;
         address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(borrowWallet, address(usdc), collateralAmount);
-        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, 1e18)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 1e18)));
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         feeOwed = borrowFeeModule.feesOwed(address(borrowWallet));
         assertGt(feeOwed, 0);
         assertEq(usdc.balanceOf(address(borrowWallet)), 0);

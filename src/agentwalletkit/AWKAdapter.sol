@@ -17,43 +17,56 @@ pragma solidity 0.8.38;
 import {AWKErrors} from "./AWKErrors.sol";
 import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 
 error UnknownOperation();
 
 /**
  * @title AWKAdapter
  * @notice Base class for all adapters in the AWK system.
- * @dev Adapters are designed to be called ONLY via delegatecall from AgentWallet.
- *      Direct calls to adapter contracts are prevented via the onlyDelegateCall modifier.
+ * @dev A wallet runs an adapter by delegatecalling execute(target, data), where `data` is a call to one of the
+ *      adapter's operations (e.g. deposit(amount)). execute records the target for the length of the call and runs
+ *      `data` on the adapter's own code, still in the wallet's context. Operations carry onlyExecute, so they run
+ *      only this way, and read the target with _target().
+ *      Every external function of an adapter can be reached through execute: give each one that changes state
+ *      onlyExecute, and add no other.
  */
 abstract contract AWKAdapter is IAWKAdapter {
-    /// @notice The adapter's own address, set at deployment
-    /// @dev Used to detect direct calls vs delegatecalls. Internal so subclasses
-    ///      can reference the adapter's real address during delegatecall context.
-    address internal immutable SELF;
+    using TransientSlot for *;
 
-    constructor() {
-        SELF = address(this);
-    }
+    bytes32 private constant TARGET_SLOT = keccak256("agentwalletkit.adapter.target");
 
-    /**
-     * @notice Ensures function is only called via delegatecall
-     * @dev When called via delegatecall, address(this) is the caller's address (AgentWallet).
-     *      When called directly, address(this) equals SELF (the adapter's address).
-     */
-    modifier onlyDelegateCall() {
-        if (address(this) == SELF) revert AWKErrors.DirectCallForbidden();
+    /// @dev The adapter's own address: address(this) is the wallet while the adapter runs by delegatecall
+    address internal immutable SELF = address(this);
+
+    modifier onlyExecute() {
+        if (_target() == address(0)) revert AWKErrors.DirectCallForbidden();
         _;
     }
 
-    /**
-     * @notice Standard entry point for all adapter logic
-     * @dev Subclasses must override this and MUST include the onlyDelegateCall modifier.
-     *      Already running in wallet context via delegatecall from AgentWallet.
-     * @param target The contract the adapter will interact with
-     * @param data The specific operation data
-     */
-    function execute(address target, bytes calldata data) external payable virtual override returns (bytes memory);
+    /// @dev Reverts on a direct call, and while a target is set: `data` can't call execute again to swap in a target
+    ///      the wallet never checked against its registry
+    function execute(address target, bytes calldata data) external payable override returns (bytes memory result) {
+        if (address(this) == SELF || _target() != address(0)) revert AWKErrors.DirectCallForbidden();
+        TARGET_SLOT.asAddress().tstore(target);
+        bool success;
+        (success, result) = SELF.delegatecall(data);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
+        TARGET_SLOT.asAddress().tstore(address(0));
+    }
+
+    fallback() external {
+        revert UnknownOperation();
+    }
+
+    /// @dev The target of the execute call in progress, which the wallet has checked against its registry
+    function _target() internal view returns (address) {
+        return TARGET_SLOT.asAddress().tload();
+    }
 
     function _agentWallet() internal view virtual returns (IAWKAgentWallet) {
         return IAWKAgentWallet(address(this));

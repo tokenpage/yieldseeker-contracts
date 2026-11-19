@@ -14,24 +14,14 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
+import {AWKAdapter} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 
 error MarketTargetMismatch(address target, address expected);
 
-/// @notice The calls a wallet can pass to a borrow adapter's execute. The adapter decodes them; it doesn't implement them
-interface IAWKBorrowAdapter {
-    function supplyCollateral(bytes calldata market, uint256 amount) external returns (uint256);
-    function withdrawCollateral(bytes calldata market, uint256 amount) external returns (uint256);
-    function borrow(bytes calldata market, uint256 amount) external returns (uint256);
-    function repay(bytes calldata market, uint256 amount) external returns (uint256);
-    function checkpoint(bytes calldata market) external returns (uint256);
-}
-
 /**
  * @title AWKBorrowAdapter
  * @notice Base class for borrow adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
- *         (IAWKBorrowAdapter)
  * @dev Every market is its own registry target: target = marketTarget(market), where `market` is the
  *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
  *      used once the registry admin has mapped its target to this adapter.
@@ -44,6 +34,43 @@ abstract contract AWKBorrowAdapter is AWKAdapter {
     event Borrowed(address indexed wallet, address indexed market, uint256 amount);
     event Repaid(address indexed wallet, address indexed market, uint256 amount);
     event Checkpointed(address indexed wallet, address indexed market, uint256 debt);
+
+    /// @dev Only through execute, and only for the market that is the call's target
+    modifier onlyMarket(bytes calldata market) {
+        address target = _target();
+        if (target == address(0)) revert AWKErrors.DirectCallForbidden();
+        if (marketTarget(market) != target) revert MarketTargetMismatch(target, marketTarget(market));
+        _;
+    }
+
+    function supplyCollateral(bytes calldata market, uint256 amount) external onlyMarket(market) returns (uint256 supplied) {
+        if (amount == 0) revert AWKErrors.ZeroAmount();
+        supplied = _supplyCollateralOperation(market, amount);
+        emit CollateralSupplied(address(this), _target(), supplied);
+    }
+
+    function withdrawCollateral(bytes calldata market, uint256 amount) external onlyMarket(market) returns (uint256 withdrawn) {
+        if (amount == 0) revert AWKErrors.ZeroAmount();
+        withdrawn = _withdrawCollateralOperation(market, amount);
+        emit CollateralWithdrawn(address(this), _target(), withdrawn);
+    }
+
+    function borrow(bytes calldata market, uint256 amount) external onlyMarket(market) returns (uint256 borrowed) {
+        if (amount == 0) revert AWKErrors.ZeroAmount();
+        borrowed = _borrowOperation(market, amount);
+        emit Borrowed(address(this), _target(), borrowed);
+    }
+
+    function repay(bytes calldata market, uint256 amount) external onlyMarket(market) returns (uint256 repaid) {
+        if (amount == 0) revert AWKErrors.ZeroAmount();
+        repaid = _repayOperation(market, amount);
+        emit Repaid(address(this), _target(), repaid);
+    }
+
+    function checkpoint(bytes calldata market) external onlyMarket(market) returns (uint256 debt) {
+        debt = _checkpointOperation(market);
+        emit Checkpointed(address(this), _target(), debt);
+    }
 
     /// @notice The registry target that identifies a market
     function marketTarget(bytes memory market) public pure returns (address) {
@@ -63,38 +90,6 @@ abstract contract AWKBorrowAdapter is AWKAdapter {
     /// @dev Register it in the registry as a target of this adapter, next to the market: swap policies never sell a
     ///      registry target, and execute rejects it because it is not a market target
     function collateralReceiptToken(bytes memory market) public view virtual returns (address);
-
-    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == IAWKBorrowAdapter.checkpoint.selector) {
-            bytes memory checkpointMarket = abi.decode(data[4:], (bytes));
-            if (marketTarget(checkpointMarket) != target) revert MarketTargetMismatch(target, marketTarget(checkpointMarket));
-            uint256 debt = _checkpointOperation(checkpointMarket);
-            emit Checkpointed(address(this), target, debt);
-            return abi.encode(debt);
-        }
-        if (selector != IAWKBorrowAdapter.supplyCollateral.selector && selector != IAWKBorrowAdapter.withdrawCollateral.selector && selector != IAWKBorrowAdapter.borrow.selector && selector != IAWKBorrowAdapter.repay.selector) {
-            revert UnknownOperation();
-        }
-        (bytes memory market, uint256 amount) = abi.decode(data[4:], (bytes, uint256));
-        if (marketTarget(market) != target) revert MarketTargetMismatch(target, marketTarget(market));
-        if (amount == 0) revert AWKErrors.ZeroAmount();
-        uint256 result;
-        if (selector == IAWKBorrowAdapter.supplyCollateral.selector) {
-            result = _supplyCollateralOperation(market, amount);
-            emit CollateralSupplied(address(this), target, result);
-        } else if (selector == IAWKBorrowAdapter.withdrawCollateral.selector) {
-            result = _withdrawCollateralOperation(market, amount);
-            emit CollateralWithdrawn(address(this), target, result);
-        } else if (selector == IAWKBorrowAdapter.borrow.selector) {
-            result = _borrowOperation(market, amount);
-            emit Borrowed(address(this), target, result);
-        } else {
-            result = _repayOperation(market, amount);
-            emit Repaid(address(this), target, result);
-        }
-        return abi.encode(result);
-    }
 
     // ============ Operations (implemented by an operations layer: AWKBorrowOperations or a wallet's rules) ============
 

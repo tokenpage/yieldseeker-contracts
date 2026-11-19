@@ -3,10 +3,6 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV3BorrowAdapter} from "../../../src/adapters/AaveV3BorrowAdapter.sol";
-import {IAWKVaultAdapter} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
-import {IAWKBorrowAdapter} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
-import {IAWKMerklAdapter} from "../../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
-import {IAWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
@@ -86,7 +82,7 @@ contract FeeAccountingHandler is IntegrationBase {
             partialShares = shares / 2;
         }
         vm.recordLogs();
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, partialShares));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, partialShares));
         _captureFeeEvents();
         vaultPartialWithdrawalCalls++;
     }
@@ -100,7 +96,7 @@ contract FeeAccountingHandler is IntegrationBase {
             shares = erc4626Vault.balanceOf(address(wallet));
         }
         vm.recordLogs();
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, shares));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, shares));
         _captureFeeEvents();
         vaultFullWithdrawalCalls++;
     }
@@ -134,7 +130,7 @@ contract FeeAccountingHandler is IntegrationBase {
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
         vm.recordLogs();
-        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeCall(IAWKMerklAdapter.claim, (tokens, amounts, proofs)));
+        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs)));
         _captureFeeEvents();
 
         uint256 rewardBalance = rewardToken.balanceOf(address(wallet));
@@ -146,7 +142,7 @@ contract FeeAccountingHandler is IntegrationBase {
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(USDC_UNIT);
         vm.recordLogs();
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(IAWKUniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, rewardBalance, USDC_UNIT, block.timestamp));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, rewardBalance, USDC_UNIT, block.timestamp));
         _captureFeeEvents();
         rewardClaimAndSaleCalls++;
     }
@@ -179,7 +175,7 @@ contract FeeAccountingHandler is IntegrationBase {
         if (repayV3 != 0) {
             uint256 amountV3 = bound(amountSeed, 1, repayV3);
             vm.recordLogs();
-            _executeAaveV3(wallet, IAWKBorrowAdapter.repay.selector, amountV3);
+            _executeAaveV3(wallet, aaveV3BorrowAdapter.repay.selector, amountV3);
             _captureFeeEvents();
             repayCalls++;
             tokenBalance -= amountV3;
@@ -189,7 +185,7 @@ contract FeeAccountingHandler is IntegrationBase {
         if (repayV4 != 0) {
             uint256 amountV4 = bound(amountSeed, 1, repayV4);
             vm.recordLogs();
-            _executeAaveV4(wallet, IAWKBorrowAdapter.repay.selector, amountV4);
+            _executeAaveV4(wallet, aaveV4BorrowAdapter.repay.selector, amountV4);
             _captureFeeEvents();
             repayCalls++;
         }
@@ -201,14 +197,14 @@ contract FeeAccountingHandler is IntegrationBase {
         uint256 collateralV3 = aaveV3CollateralAToken.balanceOf(address(wallet));
         uint256 amountV3 = bound(amountSeed, 1, collateralV3);
         vm.recordLogs();
-        _executeAaveV3(wallet, IAWKBorrowAdapter.withdrawCollateral.selector, amountV3);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.withdrawCollateral.selector, amountV3);
         _captureFeeEvents();
         collateralWithdrawalCalls++;
 
         uint256 collateralV4 = aaveV4Spoke.getUserSuppliedAssets(1, address(wallet));
         uint256 amountV4 = bound(amountSeed, 1, collateralV4);
         vm.recordLogs();
-        _executeAaveV4(wallet, IAWKBorrowAdapter.withdrawCollateral.selector, amountV4);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.withdrawCollateral.selector, amountV4);
         _captureFeeEvents();
         collateralWithdrawalCalls++;
     }
@@ -265,11 +261,11 @@ contract FeeAccountingHandler is IntegrationBase {
         }
         address targetV3 = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         vm.recordLogs();
-        _execute(wallet, address(aaveV3BorrowAdapter), targetV3, abi.encodeWithSelector(IAWKBorrowAdapter.checkpoint.selector, aaveV3Market));
+        _execute(wallet, address(aaveV3BorrowAdapter), targetV3, abi.encodeWithSelector(aaveV3BorrowAdapter.checkpoint.selector, aaveV3Market));
         _captureFeeEvents();
         address targetV4 = aaveV4BorrowAdapter.marketTarget(aaveV4Market);
         vm.recordLogs();
-        _execute(wallet, address(aaveV4BorrowAdapter), targetV4, abi.encodeWithSelector(IAWKBorrowAdapter.checkpoint.selector, aaveV4Market));
+        _execute(wallet, address(aaveV4BorrowAdapter), targetV4, abi.encodeWithSelector(aaveV4BorrowAdapter.checkpoint.selector, aaveV4Market));
         _captureFeeEvents();
         operatorCheckpointCalls++;
     }
@@ -346,7 +342,7 @@ contract FeeAccountingHandler is IntegrationBase {
         uint256 balance = usdc.balanceOf(address(wallet));
         if (balance < requiredBalance) _fundWallet(wallet, address(usdc), requiredBalance - balance);
         vm.recordLogs();
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, amount));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, amount));
         _captureFeeEvents();
         vaultDepositCalls++;
     }
@@ -362,7 +358,7 @@ contract FeeAccountingHandler is IntegrationBase {
     function _supplyAaveV3Collateral(AgentWallet wallet, uint256 amount) private {
         _fundForCollateralSupply(wallet, amount);
         vm.recordLogs();
-        _executeAaveV3(wallet, IAWKBorrowAdapter.supplyCollateral.selector, amount);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, amount);
         _captureFeeEvents();
         collateralSupplyCalls++;
     }
@@ -370,7 +366,7 @@ contract FeeAccountingHandler is IntegrationBase {
     function _supplyAaveV4Collateral(AgentWallet wallet, uint256 amount) private {
         _fundForCollateralSupply(wallet, amount);
         vm.recordLogs();
-        _executeAaveV4(wallet, IAWKBorrowAdapter.supplyCollateral.selector, amount);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.supplyCollateral.selector, amount);
         _captureFeeEvents();
         collateralSupplyCalls++;
     }
@@ -388,10 +384,10 @@ contract FeeAccountingHandler is IntegrationBase {
 
     function _borrowBothMarkets(AgentWallet wallet, uint256 amount) private {
         vm.recordLogs();
-        _executeAaveV3(wallet, IAWKBorrowAdapter.borrow.selector, amount);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.borrow.selector, amount);
         _captureFeeEvents();
         vm.recordLogs();
-        _executeAaveV4(wallet, IAWKBorrowAdapter.borrow.selector, amount);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.borrow.selector, amount);
         _captureFeeEvents();
         borrowCalls++;
     }

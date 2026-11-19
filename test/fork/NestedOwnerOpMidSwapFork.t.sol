@@ -3,9 +3,8 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {SwapInputMismatch} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
-import {AWKUniswapV3SwapAdapterCore, IAWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {IntegrationBase} from "../integration/IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -93,7 +92,7 @@ contract NestedOwnerOpMidSwapForkTest is IntegrationBase {
         hook.setPendingOp(_ownerOp(source, abi.encodeCall(source.withdrawAssetToUser, (address(seller), address(usdc), moved))));
 
         uint256 feesBefore = _feesCollected(address(usdc));
-        _execute(seller, address(hookedAdapter), address(router), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), _route(address(rewardToken), address(usdc)), 10e18, uint256(1), block.timestamp)));
+        _execute(seller, address(hookedAdapter), address(router), abi.encodeCall(hookedAdapter.swap, (address(rewardToken), address(usdc), _route(address(rewardToken), address(usdc)), 10e18, uint256(1), block.timestamp)));
 
         assertEq(usdc.balanceOf(address(source)), 0);
         assertEq(_feesCollected(address(usdc)) - feesBefore, Math.mulDiv(1e6, YIELD_FEE_BPS, 1e4, Math.Rounding.Ceil));
@@ -116,7 +115,7 @@ contract NestedOwnerOpMidSwapForkTest is IntegrationBase {
         router.setBuyAmount(paid);
         hook.setPendingOp(_ownerOp(source, abi.encodeCall(source.withdrawAssetToUser, (address(borrower), address(usdc), moved))));
 
-        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _route(address(usdc), address(weth)), sold, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(hookedAdapter.swap, (address(usdc), address(weth), _route(address(usdc), address(weth)), sold, uint256(1), block.timestamp));
         _executeExpectRevert(borrower, address(hookedAdapter), address(router), data, abi.encodeWithSelector(SwapInputMismatch.selector, sold - moved, sold));
 
         assertEq(usdc.balanceOf(address(borrower)), sold);
@@ -145,8 +144,8 @@ contract NestedOwnerOpMidSwapForkTest is IntegrationBase {
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
         address target = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
-        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
     }
 
     function _floor(uint256 amountIn) private view returns (uint256) {
