@@ -16,7 +16,6 @@
 //
 pragma solidity 0.8.38;
 
-import {IAWKAgentWallet} from "./agentwalletkit/IAWKAgentWallet.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "./fees/FeeTracker.sol";
 import {IYieldSeekerSwapPolicy} from "./swaps/IYieldSeekerSwapPolicy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,9 +23,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /**
  * @title IAgentWallet
  * @notice Interface for YieldSeeker agent wallets
- * @dev Extends AWK interface with YieldSeeker-specific fee tracking and base asset methods
+ * @dev What adapters and fee modules read from a YieldSeeker wallet
  */
-interface IAgentWallet is IAWKAgentWallet {
+interface IAgentWallet {
     /// @notice Get the base asset token for this wallet
     function baseAsset() external view returns (IERC20);
 

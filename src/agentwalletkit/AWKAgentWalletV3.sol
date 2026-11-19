@@ -17,7 +17,6 @@ pragma solidity 0.8.38;
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
 import {AWKAdapterTarget} from "./AWKAdapterTarget.sol";
 import {AWKErrors} from "./AWKErrors.sol";
-import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 import {IAWKAgentWalletFactory} from "./IAWKAgentWalletFactory.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -86,7 +85,7 @@ library AgentWalletStorageV3 {
  *      2. Add any protocol-specific storage and logic
  *      3. Ensure the paired Factory calls initialize() atomically during deployment
  */
-abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
+abstract contract AWKAgentWalletV3 is BaseAccount, Initializable, UUPSUpgradeable, ReentrancyGuardTransient {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
     using SafeERC20 for IERC20;
