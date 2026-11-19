@@ -109,16 +109,12 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     modifier onlyOwner() {
         if (_reentrancyGuardEntered()) revert ReentrancyGuardReentrantCall();
-        if (msg.sender != owner() && !isEntryPoint(msg.sender)) {
-            revert AWKErrors.Unauthorized(msg.sender);
-        }
+        if (msg.sender != owner() && !isEntryPoint(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
         _;
     }
 
     modifier onlyExecutors() {
-        if (!isEntryPoint(msg.sender) && msg.sender != owner() && !isAgentOperator(msg.sender)) {
-            revert AWKErrors.Unauthorized(msg.sender);
-        }
+        if (!isEntryPoint(msg.sender) && msg.sender != owner() && !isAgentOperator(msg.sender)) revert AWKErrors.Unauthorized(msg.sender);
         _;
     }
 
@@ -380,25 +376,17 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
 
         // Check user-level blocklists first (owner sovereignty)
-        if ($.blockedAdapters[adapter]) {
-            revert AdapterIsBlocked(adapter);
-        }
-        if ($.blockedTargets[target]) {
-            revert TargetIsBlocked(target);
-        }
+        if ($.blockedAdapters[adapter]) revert AdapterIsBlocked(adapter);
+        if ($.blockedTargets[target]) revert TargetIsBlocked(target);
 
         // Then check global registry validation
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
-        if (registeredAdapter == address(0) || registeredAdapter != adapter) {
-            revert AWKErrors.AdapterNotRegistered(adapter);
-        }
+        if (registeredAdapter == address(0) || registeredAdapter != adapter) revert AWKErrors.AdapterNotRegistered(adapter);
 
         bytes memory callData = abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data);
         bool success;
         (success, result) = adapter.delegatecall(callData);
-        if (!success) {
-            revert AdapterExecutionFailed(result);
-        }
+        if (!success) revert AdapterExecutionFailed(result);
     }
 
     /**
@@ -447,9 +435,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      */
     function _authorizeUpgrade(address newImplementation) internal view virtual override onlyOwner {
         address approvedImplementation = FACTORY.agentWalletImplementation();
-        if (newImplementation != approvedImplementation) {
-            revert NotApprovedImplementation();
-        }
+        if (newImplementation != approvedImplementation) revert NotApprovedImplementation();
     }
 
     // ============ USER WITHDRAWAL FUNCTIONS ============

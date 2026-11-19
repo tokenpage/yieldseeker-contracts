@@ -142,9 +142,7 @@ contract AWKAdapterRegistry is AccessControl, Pausable {
         // First pass to count active targets
         for (uint256 i = 0; i < total; i++) {
             (, address adapter) = _targetToAdapter.at(i);
-            if (isRegisteredAdapter[adapter]) {
-                activeCount++;
-            }
+            if (isRegisteredAdapter[adapter]) activeCount++;
         }
 
         // Second pass to populate the result array
