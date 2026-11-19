@@ -54,24 +54,18 @@ contract YieldSeekerSwapSellPolicy is AccessControl, IYieldSeekerSwapSellPolicy 
 
     function addSellableToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (token == address(0)) revert AWKErrors.ZeroAddress();
-        if (sellableTokens.add(token)) {
-            emit SellableTokenAdded(token);
-        }
+        if (sellableTokens.add(token)) emit SellableTokenAdded(token);
     }
 
     function addSellableTokens(address[] calldata tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
         for (uint256 i = 0; i < tokens.length; i++) {
             if (tokens[i] == address(0)) revert AWKErrors.ZeroAddress();
-            if (sellableTokens.add(tokens[i])) {
-                emit SellableTokenAdded(tokens[i]);
-            }
+            if (sellableTokens.add(tokens[i])) emit SellableTokenAdded(tokens[i]);
         }
     }
 
     function removeSellableToken(address token) external onlyRole(EMERGENCY_ROLE) {
-        if (sellableTokens.remove(token)) {
-            emit SellableTokenRemoved(token);
-        }
+        if (sellableTokens.remove(token)) emit SellableTokenRemoved(token);
     }
 
     function isSellableToken(address token) external view returns (bool) {

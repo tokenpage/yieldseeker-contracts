@@ -110,9 +110,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
      * @dev Only reverts if we're at the limit AND trying to add a new operator
      */
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
-        if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= MAX_OPERATORS && !hasRole(role, account)) {
-            revert TooManyOperators();
-        }
+        if (role == AGENT_OPERATOR_ROLE && getRoleMemberCount(role) >= MAX_OPERATORS && !hasRole(role, account)) revert TooManyOperators();
         return super._grantRole(role, account);
     }
 
