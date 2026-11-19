@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, MarketParams} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -256,7 +256,7 @@ contract PowerUserHandler is Test {
         } else if (marketIndex == 1) {
             SYSTEM.aaveV4Spoke().accrueSuppliedAssets(1, address(wallet), amount);
         } else {
-            (, IMorphoBlue.MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, IMorphoBlue.MarketParams));
+            (, MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, MarketParams));
             SYSTEM.morpho().accrueCollateral(params, address(wallet), amount);
         }
         authorizedGains += amount;
@@ -818,7 +818,7 @@ contract PowerUserHandler is Test {
             assertEq(SYSTEM.aaveV3CollateralAToken().balanceOf(address(borrowWallet)), _lendingCollateral(borrowWallet, 0));
             assertEq(SYSTEM.aaveV4Spoke().getUserSuppliedAssets(1, owners[i]), 0);
             assertEq(SYSTEM.aaveV4Spoke().getUserSuppliedAssets(1, address(borrowWallet)), _lendingCollateral(borrowWallet, 1));
-            (address morphoAddress, IMorphoBlue.MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, IMorphoBlue.MarketParams));
+            (address morphoAddress, MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, MarketParams));
             bytes32 morphoId = keccak256(abi.encode(params));
             (,, uint128 ownerCollateral) = SYSTEM.morpho().position(morphoId, owners[i]);
             (,, uint128 walletCollateral) = SYSTEM.morpho().position(morphoId, address(borrowWallet));
@@ -1163,7 +1163,7 @@ contract PowerUserHandler is Test {
     function _lendingCollateral(AgentWallet wallet, uint8 index) private view returns (uint256) {
         if (index == 0) return SYSTEM.aaveV3CollateralAToken().balanceOf(address(wallet));
         if (index == 1) return SYSTEM.aaveV4Spoke().getUserSuppliedAssets(1, address(wallet));
-        (, IMorphoBlue.MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, IMorphoBlue.MarketParams));
+        (, MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, MarketParams));
         bytes32 id = keccak256(abi.encode(params));
         (,, uint128 collateral) = SYSTEM.morpho().position(id, address(wallet));
         return collateral;
@@ -1172,7 +1172,7 @@ contract PowerUserHandler is Test {
     function _marketDebt(AgentWallet wallet, uint8 index) private view returns (uint256) {
         if (index == 0) return SYSTEM.aaveV3VariableDebtToken().balanceOf(address(wallet));
         if (index == 1) return SYSTEM.aaveV4Spoke().getUserTotalDebt(2, address(wallet));
-        (address morphoAddress, IMorphoBlue.MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, IMorphoBlue.MarketParams));
+        (address morphoAddress, MarketParams memory params) = abi.decode(SYSTEM.morphoMarket(), (address, MarketParams));
         bytes32 id = keccak256(abi.encode(params));
         (, uint128 borrowShares,) = SYSTEM.morpho().position(id, address(wallet));
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = SYSTEM.morpho().market(id);
@@ -1586,7 +1586,7 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(aaveV4Spoke.getUserTotalDebt(2, address(wallet)), 0);
-        (, IMorphoBlue.MarketParams memory params) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
+        (, MarketParams memory params) = abi.decode(morphoMarket, (address, MarketParams));
         (uint256 supplyShares, uint128 borrowShares, uint128 collateral) = morpho.position(keccak256(abi.encode(params)), address(wallet));
         assertEq(supplyShares, 0);
         assertEq(borrowShares, 0);

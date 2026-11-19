@@ -19,19 +19,9 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IRouter as IAerodromeV2Router} from "aerodrome/interfaces/IRouter.sol";
 
 error InvalidAerodromeV2RouterTarget(address target, address expected);
-
-interface IAerodromeV2Router {
-    struct Route {
-        address from;
-        address to;
-        bool stable;
-        address factory;
-    }
-
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, Route[] memory routes, address to, uint256 deadline) external returns (uint256[] memory amounts);
-}
 
 /**
  * @title AWKAerodromeV2SwapAdapterCore

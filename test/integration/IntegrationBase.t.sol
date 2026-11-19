@@ -19,7 +19,7 @@ import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
-import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -226,7 +226,7 @@ abstract contract IntegrationBase is Test {
 
         aaveV3Market = abi.encode(address(aaveV3LendingPool), address(usdc), address(weth), uint8(0));
         aaveV4Market = abi.encode(address(aaveV4Spoke), uint256(1), uint256(2));
-        IMorphoBlue.MarketParams memory params = IMorphoBlue.MarketParams({loanToken: address(weth), collateralToken: address(usdc), oracle: address(morphoOracle), irm: address(0x1), lltv: 0.8e18});
+        MarketParams memory params = MarketParams({loanToken: address(weth), collateralToken: address(usdc), oracle: address(morphoOracle), irm: address(0x1), lltv: 0.8e18});
         morphoMarket = abi.encode(address(morpho), params);
         _registerTarget(borrowRegistry, aaveV3BorrowAdapter.marketTarget(aaveV3Market), address(aaveV3BorrowAdapter));
         _registerTarget(borrowRegistry, aaveV3BorrowAdapter.collateralReceiptToken(aaveV3Market), address(aaveV3BorrowAdapter));

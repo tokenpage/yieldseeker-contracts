@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IAaveV3AddressesProvider, IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol";
 import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol";
-import {IMorphoBlue, IMorphoOracle} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 
-contract MockAaveV3Oracle is IAaveV3Oracle {
+contract MockAaveV3Oracle {
     uint256 public defaultAssetPrice = 1e8;
     mapping(address asset => uint256 price) private _assetPrices;
     mapping(address asset => bool configured) private _assetPriceConfigured;
@@ -18,32 +17,32 @@ contract MockAaveV3Oracle is IAaveV3Oracle {
         _assetPriceConfigured[asset] = true;
     }
 
-    function getAssetPrice(address asset) external view override returns (uint256) {
+    function getAssetPrice(address asset) external view returns (uint256) {
         return _assetPriceConfigured[asset] ? _assetPrices[asset] : defaultAssetPrice;
     }
 }
 
-contract MockAaveV3AddressesProvider is IAaveV3AddressesProvider {
-    IAaveV3Oracle private immutable _priceOracle;
+contract MockAaveV3AddressesProvider {
+    MockAaveV3Oracle private immutable _priceOracle;
 
-    constructor(IAaveV3Oracle priceOracle_) {
+    constructor(MockAaveV3Oracle priceOracle_) {
         _priceOracle = priceOracle_;
     }
 
-    function getPriceOracle() external view override returns (IAaveV3Oracle) {
-        return _priceOracle;
+    function getPriceOracle() external view returns (address) {
+        return address(_priceOracle);
     }
 }
 
-contract MockMorphoOracle is IMorphoOracle {
-    uint256 public override price = 1e36;
+contract MockMorphoOracle {
+    uint256 public price = 1e36;
 
     function setPrice(uint256 price_) external {
         price = price_;
     }
 }
 
-contract MockAaveV4Oracle is IAaveV4Oracle {
+contract MockAaveV4Oracle {
     uint256 public defaultReservePrice = 1e8;
     mapping(uint256 reserveId => uint256 price) private _reservePrices;
     mapping(uint256 reserveId => bool configured) private _reservePriceConfigured;
@@ -53,12 +52,12 @@ contract MockAaveV4Oracle is IAaveV4Oracle {
         _reservePriceConfigured[reserveId] = true;
     }
 
-    function getReservePrice(uint256 reserveId) external view override returns (uint256) {
+    function getReservePrice(uint256 reserveId) external view returns (uint256) {
         return _reservePriceConfigured[reserveId] ? _reservePrices[reserveId] : defaultReservePrice;
     }
 }
 
-contract MockLendingAaveV3Pool is IAaveV3LendingPool {
+contract MockLendingAaveV3Pool {
     struct ReserveTokens {
         address aTokenAddress;
         address variableDebtTokenAddress;
@@ -74,13 +73,12 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         _addressesProvider = new MockAaveV3AddressesProvider(oracle);
     }
 
-    function ADDRESSES_PROVIDER() external view override returns (IAaveV3AddressesProvider) {
-        return _addressesProvider;
+    function ADDRESSES_PROVIDER() external view returns (address) {
+        return address(_addressesProvider);
     }
 
     function setAssetPrice(address asset, uint256 price) external {
-        IAaveV3Oracle oracle = _addressesProvider.getPriceOracle();
-        MockAaveV3Oracle(address(oracle)).setAssetPrice(asset, price);
+        MockAaveV3Oracle(_addressesProvider.getPriceOracle()).setAssetPrice(asset, price);
     }
 
     function setReserve(address asset, address aTokenAddress, address variableDebtTokenAddress) external {
@@ -94,34 +92,34 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         MockERC20(asset).mint(address(this), amount);
     }
 
-    function getReserveAToken(address asset) external view override returns (address) {
+    function getReserveAToken(address asset) external view returns (address) {
         return _reserves[asset].aTokenAddress;
     }
 
-    function getReserveVariableDebtToken(address asset) external view override returns (address) {
+    function getReserveVariableDebtToken(address asset) external view returns (address) {
         return _reserves[asset].variableDebtTokenAddress;
     }
 
-    function getUserEMode(address user) external view override returns (uint256) {
+    function getUserEMode(address user) external view returns (uint256) {
         return _userEMode[user];
     }
 
-    function setUserEMode(uint8 categoryId) external override {
+    function setUserEMode(uint8 categoryId) external {
         _userEMode[msg.sender] = categoryId;
     }
 
     mapping(address user => mapping(address asset => bool)) public usingAsCollateral;
 
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external override {
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external {
         usingAsCollateral[msg.sender][asset] = useAsCollateral;
     }
 
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16) external override {
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16) external {
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
         MockERC20(_reserves[asset].aTokenAddress).mint(onBehalfOf, amount);
     }
 
-    function withdraw(address asset, uint256 amount, address to) external override returns (uint256 withdrawn) {
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256 withdrawn) {
         MockERC20 aToken = MockERC20(_reserves[asset].aTokenAddress);
         uint256 collateral = aToken.balanceOf(msg.sender);
         require(amount == type(uint256).max || amount <= collateral, "Aave V3: amount exceeds balance");
@@ -130,12 +128,12 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
         IERC20(asset).transfer(to, withdrawn);
     }
 
-    function borrow(address asset, uint256 amount, uint256, uint16, address onBehalfOf) external override {
+    function borrow(address asset, uint256 amount, uint256, uint16, address onBehalfOf) external {
         MockERC20(_reserves[asset].variableDebtTokenAddress).mint(onBehalfOf, amount);
         MockERC20(asset).mint(onBehalfOf, amount);
     }
 
-    function repay(address asset, uint256 amount, uint256, address onBehalfOf) external override returns (uint256 repaid) {
+    function repay(address asset, uint256 amount, uint256, address onBehalfOf) external returns (uint256 repaid) {
         MockERC20 variableDebtToken = MockERC20(_reserves[asset].variableDebtTokenAddress);
         uint256 debt = variableDebtToken.balanceOf(onBehalfOf);
         repaid = amount == type(uint256).max || amount > debt ? debt : amount;
@@ -157,7 +155,7 @@ contract MockLendingAaveV3Pool is IAaveV3LendingPool {
     }
 }
 
-contract MockLendingMorpho is IMorphoBlue {
+contract MockLendingMorpho {
     uint256 private constant VIRTUAL_SHARES = 1e6;
     uint256 private constant VIRTUAL_ASSETS = 1;
 
@@ -179,7 +177,7 @@ contract MockLendingMorpho is IMorphoBlue {
     mapping(bytes32 marketId => mapping(address user => Position position_)) private _positions;
     mapping(bytes32 marketId => MarketState state) private _markets;
 
-    function supplyCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, bytes memory) external override {
+    function supplyCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, bytes memory) external {
         IERC20(marketParams.collateralToken).transferFrom(msg.sender, address(this), assets);
         _positions[keccak256(abi.encode(marketParams))][onBehalf].collateral += uint128(assets);
     }
@@ -190,14 +188,14 @@ contract MockLendingMorpho is IMorphoBlue {
         MockERC20(marketParams.collateralToken).mint(address(this), assets);
     }
 
-    function withdrawCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, address receiver) external override {
+    function withdrawCollateral(MarketParams memory marketParams, uint256 assets, address onBehalf, address receiver) external {
         Position storage position_ = _positions[keccak256(abi.encode(marketParams))][onBehalf];
         uint256 withdrawn = assets > position_.collateral ? position_.collateral : assets;
         position_.collateral -= uint128(withdrawn);
         IERC20(marketParams.collateralToken).transfer(receiver, withdrawn);
     }
 
-    function borrow(MarketParams memory marketParams, uint256 assets, uint256 shares, address onBehalf, address receiver) external override returns (uint256 assetsBorrowed, uint256 sharesBorrowed) {
+    function borrow(MarketParams memory marketParams, uint256 assets, uint256 shares, address onBehalf, address receiver) external returns (uint256 assetsBorrowed, uint256 sharesBorrowed) {
         bytes32 id = keccak256(abi.encode(marketParams));
         MarketState storage market_ = _markets[id];
         Position storage position_ = _positions[id][onBehalf];
@@ -214,7 +212,7 @@ contract MockLendingMorpho is IMorphoBlue {
         MockERC20(marketParams.loanToken).mint(receiver, assetsBorrowed);
     }
 
-    function repay(MarketParams memory marketParams, uint256 assets, uint256 shares, address onBehalf, bytes memory) external override returns (uint256 assetsRepaid, uint256 sharesRepaid) {
+    function repay(MarketParams memory marketParams, uint256 assets, uint256 shares, address onBehalf, bytes memory) external returns (uint256 assetsRepaid, uint256 sharesRepaid) {
         bytes32 id = keccak256(abi.encode(marketParams));
         MarketState storage market_ = _markets[id];
         Position storage position_ = _positions[id][onBehalf];
@@ -233,14 +231,14 @@ contract MockLendingMorpho is IMorphoBlue {
         market_.totalBorrowShares -= uint128(sharesRepaid);
     }
 
-    function accrueInterest(MarketParams memory) external override {}
+    function accrueInterest(MarketParams memory) external {}
 
-    function position(bytes32 id, address user) external view override returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral) {
+    function position(bytes32 id, address user) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral) {
         Position storage position_ = _positions[id][user];
         return (position_.supplyShares, position_.borrowShares, position_.collateral);
     }
 
-    function market(bytes32 id) external view override returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee) {
+    function market(bytes32 id) external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee) {
         MarketState storage market_ = _markets[id];
         return (market_.totalSupplyAssets, market_.totalSupplyShares, market_.totalBorrowAssets, market_.totalBorrowShares, market_.lastUpdate, market_.fee);
     }
@@ -251,7 +249,17 @@ contract MockLendingMorpho is IMorphoBlue {
     }
 }
 
-contract MockLendingAaveV4Spoke is IAaveV4Spoke {
+contract MockLendingAaveV4Spoke {
+    struct Reserve {
+        address underlying;
+        address hub;
+        uint16 assetId;
+        uint8 decimals;
+        uint24 collateralRisk;
+        uint8 flags;
+        uint32 dynamicConfigKey;
+    }
+
     MockAaveV4Oracle private immutable _oracle;
     mapping(uint256 reserveId => Reserve reserve_) private _reserves;
     mapping(uint256 reserveId => mapping(address user => uint256 amount)) private _supplied;
@@ -262,8 +270,8 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         _oracle = new MockAaveV4Oracle();
     }
 
-    function ORACLE() external view override returns (IAaveV4Oracle) {
-        return _oracle;
+    function ORACLE() external view returns (address) {
+        return address(_oracle);
     }
 
     function setReservePrice(uint256 reserveId, uint256 price) external {
@@ -279,25 +287,25 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         MockERC20(_reserves[reserveId].underlying).mint(address(this), amount);
     }
 
-    function getReserve(uint256 reserveId) external view override returns (Reserve memory) {
+    function getReserve(uint256 reserveId) external view returns (Reserve memory) {
         return _reserves[reserveId];
     }
 
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view override returns (uint256) {
+    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256) {
         return _supplied[reserveId][user];
     }
 
-    function getUserTotalDebt(uint256 reserveId, address user) external view override returns (uint256) {
+    function getUserTotalDebt(uint256 reserveId, address user) external view returns (uint256) {
         return _debt[reserveId][user];
     }
 
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         IERC20(_reserves[reserveId].underlying).transferFrom(msg.sender, address(this), amount);
         _supplied[reserveId][onBehalfOf] += amount;
         return (amount, amount);
     }
 
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         uint256 supplied = _supplied[reserveId][onBehalfOf];
         uint256 withdrawn = amount > supplied ? supplied : amount;
         _supplied[reserveId][onBehalfOf] = supplied - withdrawn;
@@ -305,13 +313,13 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         return (withdrawn, withdrawn);
     }
 
-    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         _debt[reserveId][onBehalfOf] += amount;
         MockERC20(_reserves[reserveId].underlying).mint(onBehalfOf, amount);
         return (amount, amount);
     }
 
-    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         uint256 debt = _debt[reserveId][onBehalfOf];
         uint256 repaid = amount > debt ? debt : amount;
         if (repaid != 0) IERC20(_reserves[reserveId].underlying).transferFrom(onBehalfOf, address(this), repaid);
@@ -319,7 +327,7 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         return (repaid, repaid);
     }
 
-    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral_, address onBehalfOf) external override {
+    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral_, address onBehalfOf) external {
         usingAsCollateral[reserveId][onBehalfOf] = usingAsCollateral_;
     }
 }

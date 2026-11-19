@@ -16,6 +16,23 @@ remappings = [
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
     "forge-std/=lib/forge-std/src/",
     "account-abstraction/=lib/account-abstraction/contracts/",
+    "morpho-blue/=lib/morpho-blue/src/",
+    "aave-v3/=lib/aave-v3/src/contracts/",
+    "lib/aave-v3/:openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "@uniswap/v3-core/=lib/uniswap-v3-core/",
+    "@uniswap/v3-periphery/=lib/uniswap-v3-periphery/",
+    "@uniswap/swap-router-contracts/=lib/uniswap-swap-router/",
+    "aerodrome-slipstream/=lib/aerodrome-slipstream/contracts/",
+    "lib/aerodrome-slipstream/:contracts/=lib/aerodrome-slipstream/contracts/",
+    "aerodrome/=lib/aerodrome-contracts/contracts/",
+    "@chainlink/contracts/=lib/chainlink/contracts/",
+    "aave-v4/=lib/aave-v4/src/",
+    "src/interfaces/=lib/aave-v4/src/interfaces/",
+    "src/hub/=lib/aave-v4/src/hub/",
+    "src/spoke/=lib/aave-v4/src/spoke/",
+    "src/dependencies/=lib/aave-v4/src/dependencies/",
+    "vendored-interfaces/=lib/vendored-interfaces/",
+    "morpho-bundler3/=lib/morpho-bundler3/src/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./" }]

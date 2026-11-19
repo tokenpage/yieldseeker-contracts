@@ -64,6 +64,7 @@
 ### Toolchain
 
 - Solidity `0.8.28` → `0.8.38`, OpenZeppelin Contracts and Contracts Upgradeable `5.5.0` → `5.7.0`, forge-std `1.12.0` → `1.17.0`. CI pins Foundry `v1.9.0` instead of nightly.
+- Adapters, the price oracle, scripts and tests use the protocols' published interfaces (Morpho Blue, Aave V3 origin, Aave V4, Uniswap, Aerodrome, Chainlink, and Morpho bundler3 for Compound V3) instead of redeclaring them, imported under the names the adapters already used. The Merkl interface moved to `lib/vendored-interfaces/`. The Morpho adapter uses Morpho's `MarketParamsLib` for market ids and `SharesMathLib` for debt. Test mocks implement the functions they need instead of inheriting the interfaces.
 - OpenZeppelin `5.6` makes `ERC1967Proxy` revert when created without init data. `AWKAgentWalletProxy` overrides `_unsafeAllowUninitialized()` to keep its fixed creation code, so wallet addresses still depend only on `(owner, ownerAgentIndex)`; the factory initializes the wallet in the same transaction.
 - The storage libraries' `layout()` is renamed `getLayout()` because `layout` is becoming a keyword. Virtual modifiers and contract-type comparisons, deprecated in Solidity `0.8.31`, were removed.
 - `foundry.toml` turns off compiler metadata (`bytecode_hash = "none"`, `cbor_metadata = false`) so bytecode, and with it the factory address, depends on code rather than file contents. `foundry.lock` matches the pinned libraries and `make install` installs Foundry `v1.9.0`.

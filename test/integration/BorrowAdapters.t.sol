@@ -7,7 +7,7 @@ import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {UnusableDebtPrice} from "../../src/adapters/BorrowAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
-import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
@@ -116,7 +116,7 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
 
     function test_MorphoSupplyBorrowCheckpointRepayMaxAndWithdraw() public {
         AgentWallet wallet = _createBorrowWallet(owner, 3);
-        IMorphoBlue.MarketParams memory params;
+        MarketParams memory params;
         (, params) = _decodeMorphoMarket(morphoMarket);
         bytes32 marketId = keccak256(abi.encode(params));
         address target = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
@@ -636,7 +636,7 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
         _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), registeredTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (differentEMode, COLLATERAL)), mismatch);
         _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), registeredTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (differentEMode)), mismatch);
 
-        (address morphoAddress, IMorphoBlue.MarketParams memory params) = _decodeMorphoMarket(morphoMarket);
+        (address morphoAddress, MarketParams memory params) = _decodeMorphoMarket(morphoMarket);
         address morphoTarget = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
         params.oracle = address(0x2222);
         bytes memory substitutedMorphoMarket = abi.encode(morphoAddress, params);
@@ -676,7 +676,7 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowAmount)));
     }
 
-    function _decodeMorphoMarket(bytes memory encoded) private pure returns (address morphoAddress, IMorphoBlue.MarketParams memory params) {
-        (morphoAddress, params) = abi.decode(encoded, (address, IMorphoBlue.MarketParams));
+    function _decodeMorphoMarket(bytes memory encoded) private pure returns (address morphoAddress, MarketParams memory params) {
+        (morphoAddress, params) = abi.decode(encoded, (address, MarketParams));
     }
 }

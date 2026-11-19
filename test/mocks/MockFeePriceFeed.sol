@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IPriceFeed} from "../../src/PriceOracle.sol";
-
-contract MockFeePriceFeed is IPriceFeed {
+contract MockFeePriceFeed {
     uint8 private immutable _decimals;
     int256 public answer;
     uint256 public startedAt;
@@ -16,7 +14,7 @@ contract MockFeePriceFeed is IPriceFeed {
         updatedAt = updatedAt_;
     }
 
-    function decimals() external view override returns (uint8) {
+    function decimals() external view returns (uint8) {
         return _decimals;
     }
 
@@ -31,7 +29,7 @@ contract MockFeePriceFeed is IPriceFeed {
         updatedAt = updatedAt_;
     }
 
-    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
         return (1, answer, startedAt, updatedAt, 1);
     }
 }

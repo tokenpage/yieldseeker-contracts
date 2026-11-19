@@ -2,7 +2,7 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
-import {IYieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
+import {IPriceFeed, IYieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {IYieldSeekerSwapSellPolicy, SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
@@ -42,7 +42,7 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
         AgentWallet wallet = _createBorrowWallet(owner, 11);
         MockERC20WithDecimals debtToken = new MockERC20WithDecimals("Borrowed Token", "DEBT", tokenDecimals);
         MockFeePriceFeed debtPriceFeed = new MockFeePriceFeed(8, int256(tokenPriceAnswer), block.timestamp);
-        priceOracle.setSource(address(debtToken), debtPriceFeed, 1 days);
+        priceOracle.setSource(address(debtToken), IPriceFeed(address(debtPriceFeed)), 1 days);
         _recordBorrowedDebt(wallet, address(debtToken), debt);
         debtToken.mint(address(wallet), held);
 

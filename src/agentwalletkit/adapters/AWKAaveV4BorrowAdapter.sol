@@ -18,33 +18,8 @@ import {AWKBorrowAdapter, AWKBorrowOperations} from "./AWKBorrowAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-
-interface IAaveV4Spoke {
-    struct Reserve {
-        address underlying;
-        address hub;
-        uint16 assetId;
-        uint8 decimals;
-        uint24 collateralRisk;
-        uint8 flags;
-        uint32 dynamicConfigKey;
-    }
-
-    function getReserve(uint256 reserveId) external view returns (Reserve memory);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-    function getUserTotalDebt(uint256 reserveId, address user) external view returns (uint256);
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf) external;
-    function ORACLE() external view returns (IAaveV4Oracle);
-}
-
-interface IAaveV4Oracle {
-    /// @notice Price of one whole token of the reserve, in the oracle's currency (the same unit for every reserve)
-    function getReservePrice(uint256 reserveId) external view returns (uint256);
-}
+import {IPriceOracle as IAaveV4Oracle} from "aave-v4/spoke/interfaces/IPriceOracle.sol";
+import {ISpoke as IAaveV4Spoke} from "aave-v4/spoke/interfaces/ISpoke.sol";
 
 /**
  * @title AWKAaveV4BorrowAdapterCore
@@ -93,7 +68,7 @@ abstract contract AWKAaveV4BorrowAdapterCore is AWKBorrowAdapter {
     ///      price)
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) = _decodeMarket(market);
-        IAaveV4Oracle oracle = spoke.ORACLE();
+        IAaveV4Oracle oracle = IAaveV4Oracle(spoke.ORACLE());
         uint256 debtValue = oracle.getReservePrice(debtReserveId) * 10 ** spoke.getReserve(collateralReserveId).decimals;
         uint256 collateralValue = oracle.getReservePrice(collateralReserveId) * 10 ** spoke.getReserve(debtReserveId).decimals;
         if (collateralValue == 0) return 0;

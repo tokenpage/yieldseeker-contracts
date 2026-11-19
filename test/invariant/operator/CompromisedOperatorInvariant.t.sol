@@ -19,7 +19,7 @@ import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {IMorphoBlue, IMorphoOracle} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, IMorphoOracle, MarketParams} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -697,7 +697,7 @@ contract CompromisedOperatorHandler is Test {
             lendingWorkflowBlocks++;
             return;
         }
-        IMorphoBlue.MarketParams memory params = _morphoParams();
+        MarketParams memory params = _morphoParams();
         uint256 collateralValue = Math.mulDiv(collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
         uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
         uint256 borrowAmount = Math.min(_smallBorrowAmount(amountSeed), borrowLimit / 2);
@@ -985,7 +985,7 @@ contract CompromisedOperatorHandler is Test {
 
     function _borrowMorphoAtLimit(MorphoLifecycleSetup memory setup) private returns (bool) {
         AgentWallet wallet = setup.wallet;
-        IMorphoBlue.MarketParams memory params = _morphoParams();
+        MarketParams memory params = _morphoParams();
         uint256 collateralValue = Math.mulDiv(setup.collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
         uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
         address target = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
@@ -1078,8 +1078,8 @@ contract CompromisedOperatorHandler is Test {
         acceptedLossBudget[wallet.owner()] += bonus;
     }
 
-    function _morphoParams() private view returns (IMorphoBlue.MarketParams memory marketParams) {
-        (, marketParams) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
+    function _morphoParams() private view returns (MarketParams memory marketParams) {
+        (, marketParams) = abi.decode(morphoMarket, (address, MarketParams));
     }
 
     function _tryLiquidation(AgentWallet wallet) private {
@@ -1649,13 +1649,13 @@ contract CompromisedOperatorHandler is Test {
     }
 
     function _morphoCollateral(address account) private view returns (uint256 collateral) {
-        (, IMorphoBlue.MarketParams memory params) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
+        (, MarketParams memory params) = abi.decode(morphoMarket, (address, MarketParams));
         (,, uint128 held) = morpho.position(keccak256(abi.encode(params)), account);
         collateral = held;
     }
 
     function _morphoDebt(address account) private view returns (uint256 debt) {
-        (, IMorphoBlue.MarketParams memory params) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
+        (, MarketParams memory params) = abi.decode(morphoMarket, (address, MarketParams));
         bytes32 id = keccak256(abi.encode(params));
         (, uint128 borrowShares,) = morpho.position(id, account);
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(id);
@@ -1908,7 +1908,7 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        (, IMorphoBlue.MarketParams memory morphoParams) = abi.decode(morphoMarket, (address, IMorphoBlue.MarketParams));
+        (, MarketParams memory morphoParams) = abi.decode(morphoMarket, (address, MarketParams));
         morphoParams.lltv = 0.86e18;
         operatorMorpho = new OperatorMorphoBlueMarket();
         operatorMorphoMarket = abi.encode(address(operatorMorpho), morphoParams);

@@ -19,28 +19,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-
-interface IAaveV3LendingPool {
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
-    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
-    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
-    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
-    function setUserEMode(uint8 categoryId) external;
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
-    function getUserEMode(address user) external view returns (uint256);
-    function getReserveAToken(address asset) external view returns (address);
-    function getReserveVariableDebtToken(address asset) external view returns (address);
-    function ADDRESSES_PROVIDER() external view returns (IAaveV3AddressesProvider);
-}
-
-interface IAaveV3AddressesProvider {
-    function getPriceOracle() external view returns (IAaveV3Oracle);
-}
-
-interface IAaveV3Oracle {
-    /// @notice Price of one whole `asset` in the oracle's base currency (the same unit for every asset)
-    function getAssetPrice(address asset) external view returns (uint256);
-}
+import {IPool as IAaveV3LendingPool} from "aave-v3/interfaces/IPool.sol";
+import {IPriceOracleGetter as IAaveV3Oracle} from "aave-v3/interfaces/IPriceOracleGetter.sol";
 
 /**
  * @title AWKAaveV3BorrowAdapterCore
@@ -85,11 +65,12 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
         return IERC20(collateralReceiptToken(market)).balanceOf(address(this));
     }
 
-    /// @dev A zero price can't value the debt, so it is reported as 0 (borrows then revert, other actions use the last
-    ///      price); the Base AaveOracle itself reverts on a non-positive source answer
+    /// @dev The Aave oracle prices one whole token of every asset in the same base currency. A zero price can't value the
+    ///      debt, so it is reported as 0 (borrows then revert, other actions use the last price); the Base AaveOracle
+    ///      itself reverts on a non-positive source answer
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
         (IAaveV3LendingPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
-        IAaveV3Oracle oracle = pool.ADDRESSES_PROVIDER().getPriceOracle();
+        IAaveV3Oracle oracle = IAaveV3Oracle(pool.ADDRESSES_PROVIDER().getPriceOracle());
         uint256 debtValue = oracle.getAssetPrice(debtAsset) * 10 ** IERC20Metadata(collateralAsset).decimals();
         uint256 collateralValue = oracle.getAssetPrice(collateralAsset) * 10 ** IERC20Metadata(debtAsset).decimals();
         if (collateralValue == 0) return 0;

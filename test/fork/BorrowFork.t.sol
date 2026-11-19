@@ -10,7 +10,7 @@ import {YieldSeekerMorphoBlueBorrowAdapter} from "../../src/adapters/MorphoBlueB
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol";
-import {IMorphoBlue, IMorphoOracle} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, IMorphoOracle, Id, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
@@ -98,8 +98,8 @@ contract BorrowForkTest is ForkBase {
         return abi.encode(AAVE_POOL, WETH, USDC, uint8(0));
     }
 
-    function _morphoParams() internal pure returns (IMorphoBlue.MarketParams memory) {
-        return IMorphoBlue.MarketParams({loanToken: USDC, collateralToken: WETH, oracle: 0xFEa2D58cEfCb9fcb597723c6bAE66fFE4193aFE4, irm: 0x46415998764C29aB2a25CbeA6254146D50D22687, lltv: 860000000000000000});
+    function _morphoParams() internal pure returns (MarketParams memory) {
+        return MarketParams({loanToken: USDC, collateralToken: WETH, oracle: 0xFEa2D58cEfCb9fcb597723c6bAE66fFE4193aFE4, irm: 0x46415998764C29aB2a25CbeA6254146D50D22687, lltv: 860000000000000000});
     }
 
     function _morphoMarket() internal pure returns (bytes memory) {
@@ -109,13 +109,13 @@ contract BorrowForkTest is ForkBase {
     function _marketDebtPriceInBaseAsset(address adapter, bytes memory market) internal view returns (uint256) {
         if (adapter == address(aaveAdapter)) {
             (IAaveV3LendingPool pool, address collateralToken, address debtToken,) = abi.decode(market, (IAaveV3LendingPool, address, address, uint8));
-            IAaveV3Oracle marketOracle = pool.ADDRESSES_PROVIDER().getPriceOracle();
+            IAaveV3Oracle marketOracle = IAaveV3Oracle(pool.ADDRESSES_PROVIDER().getPriceOracle());
             uint256 debtValue = marketOracle.getAssetPrice(debtToken) * 10 ** IERC20Metadata(collateralToken).decimals();
             uint256 collateralValue = marketOracle.getAssetPrice(collateralToken) * 10 ** IERC20Metadata(debtToken).decimals();
             return Math.mulDiv(debtValue, 1e36, collateralValue);
         }
 
-        (, IMorphoBlue.MarketParams memory params) = abi.decode(market, (IMorphoBlue, IMorphoBlue.MarketParams));
+        (, MarketParams memory params) = abi.decode(market, (IMorphoBlue, MarketParams));
         return Math.mulDiv(1e36, 1e36, IMorphoOracle(params.oracle).price());
     }
 
@@ -208,15 +208,15 @@ contract BorrowForkTest is ForkBase {
         vm.warp(start + 365 days);
         vm.roll(block.number + 1);
 
-        IMorphoBlue.MarketParams memory morphoParams;
+        MarketParams memory morphoParams;
         bytes32 morphoMarketId;
         if (adapter == address(aaveAdapter)) {
             _repayAaveExternally(externalRepayer);
         } else {
-            (, morphoParams) = abi.decode(market, (IMorphoBlue, IMorphoBlue.MarketParams));
+            (, morphoParams) = abi.decode(market, (IMorphoBlue, MarketParams));
             morphoMarketId = keccak256(abi.encode(morphoParams));
             _repayMorphoExternally(externalRepayer, morphoParams);
-            (, uint128 remainingBorrowShares,) = IMorphoBlue(MORPHO).position(morphoMarketId, address(wallet));
+            (, uint128 remainingBorrowShares,) = IMorphoBlue(MORPHO).position(Id.wrap(morphoMarketId), address(wallet));
             assertEq(remainingBorrowShares, 0);
         }
 
@@ -245,9 +245,9 @@ contract BorrowForkTest is ForkBase {
         assertEq(IERC20(pool.getReserveVariableDebtToken(USDC)).balanceOf(address(wallet)), 0);
     }
 
-    function _repayMorphoExternally(address externalRepayer, IMorphoBlue.MarketParams memory marketParams) internal {
+    function _repayMorphoExternally(address externalRepayer, MarketParams memory marketParams) internal {
         IMorphoBlue morpho = IMorphoBlue(MORPHO);
-        bytes32 marketId = keccak256(abi.encode(marketParams));
+        Id marketId = Id.wrap(keccak256(abi.encode(marketParams)));
         morpho.accrueInterest(marketParams);
         (, uint128 borrowShares,) = morpho.position(marketId, address(wallet));
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);

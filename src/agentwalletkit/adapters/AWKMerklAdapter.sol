@@ -16,15 +16,7 @@ pragma solidity 0.8.38;
 
 import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-
-/**
- * @title IMerklDistributor
- * @notice Minimal interface for the Merkl Distributor
- */
-interface IMerklDistributor {
-    function claim(address[] calldata users, address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external;
-    function claimed(address user, address token) external view returns (uint208 amount, uint48 timestamp, bytes32 merkleRoot);
-}
+import {IMerklDistributor} from "vendored-interfaces/IMerklDistributor.sol";
 
 /**
  * @title AWKMerklAdapter

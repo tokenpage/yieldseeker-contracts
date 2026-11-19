@@ -10,3 +10,33 @@
 [submodule "lib/account-abstraction"]
 	path = lib/account-abstraction
 	url = https://github.com/eth-infinitism/account-abstraction
+[submodule "lib/morpho-blue"]
+	path = lib/morpho-blue
+	url = https://github.com/morpho-org/morpho-blue
+[submodule "lib/aave-v3"]
+	path = lib/aave-v3
+	url = https://github.com/aave-dao/aave-v3-origin
+[submodule "lib/uniswap-swap-router"]
+	path = lib/uniswap-swap-router
+	url = https://github.com/Uniswap/swap-router-contracts
+[submodule "lib/uniswap-v3-periphery"]
+	path = lib/uniswap-v3-periphery
+	url = https://github.com/Uniswap/v3-periphery
+[submodule "lib/uniswap-v3-core"]
+	path = lib/uniswap-v3-core
+	url = https://github.com/Uniswap/v3-core
+[submodule "lib/aerodrome-slipstream"]
+	path = lib/aerodrome-slipstream
+	url = https://github.com/aerodrome-finance/slipstream
+[submodule "lib/aerodrome-contracts"]
+	path = lib/aerodrome-contracts
+	url = https://github.com/aerodrome-finance/contracts
+[submodule "lib/chainlink"]
+	path = lib/chainlink
+	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
+[submodule "lib/aave-v4"]
+	path = lib/aave-v4
+	url = https://github.com/aave/aave-v4
+[submodule "lib/morpho-bundler3"]
+	path = lib/morpho-bundler3
+	url = https://github.com/morpho-org/bundler3

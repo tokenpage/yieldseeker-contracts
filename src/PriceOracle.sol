@@ -17,6 +17,7 @@
 pragma solidity 0.8.38;
 
 import {AWKErrors} from "./agentwalletkit/AWKErrors.sol";
+import {AggregatorV3Interface as IPriceFeed} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -25,12 +26,6 @@ error NoPriceSource(address asset);
 error InvalidPrice(address asset, int256 answer);
 error StalePrice(address asset, uint256 updatedAt, uint256 maxStaleness);
 error SequencerDown();
-
-/// @notice Chainlink-style price feed (Aave V3 and V4 oracle sources implement this)
-interface IPriceFeed {
-    function decimals() external view returns (uint8);
-    function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
-}
 
 interface IYieldSeekerPriceOracle {
     /// @notice USD price of one whole token, scaled to 1e18

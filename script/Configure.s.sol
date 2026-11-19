@@ -7,7 +7,7 @@ import {IPriceFeed, YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOra
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {IAaveV4Spoke} from "../src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol";
 import {AWKBorrowAdapter} from "../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
-import {IMorphoBlue, IMorphoOracle} from "../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
+import {IMorphoBlue, IMorphoOracle, Id, MarketParams} from "../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -211,7 +211,7 @@ contract ConfigureScript is Script {
         uint256 count = _count(".morphoMarkets");
         for (uint256 i = 0; i < count; i++) {
             string memory label = _config.readString(_at(".morphoMarkets", i, "label"));
-            IMorphoBlue.MarketParams memory params = IMorphoBlue.MarketParams({
+            MarketParams memory params = MarketParams({
                 loanToken: _config.readAddress(_at(".morphoMarkets", i, "loanToken")),
                 collateralToken: _config.readAddress(_at(".morphoMarkets", i, "collateralToken")),
                 oracle: _config.readAddress(_at(".morphoMarkets", i, "oracle")),
@@ -219,7 +219,7 @@ contract ConfigureScript is Script {
                 lltv: _config.readUint(_at(".morphoMarkets", i, "lltv"))
             });
             require(params.irm == MORPHO_ADAPTIVE_IRM, string.concat(label, ": Morpho IRM must be the approved adaptive IRM"));
-            (,,,, uint128 lastUpdate,) = IMorphoBlue(MORPHO_BLUE).market(keccak256(abi.encode(params)));
+            (,,,, uint128 lastUpdate,) = IMorphoBlue(MORPHO_BLUE).market(Id.wrap(keccak256(abi.encode(params))));
             require(lastUpdate != 0, string.concat(label, ": Morpho market does not exist"));
             console2.log(label, "Morpho oracle price:", IMorphoOracle(params.oracle).price());
             _registerMarket(label, ".morphoBlueBorrowAdapter", abi.encode(MORPHO_BLUE, params), params.collateralToken, params.loanToken);
