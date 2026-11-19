@@ -16,7 +16,12 @@
     { "label": "MSFTc", "asset": "0xB200000000000000000000Ab99cFa739E253872B", "feed": "0xeB10A6c9aa7E537aEd766C08c35Dae35B321b18c", "maxStaleness": 43200 },
     { "label": "NVDAc", "asset": "0xb20000000000000000000078ee7ce2fE4908108C", "feed": "0x04689a41629776563E6822F76f2e57D148d28513", "maxStaleness": 43200 },
     { "label": "TSLAc", "asset": "0xb2000000000000000000001e800a7f5189430cD0", "feed": "0xFaf869185383a24F8cb00e27BdA6b63B9905DCb4", "maxStaleness": 43200 },
-    { "label": "SPCXc", "asset": "0xb2000000000000000000007b9fcbd005511aCBd5", "feed": "0x6A634B235903C4ad6376892180d6fF8612e3Fa68", "maxStaleness": 43200 }
+    { "label": "SPCXc", "asset": "0xb2000000000000000000007b9fcbd005511aCBd5", "feed": "0x6A634B235903C4ad6376892180d6fF8612e3Fa68", "maxStaleness": 43200 },
+    { "label": "cbETH", "asset": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", "feed": "0xd7818272B9e248357d13057AAb0B417aF31E817d", "maxStaleness": 3600 },
+    { "label": "cbXRP", "asset": "0xcb585250f852C6c6bf90434AB21A00f02833a4af", "feed": "0x281F1D237Fa1382d96f7A4fd190500D182042e3b", "maxStaleness": 90000 },
+    { "label": "cbZEC", "asset": "0xB2000000000000000000008501b13360000cb2EC", "feed": "0x69e5BC4988a9AF30Ec827C5609c0D41028446ec0", "maxStaleness": 90000 },
+    { "label": "SOL", "asset": "0x311935Cd80B76769bF2ecC9D8Ab7635b2139cf82", "feed": "0x5D424D5a664a9f3c820F422297077d49877F9C93", "maxStaleness": 90000 },
+    { "label": "cbHYPE", "asset": "0xB200000000000000000000451d033a5000cb479e", "feed": "0xEdB56c5DE751eD3182DDa337f7d9ab33cf091DcA", "maxStaleness": 90000 }
   ],
   "vaultTargets": [
     { "label": "gtUSDCp", "target": "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61", "adapter": "erc4626" },
@@ -93,7 +98,8 @@
   ],
   "aaveV3Markets": [
     { "label": "WETH/USDC", "collateral": "0x4200000000000000000000000000000000000006", "debt": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
-    { "label": "cbBTC/USDC", "collateral": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "debt": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }
+    { "label": "cbBTC/USDC", "collateral": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "debt": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+    { "label": "cbETH/USDC", "collateral": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", "debt": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }
   ],
   "aaveV4Markets": [
     { "label": "AAPLc/USDC", "collateralReserveId": 0, "debtReserveId": 7 },
@@ -107,6 +113,11 @@
   ],
   "morphoMarkets": [
     { "label": "WETH/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0x4200000000000000000000000000000000000006", "oracle": "0xFEa2D58cEfCb9fcb597723c6bAE66fFE4193aFE4", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "860000000000000000" },
-    { "label": "cbBTC/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "oracle": "0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "860000000000000000" }
+    { "label": "cbBTC/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "oracle": "0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "860000000000000000" },
+    { "label": "cbETH/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", "oracle": "0x97FF9CbD7E77348b2B8FfBB883bF29452aD18295", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "770000000000000000" },
+    { "label": "cbXRP/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0xcb585250f852C6c6bf90434AB21A00f02833a4af", "oracle": "0x031b2EFC8d70042Ac8d9f5c793c4149eC4b60fdE", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "625000000000000000" },
+    { "label": "cbZEC/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0xB2000000000000000000008501b13360000cb2EC", "oracle": "0xa3CB2d7204F47a468B82C6fAb1CA9675e9F7A272", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "625000000000000000" },
+    { "label": "SOL/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0x311935Cd80B76769bF2ecC9D8Ab7635b2139cf82", "oracle": "0xE9725430f3A72611ac72EdDc650625bce4F45DC7", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "625000000000000000" },
+    { "label": "cbHYPE/USDC", "loanToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "collateralToken": "0xB200000000000000000000451d033a5000cb479e", "oracle": "0x7FaD8B8De2DDb7b4B415e1Aa3613e45EeF9E4bFf", "irm": "0x46415998764C29aB2a25CbeA6254146D50D22687", "lltv": "625000000000000000" }
   ]
 }
