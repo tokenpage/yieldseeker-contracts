@@ -2,7 +2,7 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
-import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+import {AWKAdapterTarget} from "../../src/agentwalletkit/AWKAdapterTarget.sol";
 
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
@@ -17,8 +17,8 @@ import {IPaymaster} from "account-abstraction/interfaces/IPaymaster.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {Test} from "forge-std/Test.sol";
 
-contract EntryPointNestedDelegatecallAdapter is IAWKAdapter {
-    function execute(address, bytes calldata data) external payable returns (bytes memory result) {
+contract EntryPointNestedDelegatecallAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory result) {
         (bool success, bytes memory returndata) = address(this).delegatecall(data);
         if (!success) {
             assembly {

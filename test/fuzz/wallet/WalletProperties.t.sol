@@ -10,10 +10,10 @@ import {YieldSeekerAerodromeV2SwapAdapter} from "../../../src/adapters/Aerodrome
 import {InvalidTransferTarget, NotOwnersAgentWallet, YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {UnknownOperation} from "../../../src/agentwalletkit/AWKAdapter.sol";
+import {AWKAdapterTarget} from "../../../src/agentwalletkit/AWKAdapterTarget.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {InvalidPercentage} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -36,9 +36,9 @@ interface IWalletPackedValidation {
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds) external returns (uint256);
 }
 
-contract PairProbeAdapter is IAWKAdapter {
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
-        return abi.encode(target, data);
+contract PairProbeAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory) {
+        return abi.encode(AWKAdapterTarget.get(), data);
     }
 }
 
@@ -60,8 +60,8 @@ contract AgentTransferSpoofWallet {
     }
 }
 
-contract CallOtherWalletAdapter is IAWKAdapter {
-    function execute(address, bytes calldata data) external payable override returns (bytes memory result) {
+contract CallOtherWalletAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory result) {
         (address wallet, bytes memory callData) = abi.decode(data, (address, bytes));
         (bool success, bytes memory returnData) = wallet.call(callData);
         if (!success) {
@@ -108,10 +108,10 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.assume(!wallet.isEntryPoint(attacker) && !wallet.isAgentOperator(attacker));
 
         bytes[] memory calls = new bytes[](20);
-        calls[0] = abi.encodeCall(wallet.blockAdapter, (address(erc4626Adapter)));
-        calls[1] = abi.encodeCall(wallet.unblockAdapter, (address(erc4626Adapter)));
-        calls[2] = abi.encodeCall(wallet.blockTarget, (address(erc4626Vault)));
-        calls[3] = abi.encodeCall(wallet.unblockTarget, (address(erc4626Vault)));
+        calls[0] = abi.encodeCall(wallet.setAdapterBlocked, (address(erc4626Adapter), true));
+        calls[1] = abi.encodeCall(wallet.setAdapterBlocked, (address(erc4626Adapter), false));
+        calls[2] = abi.encodeCall(wallet.setTargetBlocked, (address(erc4626Vault), true));
+        calls[3] = abi.encodeCall(wallet.setTargetBlocked, (address(erc4626Vault), false));
         calls[4] = abi.encodeCall(wallet.upgradeToLatest, ());
         calls[5] = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(walletImplementation), bytes(""));
         calls[6] = abi.encodeCall(wallet.withdrawAssetToUser, (attacker, address(usdc), 1));
@@ -225,11 +225,11 @@ contract WalletPropertiesTest is IntegrationBase {
 
         if (blockAdapter) {
             vm.prank(owner);
-            wallet.blockAdapter(candidateAdapter);
+            wallet.setAdapterBlocked(candidateAdapter, true);
         }
         if (blockTarget) {
             vm.prank(owner);
-            wallet.blockTarget(candidateTarget);
+            wallet.setTargetBlocked(candidateTarget, true);
         }
         if (pauseRegistry) vaultRegistry.pause();
 
@@ -344,8 +344,6 @@ contract WalletPropertiesTest is IntegrationBase {
         erc4626Adapter.depositPercentage(10_000);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
         erc4626Adapter.withdraw(1);
-        vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        erc4626Adapter.execute(address(erc4626Vault), bytes(""));
 
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
         agentTransferAdapter.transfer(address(usdc), address(wallet), 1);
@@ -367,6 +365,10 @@ contract WalletPropertiesTest is IntegrationBase {
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
         _executeExpectRevert(wallet, address(erc4626Adapter), address(wrongAssetVault), abi.encodeCall(erc4626Adapter.deposit, (1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+
+        address unregisteredVault = address(new MockERC4626(address(usdc), "Unregistered", "UNREG"));
+        bytes memory retargetingCall = abi.encodeWithSignature("execute(address,bytes)", unregisteredVault, abi.encodeCall(erc4626Adapter.deposit, (1)));
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), retargetingCall, abi.encodeWithSelector(UnknownOperation.selector));
 
         _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(0), 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));

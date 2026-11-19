@@ -14,7 +14,6 @@
 //
 pragma solidity 0.8.38;
 
-import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -27,8 +26,8 @@ error InvalidAerodromeCLRouterTarget(address target, address expected);
 /**
  * @title AWKAerodromeCLSwapAdapterCore
  * @notice Aerodrome CL swaps using structured route parameters, without an operations layer
- * @dev Swap execution runs via delegatecall from AgentWallet.
- *      Accepts multi-hop routes through path+tickSpacing arrays with strict validation.
+ * @dev Accepts multi-hop routes through path+tickSpacing arrays with strict validation. The router is the target of
+ *      the execute call.
  */
 abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
     using SafeERC20 for IERC20;
@@ -45,31 +44,10 @@ abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
         AERODROME_CL_ROUTER = aerodromeClRouter;
     }
 
-    // ============ Swap Operations ============
-
-    /**
-     * @notice Swap tokens via Aerodrome CL (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
-     */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    // ============ Swap Execution (delegatecall only) ============
-
-    /**
-     * @notice Validate a swap call and run it
-     * @param target The Aerodrome CL router target contract
-     * @param data ABI-encoded call data (must match swap() selector)
-     * @return ABI-encoded buy amount
-     */
-    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
-        (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
-        if (target != AERODROME_CL_ROUTER) revert InvalidAerodromeCLRouterTarget(target, AERODROME_CL_ROUTER);
+    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external onlyExecute returns (uint256 buyAmount) {
+        if (_target() != AERODROME_CL_ROUTER) revert InvalidAerodromeCLRouterTarget(_target(), AERODROME_CL_ROUTER);
         _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.tickSpacings.length);
-        (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
-        return abi.encode(buyAmount);
+        (, buyAmount) = _swapOperation(AERODROME_CL_ROUTER, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
     }
 
     // ============ Internal Implementations ============

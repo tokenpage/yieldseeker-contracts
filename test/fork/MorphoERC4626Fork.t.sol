@@ -37,7 +37,7 @@ contract MorphoERC4626ForkTest is ForkBase {
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
         bytes memory depositResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
-        (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
+        (uint256 shares, uint256 assetsDeposited) = abi.decode(depositResult, (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Vault deposit must consume the full requested amount");
         assertGt(shares, 0, "Deposit returned no vault shares");
         assertEq(vault.balanceOf(address(wallet)), shares, "Wallet shares must match minted shares");
@@ -52,7 +52,7 @@ contract MorphoERC4626ForkTest is ForkBase {
 
         uint256 feeCollectorBalanceBefore = asset.balanceOf(feeCollector);
         bytes memory withdrawResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(adapter.withdraw.selector, shares));
-        uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
+        uint256 assetsReceived = abi.decode(withdrawResult, (uint256));
         assertEq(assetsReceived, previewedAssets, "Redeemed assets must match previewed value");
         assertEq(vault.balanceOf(address(wallet)), 0, "Live vault share balance should be fully withdrawn");
 

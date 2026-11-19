@@ -23,6 +23,7 @@ import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
+import {toArray} from "../helpers/Arrays.sol";
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
 import {MockCompoundV3Comet} from "../mocks/MockCompoundV3.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
@@ -177,8 +178,8 @@ abstract contract IntegrationBase is Test {
         priceOracle.setSource(address(rewardToken), IPriceFeed(address(rewardPriceFeed)), 1 days);
         priceOracle.setSource(address(wellToken), IPriceFeed(address(wellPriceFeed)), 1 days);
         swapSellPolicy = new SwapSellPolicy(admin, admin, false);
-        swapSellPolicy.addSellableToken(address(rewardToken));
-        swapSellPolicy.addSellableToken(address(wellToken));
+        swapSellPolicy.addSellableTokens(toArray(address(rewardToken)));
+        swapSellPolicy.addSellableTokens(toArray(address(wellToken)));
         vaultSwapPolicy = new YieldSeekerVaultSwapPolicy(swapSellPolicy);
         borrowSwapPolicy = new YieldSeekerBorrowSwapPolicy(swapSellPolicy, priceOracle, BORROW_SWAP_MAX_SLIPPAGE_BPS);
 

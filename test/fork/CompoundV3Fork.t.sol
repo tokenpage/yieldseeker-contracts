@@ -30,7 +30,7 @@ contract CompoundV3ForkTest is ForkBase {
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
         bytes memory depositResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
-        (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
+        (uint256 shares, uint256 assetsDeposited) = abi.decode(depositResult, (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Compound V3 deposit must consume the full requested amount");
         assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 2, "Compound V3 balance must increase ~1:1 with deposited assets");
         assertEq(comet.balanceOf(address(wallet)), shares, "Comet balance must match minted shares");
@@ -45,7 +45,7 @@ contract CompoundV3ForkTest is ForkBase {
 
         uint256 feeCollectorBalanceBefore = asset.balanceOf(feeCollector);
         bytes memory withdrawResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.withdraw.selector, totalVaultBalanceBefore));
-        uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
+        uint256 assetsReceived = abi.decode(withdrawResult, (uint256));
         assertEq(assetsReceived, totalVaultBalanceBefore, "Full redemption must return the live Comet balance");
         assertEq(comet.balanceOf(address(wallet)), 0, "Live Comet balance should be fully withdrawn");
 

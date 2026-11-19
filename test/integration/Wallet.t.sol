@@ -1,9 +1,9 @@
 pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
+import {AWKAdapterTarget} from "../../src/agentwalletkit/AWKAdapterTarget.sol";
 import {AdapterExecutionFailed, AdapterIsBlocked, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -115,8 +115,8 @@ contract FeeActionFailureModule is IYieldSeekerFeeModule {
     }
 }
 
-contract NestedDelegatecallAdapter is IAWKAdapter {
-    function execute(address, bytes calldata data) external payable override returns (bytes memory result) {
+contract NestedDelegatecallAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory result) {
         (bool success, bytes memory returndata) = address(this).delegatecall(data);
         if (!success) {
             assembly {
@@ -174,7 +174,7 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(vaultYieldFeeModule.costBasis(address(secondWallet), address(erc4626Vault)), 150e6);
 
         vm.prank(_walletOwner);
-        firstWallet.blockAdapter(address(erc4626Adapter));
+        firstWallet.setAdapterBlocked(address(erc4626Adapter), true);
         assertTrue(firstWallet.isAdapterBlocked(address(erc4626Adapter)));
         assertFalse(secondWallet.isAdapterBlocked(address(erc4626Adapter)));
     }
@@ -189,7 +189,7 @@ contract WalletIntegrationTest is IntegrationBase {
 
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, operator));
         vm.prank(operator);
-        _wallet.blockAdapter(address(erc4626Adapter));
+        _wallet.setAdapterBlocked(address(erc4626Adapter), true);
 
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.Unauthorized.selector, operator));
         vm.prank(operator);
@@ -217,10 +217,10 @@ contract WalletIntegrationTest is IntegrationBase {
 
     function test_UserOperationValidationRestrictsOperatorToAdapterSelectors() public {
         bytes[] memory ownerCalls = new bytes[](13);
-        ownerCalls[0] = abi.encodeWithSelector(_wallet.blockAdapter.selector, address(erc4626Adapter));
-        ownerCalls[1] = abi.encodeWithSelector(_wallet.unblockAdapter.selector, address(erc4626Adapter));
-        ownerCalls[2] = abi.encodeWithSelector(_wallet.blockTarget.selector, address(erc4626Vault));
-        ownerCalls[3] = abi.encodeWithSelector(_wallet.unblockTarget.selector, address(erc4626Vault));
+        ownerCalls[0] = abi.encodeWithSelector(_wallet.setAdapterBlocked.selector, address(erc4626Adapter), true);
+        ownerCalls[1] = abi.encodeWithSelector(_wallet.setAdapterBlocked.selector, address(erc4626Adapter), false);
+        ownerCalls[2] = abi.encodeWithSelector(_wallet.setTargetBlocked.selector, address(erc4626Vault), true);
+        ownerCalls[3] = abi.encodeWithSelector(_wallet.setTargetBlocked.selector, address(erc4626Vault), false);
         ownerCalls[4] = abi.encodeWithSelector(_wallet.withdrawAssetToUser.selector, _recipient, address(usdc), 1);
         ownerCalls[5] = abi.encodeWithSelector(_wallet.withdrawAllAssetToUser.selector, _recipient, address(usdc));
         ownerCalls[6] = abi.encodeWithSelector(_wallet.withdrawAssetsToUser.selector, _recipient, new address[](0), new uint256[](0));
@@ -415,20 +415,20 @@ contract WalletIntegrationTest is IntegrationBase {
         bytes memory depositData = abi.encodeCall(erc4626Adapter.deposit, (100e6));
 
         vm.prank(_walletOwner);
-        _wallet.blockAdapter(address(erc4626Adapter));
+        _wallet.setAdapterBlocked(address(erc4626Adapter), true);
         vm.expectRevert(abi.encodeWithSelector(AdapterIsBlocked.selector, address(erc4626Adapter)));
         vm.prank(operator);
         _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), depositData);
         vm.prank(_walletOwner);
-        _wallet.unblockAdapter(address(erc4626Adapter));
+        _wallet.setAdapterBlocked(address(erc4626Adapter), false);
 
         vm.prank(_walletOwner);
-        _wallet.blockTarget(address(erc4626Vault));
+        _wallet.setTargetBlocked(address(erc4626Vault), true);
         vm.expectRevert(abi.encodeWithSelector(TargetIsBlocked.selector, address(erc4626Vault)));
         vm.prank(operator);
         _wallet.executeViaAdapter(address(erc4626Adapter), address(erc4626Vault), depositData);
         vm.prank(_walletOwner);
-        _wallet.unblockTarget(address(erc4626Vault));
+        _wallet.setTargetBlocked(address(erc4626Vault), false);
 
         address unregisteredAdapter = address(0xCAFE);
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, unregisteredAdapter));
@@ -833,7 +833,7 @@ contract WalletIntegrationTest is IntegrationBase {
         _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
         assertEq(vaultYieldFeeModule.costBasis(address(_wallet), address(erc4626Vault)), 100e6);
         vm.prank(_walletOwner);
-        _wallet.blockAdapter(address(erc4626Adapter));
+        _wallet.setAdapterBlocked(address(erc4626Adapter), true);
 
         MockAgentWalletV3 approvedImplementation = new MockAgentWalletV3(address(factory));
         AgentWallet unapprovedImplementation = new AgentWallet(address(factory));
@@ -863,7 +863,7 @@ contract WalletIntegrationTest is IntegrationBase {
         assertEq(MockAgentWalletV3(payable(address(_wallet))).version(), 3);
         assertEq(MockAgentWalletV3(payable(address(_wallet))).newImplementationSyncs(), 1);
         vm.prank(_walletOwner);
-        _wallet.unblockAdapter(address(erc4626Adapter));
+        _wallet.setAdapterBlocked(address(erc4626Adapter), false);
         _fund(address(usdc), address(erc4626Vault), 10e6);
         uint256 collectorBalanceBefore = usdc.balanceOf(feeCollector);
         _execute(_wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (100e6)));

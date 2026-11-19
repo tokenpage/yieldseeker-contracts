@@ -158,16 +158,16 @@ contract WalletWorkflowHandler is Test {
         blocklistCalls++;
         address adapter = blockSwapAdapter ? address(swapAdapter) : address(vaultAdapter);
         vm.prank(owner);
-        if (blockIt) ownerAgent.blockAdapter(adapter);
-        else ownerAgent.unblockAdapter(adapter);
+        if (blockIt) ownerAgent.setAdapterBlocked(adapter, true);
+        else ownerAgent.setAdapterBlocked(adapter, false);
     }
 
     function ownerBlocksTarget(bool blockSwapTarget, bool blockIt) external {
         blocklistCalls++;
         address target = blockSwapTarget ? address(router) : address(vault);
         vm.prank(owner);
-        if (blockIt) ownerAgent.blockTarget(target);
-        else ownerAgent.unblockTarget(target);
+        if (blockIt) ownerAgent.setTargetBlocked(target, true);
+        else ownerAgent.setTargetBlocked(target, false);
     }
 
     function operatorMovesFundsBetweenAgents(uint96 amountSeed, bool moveForward) external {
@@ -184,10 +184,10 @@ contract WalletWorkflowHandler is Test {
         attackCalls++;
         AgentWallet wallet = _walletFor(walletChoice);
         bytes[] memory calls = new bytes[](18);
-        calls[0] = abi.encodeCall(wallet.blockAdapter, (address(vaultAdapter)));
-        calls[1] = abi.encodeCall(wallet.unblockAdapter, (address(vaultAdapter)));
-        calls[2] = abi.encodeCall(wallet.blockTarget, (address(vault)));
-        calls[3] = abi.encodeCall(wallet.unblockTarget, (address(vault)));
+        calls[0] = abi.encodeCall(wallet.setAdapterBlocked, (address(vaultAdapter), true));
+        calls[1] = abi.encodeCall(wallet.setAdapterBlocked, (address(vaultAdapter), false));
+        calls[2] = abi.encodeCall(wallet.setTargetBlocked, (address(vault), true));
+        calls[3] = abi.encodeCall(wallet.setTargetBlocked, (address(vault), false));
         calls[4] = abi.encodeCall(wallet.upgradeToLatest, ());
         calls[5] = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(factory.agentWalletImplementation()), bytes(""));
         calls[6] = abi.encodeCall(wallet.withdrawAssetToUser, (attacker, address(usdc), 1));

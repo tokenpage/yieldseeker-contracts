@@ -20,6 +20,7 @@ import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter, InvalidUniswapV3FeeTi
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
+import {toArray} from "../helpers/Arrays.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -226,7 +227,7 @@ contract SwapsTest is IntegrationBase {
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), rewardToWethData, notRewardSale);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory baseToWeth = _uniswapRoute(address(usdc), address(weth));
-        swapSellPolicy.addSellableToken(address(usdc));
+        swapSellPolicy.addSellableTokens(toArray(address(usdc)));
         bytes memory baseToWethData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), baseToWeth, uint256(10e6), uint256(1), block.timestamp));
         bytes memory baseSaleNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(weth));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), baseToWethData, baseSaleNotAllowed);
@@ -917,7 +918,7 @@ contract SwapsTest is IntegrationBase {
     }
 
     function _decodeUint(bytes memory data) private pure returns (uint256) {
-        return abi.decode(abi.decode(data, (bytes)), (uint256));
+        return abi.decode(data, (uint256));
     }
 
     function _uniswapRoute(address from, address to) private pure returns (AWKUniswapV3SwapAdapterCore.SwapRoute memory route) {

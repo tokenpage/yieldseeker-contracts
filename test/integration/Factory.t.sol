@@ -12,6 +12,7 @@ import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker as FeeTracker} from ".
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
 import {IYieldSeekerSwapPolicy} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
+import {toArray} from "../helpers/Arrays.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -158,7 +159,7 @@ contract FactoryTest is IntegrationBase {
         nextVaultTracker.setWalletFactory(address(factory));
 
         SwapSellPolicy nextSellPolicy = new SwapSellPolicy(admin, admin, false);
-        nextSellPolicy.addSellableToken(address(rewardToken));
+        nextSellPolicy.addSellableTokens(toArray(address(rewardToken)));
         YieldSeekerVaultSwapPolicy nextVaultPolicy = new YieldSeekerVaultSwapPolicy(nextSellPolicy);
         factory.setAdapterRegistry(VAULT_AGENT_PROFILE, nextVaultRegistry);
         factory.setFeeTracker(VAULT_AGENT_PROFILE, nextVaultTracker);

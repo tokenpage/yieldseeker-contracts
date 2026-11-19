@@ -14,8 +14,8 @@
 //
 pragma solidity 0.8.38;
 
+import {AWKAdapterTarget} from "./AWKAdapterTarget.sol";
 import {AWKErrors} from "./AWKErrors.sol";
-import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 
 error UnknownOperation();
@@ -23,37 +23,30 @@ error UnknownOperation();
 /**
  * @title AWKAdapter
  * @notice Base class for all adapters in the AWK system.
- * @dev Adapters are designed to be called ONLY via delegatecall from AgentWallet.
- *      Direct calls to adapter contracts are prevented via the onlyDelegateCall modifier.
+ * @dev A wallet runs an adapter operation (e.g. deposit(amount)) by delegatecall, after it has checked the target
+ *      against its registry and recorded it (AWKAdapterTarget). Operations carry onlyExecute, so they run only this
+ *      way, and read the target with _target().
+ *      A wallet's operator can call every external function of an adapter in the wallet's context: give each one
+ *      that changes state onlyExecute, and add no other.
  */
-abstract contract AWKAdapter is IAWKAdapter {
-    /// @notice The adapter's own address, set at deployment
-    /// @dev Used to detect direct calls vs delegatecalls. Internal so subclasses
-    ///      can reference the adapter's real address during delegatecall context.
-    address internal immutable SELF;
+abstract contract AWKAdapter {
+    /// @dev The adapter's own address: address(this) is the wallet while the adapter runs by delegatecall
+    address internal immutable SELF = address(this);
 
-    constructor() {
-        SELF = address(this);
-    }
-
-    /**
-     * @notice Ensures function is only called via delegatecall
-     * @dev When called via delegatecall, address(this) is the caller's address (AgentWallet).
-     *      When called directly, address(this) equals SELF (the adapter's address).
-     */
-    modifier onlyDelegateCall() {
-        if (address(this) == SELF) revert AWKErrors.DirectCallForbidden();
+    /// @dev Only while a wallet runs this adapter: on a direct call the adapter's own target is never set
+    modifier onlyExecute() {
+        if (_target() == address(0)) revert AWKErrors.DirectCallForbidden();
         _;
     }
 
-    /**
-     * @notice Standard entry point for all adapter logic
-     * @dev Subclasses must override this and MUST include the onlyDelegateCall modifier.
-     *      Already running in wallet context via delegatecall from AgentWallet.
-     * @param target The contract the adapter will interact with
-     * @param data The specific operation data
-     */
-    function execute(address target, bytes calldata data) external payable virtual override returns (bytes memory);
+    fallback() external {
+        revert UnknownOperation();
+    }
+
+    /// @dev The target of the call in progress, which the wallet has checked against its registry
+    function _target() internal view returns (address) {
+        return AWKAdapterTarget.get();
+    }
 
     function _agentWallet() internal view virtual returns (IAWKAgentWallet) {
         return IAWKAgentWallet(address(this));

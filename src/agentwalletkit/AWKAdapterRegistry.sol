@@ -37,8 +37,7 @@ contract AWKAdapterRegistry is AccessControl, Pausable {
     /// @param admin Address of the admin (gets admin roles for dangerous operations)
     /// @param emergencyAdmin Address that can perform emergency operations (pause, remove targets)
     constructor(address admin, address emergencyAdmin) {
-        if (admin == address(0)) revert AWKErrors.ZeroAddress();
-        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
+        if (admin == address(0) || emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
     }
@@ -150,10 +149,7 @@ contract AWKAdapterRegistry is AccessControl, Pausable {
         uint256 index = 0;
         for (uint256 i = 0; i < total; i++) {
             (address target, address adapter) = _targetToAdapter.at(i);
-            if (isRegisteredAdapter[adapter]) {
-                activeTargets[index] = target;
-                index++;
-            }
+            if (isRegisteredAdapter[adapter]) activeTargets[index++] = target;
         }
         return activeTargets;
     }

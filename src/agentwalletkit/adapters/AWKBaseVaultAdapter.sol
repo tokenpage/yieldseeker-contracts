@@ -14,7 +14,7 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
+import {AWKAdapter} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -22,67 +22,38 @@ error InvalidPercentage(uint256 percentage);
 
 /**
  * @title AWKBaseVaultAdapter
- * @notice Base class for vault adapters: deposit, deposit a percentage of the balance, and withdraw
- * @dev execute validates the input and calls the operation (_depositOperation / _withdrawOperation), which an
- *      operations layer implements around the protocol implementation (_deposit / _withdraw): AWKVaultOperations for a
- *      plain kit adapter, or a wallet's own rules layer.
+ * @notice Base class for vault adapters: deposit, deposit a percentage of the balance, and withdraw. The vault is the
+ *         target of the execute call.
+ * @dev Each operation validates its input and calls the operation hook (_depositOperation / _withdrawOperation), which
+ *      an operations layer implements around the protocol implementation (_deposit / _withdraw): AWKVaultOperations
+ *      for a plain kit adapter, or a wallet's own rules layer.
  */
 abstract contract AWKBaseVaultAdapter is AWKAdapter {
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
-    /**
-     * @notice Deposit assets into a vault (public interface, should not be called directly)
-     * @param amount The amount of assets to deposit
-     * @return shares The amount of vault shares received
-     * @return assetsDeposited The actual amount of base asset deposited
-     */
-    function deposit(uint256 amount) external pure returns (uint256 shares, uint256 assetsDeposited) {
-        revert AWKErrors.DirectCallForbidden();
+    /// @param amount The amount of the vault asset to deposit
+    function deposit(uint256 amount) external onlyExecute returns (uint256 shares, uint256 assetsDeposited) {
+        return _checkedDeposit(amount);
     }
 
-    /**
-     * @notice Deposit a percentage of the vault asset balance into a vault (public interface, should not be called directly)
-     * @param percentageBps The percentage in basis points (10000 = 100%)
-     * @return shares The amount of vault shares received
-     * @return assetsDeposited The actual amount of base asset deposited
-     */
-    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares, uint256 assetsDeposited) {
-        revert AWKErrors.DirectCallForbidden();
+    /// @param percentageBps The share of the wallet's vault asset balance to deposit, in basis points (10000 = 100%)
+    function depositPercentage(uint256 percentageBps) external onlyExecute returns (uint256 shares, uint256 assetsDeposited) {
+        if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
+        return _checkedDeposit((IERC20(_getVaultAsset(_target())).balanceOf(address(this)) * percentageBps) / 1e4);
     }
 
-    /**
-     * @notice Withdraw assets from a vault (public interface, should not be called directly)
-     * @param shares The amount of vault shares to withdraw
-     * @return assets The amount of assets received
-     */
-    function withdraw(uint256 shares) external pure returns (uint256 assets) {
-        revert AWKErrors.DirectCallForbidden();
+    /// @param shares The amount of vault shares to withdraw (the asset amount for rebasing vaults)
+    function withdraw(uint256 shares) external onlyExecute returns (uint256 assets) {
+        if (shares == 0) revert AWKErrors.ZeroAmount();
+        assets = _withdrawOperation(_target(), shares);
+        emit Withdrawn(address(this), _target(), shares, assets);
     }
 
-    function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        bytes4 selector = bytes4(data[:4]);
-        if (selector == this.withdraw.selector) {
-            uint256 shares = abi.decode(data[4:], (uint256));
-            if (shares == 0) revert AWKErrors.ZeroAmount();
-            uint256 assets = _withdrawOperation(target, shares);
-            emit Withdrawn(address(this), target, shares, assets);
-            return abi.encode(assets);
-        }
-        uint256 amount;
-        if (selector == this.deposit.selector) {
-            amount = abi.decode(data[4:], (uint256));
-        } else if (selector == this.depositPercentage.selector) {
-            uint256 percentageBps = abi.decode(data[4:], (uint256));
-            if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
-            amount = (IERC20(_getVaultAsset(target)).balanceOf(address(this)) * percentageBps) / 1e4;
-        } else {
-            revert UnknownOperation();
-        }
+    function _checkedDeposit(uint256 amount) private returns (uint256 shares, uint256 assetsDeposited) {
         if (amount == 0) revert AWKErrors.ZeroAmount();
-        (uint256 sharesReceived, uint256 assetsDeposited) = _depositOperation(target, amount);
-        emit Deposited(address(this), target, assetsDeposited, sharesReceived);
-        return abi.encode(sharesReceived, assetsDeposited);
+        (shares, assetsDeposited) = _depositOperation(_target(), amount);
+        emit Deposited(address(this), _target(), assetsDeposited, shares);
     }
 
     // ============ Operations (implemented by an operations layer) ============

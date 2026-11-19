@@ -18,7 +18,6 @@ pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3} from "../AgentWalletV3.sol";
 import {IAgentWallet} from "../IAgentWallet.sol";
-import {UnknownOperation} from "../agentwalletkit/AWKAdapter.sol";
 import {AWKAgentWalletFactory} from "../agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
 import {FeeActions} from "../fees/FeeActions.sol";
@@ -47,14 +46,8 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
 
     event TransferredToAgentWallet(address indexed from, address indexed to, address indexed token, uint256 amount);
 
-    function transfer(address token, address to, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.transfer.selector) revert UnknownOperation();
-        if (target != SELF) revert InvalidTransferTarget(target);
-        (address token, address to, uint256 amount) = abi.decode(data[4:], (address, address, uint256));
+    function transfer(address token, address to, uint256 amount) external onlyExecute returns (uint256) {
+        if (_target() != SELF) revert InvalidTransferTarget(_target());
         if (amount == 0) revert AWKErrors.ZeroAmount();
         YieldSeekerAgentWalletV3 wallet = YieldSeekerAgentWalletV3(payable(address(this)));
         YieldSeekerAgentWalletV3 receiver = YieldSeekerAgentWalletV3(payable(to));
@@ -68,6 +61,6 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
         if (IERC20(token).balanceOf(address(this)) < amount) revert AWKErrors.InsufficientBalance();
         IERC20(token).safeTransfer(to, amount);
         emit TransferredToAgentWallet(address(this), to, token, amount);
-        return abi.encode(amount);
+        return amount;
     }
 }

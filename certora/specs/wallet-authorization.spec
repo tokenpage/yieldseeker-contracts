@@ -2,8 +2,14 @@ using AgentWalletHarness as wallet;
 using MockBaseAsset as token;
 
 methods {
-    // Adapter code is unconstrained, but onlyExecutors protects the only calls into its delegatecall.
-    function _.execute(address, bytes) external => HAVOC_ALL;
+    // Adapter code is unconstrained: the wallet delegatecalls it with arbitrary call data, which the Prover can't
+    // resolve and so treats as able to change anything. onlyExecutors protects the only calls into it.
+    unresolved external in AgentWalletHarness.executeViaAdapter(address, address, bytes) => DISPATCH [
+        AgentWalletHarness.getTargetAdapter(address)
+    ] default HAVOC_ALL;
+    unresolved external in AgentWalletHarness.executeViaAdapterBatch(address[], address[], bytes[]) => DISPATCH [
+        AgentWalletHarness.getTargetAdapter(address)
+    ] default HAVOC_ALL;
     function MockBaseAsset.balanceOf(address) external returns (uint256) envfree;
 }
 
@@ -80,8 +86,8 @@ rule ownerCanChangeWalletBlocklists(env e, address adapterProbe, address targetP
     require !currentContract.isAdapterBlocked(e, adapterProbe);
     require !currentContract.isTargetBlocked(e, targetProbe);
 
-    currentContract.blockAdapter(e, adapterProbe);
-    currentContract.blockTarget(e, targetProbe);
+    currentContract.setAdapterBlocked(e, adapterProbe, true);
+    currentContract.setTargetBlocked(e, targetProbe, true);
     satisfy currentContract.isAdapterBlocked(e, adapterProbe) &&
         currentContract.isTargetBlocked(e, targetProbe);
 }

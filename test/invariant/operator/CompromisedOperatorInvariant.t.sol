@@ -1169,10 +1169,10 @@ contract CompromisedOperatorHandler is Test {
 
     function _tryPrivilegedWalletCalls(AgentWallet wallet) private {
         bytes[] memory calls = new bytes[](9);
-        calls[0] = abi.encodeCall(wallet.blockAdapter, (address(uniswapV3SwapAdapter)));
-        calls[1] = abi.encodeCall(wallet.unblockAdapter, (address(uniswapV3SwapAdapter)));
-        calls[2] = abi.encodeCall(wallet.blockTarget, (address(uniswapV3Router)));
-        calls[3] = abi.encodeCall(wallet.unblockTarget, (address(uniswapV3Router)));
+        calls[0] = abi.encodeCall(wallet.setAdapterBlocked, (address(uniswapV3SwapAdapter), true));
+        calls[1] = abi.encodeCall(wallet.setAdapterBlocked, (address(uniswapV3SwapAdapter), false));
+        calls[2] = abi.encodeCall(wallet.setTargetBlocked, (address(uniswapV3Router), true));
+        calls[3] = abi.encodeCall(wallet.setTargetBlocked, (address(uniswapV3Router), false));
         calls[4] = abi.encodeCall(wallet.withdrawAssetToUser, (thief, address(usdc), 1));
         calls[5] = abi.encodeCall(wallet.withdrawAllAssetToUser, (thief, address(usdc)));
         calls[6] = abi.encodeCall(wallet.withdrawAllAssetsToUser, (thief, _exitAssets(wallet)));
@@ -1258,9 +1258,9 @@ contract CompromisedOperatorHandler is Test {
         AgentWallet source = _ownerAWallets[1];
         AgentWallet other = _ownerBWallets[1];
         vm.prank(ownerA);
-        source.unblockAdapter(address(agentTransferAdapter));
+        source.setAdapterBlocked(address(agentTransferAdapter), false);
         vm.prank(ownerA);
-        source.unblockTarget(address(agentTransferAdapter));
+        source.setTargetBlocked(address(agentTransferAdapter), false);
         bytes32[] memory otherOwnerState = _snapshotOwnerState(ownerB);
         transferWorkflowAttempts++;
         crossOwnerTransferAttempts++;
@@ -1346,11 +1346,11 @@ contract CompromisedOperatorHandler is Test {
         address adapter = address(uniswapV3SwapAdapter);
         address target = address(uniswapV3Router);
         vm.prank(walletOwner);
-        if (blockIt) wallet.blockAdapter(adapter);
-        else wallet.unblockAdapter(adapter);
+        if (blockIt) wallet.setAdapterBlocked(adapter, true);
+        else wallet.setAdapterBlocked(adapter, false);
         vm.prank(walletOwner);
-        if (blockIt) wallet.blockTarget(target);
-        else wallet.unblockTarget(target);
+        if (blockIt) wallet.setTargetBlocked(target, true);
+        else wallet.setTargetBlocked(target, false);
         ownerBlocklistCalls += 2;
     }
 
@@ -1520,7 +1520,7 @@ contract CompromisedOperatorHandler is Test {
         for (uint256 i; i < adapters.length; i++) {
             if (wallet.isAdapterBlocked(adapters[i])) {
                 vm.prank(walletOwner);
-                wallet.unblockAdapter(adapters[i]);
+                wallet.setAdapterBlocked(adapters[i], false);
             }
         }
         address[] memory targets = new address[](11);
@@ -1538,13 +1538,13 @@ contract CompromisedOperatorHandler is Test {
         for (uint256 i; i < targets.length; i++) {
             if (wallet.isTargetBlocked(targets[i])) {
                 vm.prank(walletOwner);
-                wallet.unblockTarget(targets[i]);
+                wallet.setTargetBlocked(targets[i], false);
             }
         }
         address aTokenTarget = aaveV3BorrowAdapter.collateralReceiptToken(aaveV3Market);
         if (wallet.isTargetBlocked(aTokenTarget)) {
             vm.prank(walletOwner);
-            wallet.unblockTarget(aTokenTarget);
+            wallet.setTargetBlocked(aTokenTarget, false);
         }
     }
 

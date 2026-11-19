@@ -38,7 +38,7 @@ abstract contract YieldSeekerSwapAdapter is AWKSwapAdapter, YieldSeekerAdapter {
         (soldAmount, buyAmount) = _measuredSwap(router, sellToken, buyToken, sellAmount, minBuyAmount, deadline, route);
         bytes32 action = policy.checkSwapResult(address(this), sellToken, soldAmount, buyToken, buyAmount);
         _reportAction(action, abi.encode(FeeActions.Swap({sold: sellToken, soldAmount: soldAmount, bought: buyToken, boughtAmount: buyAmount})));
-        if (sellToken == _baseAssetAddress()) {
+        if (sellToken == address(_baseAsset())) {
             uint256 owed = _feeTracker().feesOwedInBaseAsset(address(this));
             if (owed > 0) revert FeesOwed(owed);
         }

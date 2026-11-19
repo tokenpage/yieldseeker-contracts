@@ -69,7 +69,7 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
 
         uint256 requested = COLLATERAL + 1;
         bytes memory result = _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, requested)));
-        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), COLLATERAL);
+        assertEq(abi.decode(result, (uint256)), COLLATERAL);
         assertEq(aaveV3CollateralAToken.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), COLLATERAL);
     }
@@ -459,7 +459,7 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
 
         bytes memory result = _execute(wallet, address(aaveV3BorrowAdapter), target, repayMax);
 
-        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), held);
+        assertEq(abi.decode(result, (uint256)), held);
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), BORROWED_WETH - held);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), BORROWED_WETH - held);
         assertEq(weth.balanceOf(address(wallet)), 0);

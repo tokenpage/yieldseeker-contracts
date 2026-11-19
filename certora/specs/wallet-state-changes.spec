@@ -75,8 +75,7 @@ rule walletBlocklistsChangeOnlyByOwner(method f, address adapterProbe, address t
 
     bool changed = currentContract.isAdapterBlocked(e, adapterProbe) != adapterBlockedBefore || currentContract.isTargetBlocked(e, targetProbe) != targetBlockedBefore;
     assert changed => ownerOrEntryPoint && (
-        f.selector == sig:blockAdapter(address).selector || f.selector == sig:unblockAdapter(address).selector ||
-        f.selector == sig:blockTarget(address).selector || f.selector == sig:unblockTarget(address).selector);
+        f.selector == sig:setAdapterBlocked(address,bool).selector || f.selector == sig:setTargetBlocked(address,bool).selector);
 }
 
 // Positive control: a factory sync can change the operator set, so the rule above can fail.

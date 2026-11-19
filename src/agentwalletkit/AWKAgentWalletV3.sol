@@ -15,8 +15,8 @@
 pragma solidity 0.8.38;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
+import {AWKAdapterTarget} from "./AWKAdapterTarget.sol";
 import {AWKErrors} from "./AWKErrors.sol";
-import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 import {IAWKAgentWalletFactory} from "./IAWKAgentWalletFactory.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
@@ -101,10 +101,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     event AgentWalletInitialized(IEntryPoint indexed entryPoint, address indexed owner);
     event WithdrewTokenToUser(address indexed owner, address indexed recipient, address indexed token, uint256 amount);
     event WithdrewEthToUser(address indexed owner, address indexed recipient, uint256 amount);
-    event AdapterBlocked(address indexed adapter);
-    event AdapterUnblocked(address indexed adapter);
-    event TargetBlocked(address indexed target);
-    event TargetUnblocked(address indexed target);
+    event AdapterBlockedSet(address indexed adapter, bool blocked);
+    event TargetBlockedSet(address indexed target, bool blocked);
     event SyncedFromFactory(address indexed adapterRegistry);
 
     modifier onlyOwner() {
@@ -205,43 +203,21 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     // ============ User Blocklist Management ============
 
     /**
-     * @notice Block an adapter from being used by this wallet
-     * @param adapter The adapter address to block
-     * @dev Owner can block adapters even if they are globally approved.
-     *      This provides user sovereignty over their agent's operations.
+     * @notice Block or unblock an adapter for this wallet
+     * @dev The owner can block an adapter even if it is globally approved
      */
-    function blockAdapter(address adapter) external virtual onlyOwner {
-        AgentWalletStorageV3.getLayout().blockedAdapters[adapter] = true;
-        emit AdapterBlocked(adapter);
+    function setAdapterBlocked(address adapter, bool blocked) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedAdapters[adapter] = blocked;
+        emit AdapterBlockedSet(adapter, blocked);
     }
 
     /**
-     * @notice Unblock a previously blocked adapter
-     * @param adapter The adapter address to unblock
+     * @notice Block or unblock a target for this wallet
+     * @dev The owner can block a protocol or vault even if it is globally approved, e.g. one risky vault
      */
-    function unblockAdapter(address adapter) external virtual onlyOwner {
-        AgentWalletStorageV3.getLayout().blockedAdapters[adapter] = false;
-        emit AdapterUnblocked(adapter);
-    }
-
-    /**
-     * @notice Block a target from being interacted with by this wallet
-     * @param target The target address to block
-     * @dev Owner can block specific protocols/vaults even if globally approved.
-     *      Example: Block a risky vault while keeping other vaults accessible.
-     */
-    function blockTarget(address target) external virtual onlyOwner {
-        AgentWalletStorageV3.getLayout().blockedTargets[target] = true;
-        emit TargetBlocked(target);
-    }
-
-    /**
-     * @notice Unblock a previously blocked target
-     * @param target The target address to unblock
-     */
-    function unblockTarget(address target) external virtual onlyOwner {
-        AgentWalletStorageV3.getLayout().blockedTargets[target] = false;
-        emit TargetUnblocked(target);
+    function setTargetBlocked(address target, bool blocked) external virtual onlyOwner {
+        AgentWalletStorageV3.getLayout().blockedTargets[target] = blocked;
+        emit TargetBlockedSet(target, blocked);
     }
 
     /**
@@ -369,8 +345,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /**
      * @notice Internal helper to validate and execute adapter call
-     * @dev Enforces the standard IAWKAdapter interface.
-     *      Checks user blocklists first, then global registry validation.
+     * @dev Checks user blocklists first, then global registry validation. `data` is a call to one of the adapter's
+     *      operations; the adapter reads the target from AWKAdapterTarget, set only for the length of the call.
      */
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
@@ -383,10 +359,11 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) revert AWKErrors.AdapterNotRegistered(adapter);
 
-        bytes memory callData = abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data);
+        AWKAdapterTarget.set(target);
         bool success;
-        (success, result) = adapter.delegatecall(callData);
+        (success, result) = adapter.delegatecall(data);
         if (!success) revert AdapterExecutionFailed(result);
+        AWKAdapterTarget.set(address(0));
     }
 
     /**
@@ -489,8 +466,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
     }
 
     function _withdrawAllAssetToUser(address recipient, address asset) internal virtual {
-        uint256 balance = IERC20(asset).balanceOf(address(this));
-        _withdrawAsset(recipient, asset, balance);
+        _withdrawAsset(recipient, asset, IERC20(asset).balanceOf(address(this)));
     }
 
     /**
@@ -500,10 +476,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param amount Amount to withdraw
      */
     function _withdrawAsset(address recipient, address asset, uint256 amount) internal virtual {
-        if (recipient == address(0)) revert AWKErrors.ZeroAddress();
-        if (asset == address(0)) revert AWKErrors.ZeroAddress();
-        IERC20 token = IERC20(asset);
-        token.safeTransfer(recipient, amount);
+        if (recipient == address(0) || asset == address(0)) revert AWKErrors.ZeroAddress();
+        IERC20(asset).safeTransfer(recipient, amount);
         emit WithdrewTokenToUser(owner(), recipient, asset, amount);
     }
 
@@ -521,8 +495,7 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
      * @param recipient Address to send the ETH to
      */
     function withdrawAllEthToUser(address recipient) external virtual onlyOwner {
-        uint256 balance = address(this).balance;
-        _withdrawEth(recipient, balance);
+        _withdrawEth(recipient, address(this).balance);
     }
 
     /**

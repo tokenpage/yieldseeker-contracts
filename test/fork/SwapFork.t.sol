@@ -11,6 +11,7 @@ import {AWKAerodromeCLSwapAdapterCore} from "../../src/agentwalletkit/adapters/A
 import {AWKAerodromeV2SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
+import {toArray} from "../helpers/Arrays.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -45,7 +46,7 @@ contract SwapForkTest is ForkBase {
         oracle.setSource(WETH, IPriceFeed(ETH_USD_FEED), 1 hours);
         oracle.setSource(USDC, IPriceFeed(USDC_USD_FEED), 25 hours);
         YieldSeekerSwapSellPolicy sellPolicy = new YieldSeekerSwapSellPolicy(address(this), address(this), false);
-        sellPolicy.addSellableToken(WETH);
+        sellPolicy.addSellableTokens(toArray(WETH));
         factory.setSwapPolicy(VAULT_AGENT_PROFILE, new YieldSeekerVaultSwapPolicy(sellPolicy));
         uniswapAdapter = new YieldSeekerUniswapV3SwapAdapter(UNISWAP_V3_ROUTER);
         aerodromeV2Adapter = new YieldSeekerAerodromeV2SwapAdapter(AERODROME_V2_ROUTER, AERODROME_V2_FACTORY);
@@ -106,18 +107,8 @@ contract SwapForkTest is ForkBase {
         uint256 collectorUsdcBefore = IERC20(USDC).balanceOf(feeCollector);
         deal(WETH, address(wallet), SELL_AMOUNT);
 
-        uint256 bought = abi.decode(
-            abi.decode(
-                _execute(
-                    wallet,
-                    address(aerodromeCL3Adapter),
-                    AERODROME_CL_3_ROUTER,
-                    abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
-                ),
-                (bytes)
-            ),
-            (uint256)
-        );
+        bytes memory swapData = abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp));
+        uint256 bought = abi.decode(_execute(wallet, address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER, swapData), (uint256));
         uint256 fee = Math.mulDiv(bought, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
 
         assertGt(bought, 1, "the router swapped through the real spacing-10 pool");
@@ -145,7 +136,7 @@ contract SwapForkTest is ForkBase {
         uint256 collectorUsdcBefore = IERC20(USDC).balanceOf(feeCollector);
         deal(WETH, address(wallet), SELL_AMOUNT);
 
-        uint256 bought = abi.decode(abi.decode(_execute(wallet, adapter, router, data), (bytes)), (uint256));
+        uint256 bought = abi.decode(_execute(wallet, adapter, router, data), (uint256));
 
         uint256 fee = Math.mulDiv(bought, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         assertGe(bought, minimum, "the route ran through real pools at the market price");

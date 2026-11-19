@@ -33,7 +33,7 @@ Validating an adapter call never reads the owner account, even with a dummy sign
 
 ## Execution constraints
 
-The wallet checks its local blocklists, then requires `adapterRegistry().getTargetAdapter(target)` to equal the requested adapter. It calls the adapter with `DELEGATECALL`; the adapter receives the wallet as `address(this)`. There is no unrestricted execution path. An owner can block an adapter or target even when the global registry allows it.
+The wallet checks its local blocklists, then requires `adapterRegistry().getTargetAdapter(target)` to equal the requested adapter. It then records the target in its transient storage (`AWKAdapterTarget`), runs the call data on the adapter with `DELEGATECALL`, and clears the target; the adapter receives the wallet as `address(this)`. The call data is a call to one of the adapter's operations. Each operation carries `onlyExecute`, which reverts unless a target is recorded, so a direct call to an adapter reverts, and reads the target from the same record. An operator can reach every external function of a registered adapter this way, so an adapter must expose no state-changing function other than its operations. There is no unrestricted execution path. An owner can block an adapter or target even when the global registry allows it.
 
 The adapters validate their protocol-specific arguments:
 

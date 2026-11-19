@@ -10,6 +10,7 @@ import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {InvalidSlippage, SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../../src/swaps/VaultSwapPolicy.sol";
+import {toArray} from "../../helpers/Arrays.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
@@ -117,13 +118,13 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
         assertEq(openPolicy.getSellableTokens().length, 2);
 
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
-        swapSellPolicy.addSellableToken(address(0));
+        swapSellPolicy.addSellableTokens(toArray(address(0)));
         address[] memory zeroToken = new address[](1);
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
         swapSellPolicy.addSellableTokens(zeroToken);
         vm.expectRevert();
         vm.prank(owner);
-        swapSellPolicy.addSellableToken(address(rewardToken));
+        swapSellPolicy.addSellableTokens(toArray(address(rewardToken)));
         vm.expectRevert();
         vm.prank(owner);
         swapSellPolicy.removeSellableToken(address(rewardToken));

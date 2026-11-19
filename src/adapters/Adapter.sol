@@ -42,12 +42,8 @@ abstract contract YieldSeekerAdapter is AWKAdapter {
         return _ysAgentWallet().baseAsset();
     }
 
-    function _baseAssetAddress() internal view returns (address) {
-        return address(_baseAsset());
-    }
-
     function _requireBaseAsset(address asset) internal view {
-        if (asset != _baseAssetAddress()) revert AssetNotAllowed();
+        if (asset != address(_baseAsset())) revert AssetNotAllowed();
     }
 
     function _feeTracker() internal view returns (FeeTracker) {
