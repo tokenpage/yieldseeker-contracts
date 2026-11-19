@@ -7,12 +7,12 @@ import {AssetNotAllowed} from "../../src/adapters/Adapter.sol";
 import {UnusableDebtPrice} from "../../src/adapters/BorrowAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
+import {IMorphoBlue, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockLendingAaveV3Pool} from "../mocks/MockLendingMarkets.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
-import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 
 contract BorrowAdaptersIntegrationTest is IntegrationBase {
     uint256 private constant YEAR = 365 days;

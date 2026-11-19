@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
+import {IMorphoOracle} from "../../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
-import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 
 contract OperatorHostileToken is ERC20 {
     constructor() ERC20("Operator Hostile Token", "OHT") {}
@@ -208,10 +208,10 @@ contract OperatorMorphoBlueMarket {
             repaidAssets = sharesToRepay == availableShares ? debt : Math.mulDiv(sharesToRepay, uint256(market_.totalBorrowAssets) + VIRTUAL_ASSETS, uint256(market_.totalBorrowShares) + VIRTUAL_SHARES, Math.Rounding.Ceil);
             repaidShares = sharesToRepay;
             uint256 collateralValue = Math.mulDiv(repaidAssets, liquidationIncentiveFactor(params.lltv), WAD, Math.Rounding.Ceil);
-            seizedCollateral = Math.mulDiv(collateralValue, 1e36, IOracle(params.oracle).price(), Math.Rounding.Ceil);
+            seizedCollateral = Math.mulDiv(collateralValue, 1e36, IMorphoOracle(params.oracle).price(), Math.Rounding.Ceil);
         } else if (seizedAssets != 0) {
             seizedCollateral = seizedAssets > position_.collateral ? position_.collateral : seizedAssets;
-            uint256 loanValue = Math.mulDiv(seizedCollateral, IOracle(params.oracle).price(), 1e36);
+            uint256 loanValue = Math.mulDiv(seizedCollateral, IMorphoOracle(params.oracle).price(), 1e36);
             repaidAssets = Math.mulDiv(loanValue, WAD, liquidationIncentiveFactor(params.lltv));
             if (repaidAssets > debt) repaidAssets = debt;
             repaidShares = repaidAssets == debt ? availableShares : Math.mulDiv(repaidAssets, uint256(market_.totalBorrowShares) + VIRTUAL_SHARES, uint256(market_.totalBorrowAssets) + VIRTUAL_ASSETS, Math.Rounding.Ceil);
@@ -268,7 +268,7 @@ contract OperatorMorphoBlueMarket {
 
     function _isHealthy(MarketParams memory params, Position storage position_, uint256 collateral, uint256 borrowShares, uint256 totalBorrowAssets, uint256 totalBorrowShares) private view returns (bool) {
         if (borrowShares == 0) return true;
-        uint256 price = IOracle(params.oracle).price();
+        uint256 price = IMorphoOracle(params.oracle).price();
         if (price == 0) return false;
         uint256 debt = Math.mulDiv(borrowShares, totalBorrowAssets + VIRTUAL_ASSETS, totalBorrowShares + VIRTUAL_SHARES, Math.Rounding.Ceil);
         uint256 collateralValue = Math.mulDiv(collateral, price, 1e36);

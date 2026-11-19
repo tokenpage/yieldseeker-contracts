@@ -19,7 +19,7 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IRouter} from "aerodrome/interfaces/IRouter.sol";
+import {IRouter as IAerodromeV2Router} from "aerodrome/interfaces/IRouter.sol";
 
 error InvalidAerodromeV2RouterTarget(address target, address expected);
 
@@ -78,11 +78,11 @@ abstract contract AWKAerodromeV2SwapAdapterCore is AWKSwapAdapter {
     function _swap(address router, address sellToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory encodedRoute) internal virtual override returns (uint256) {
         SwapRoute memory route = abi.decode(encodedRoute, (SwapRoute));
         IERC20(sellToken).forceApprove(router, sellAmount);
-        IRouter.Route[] memory routes = new IRouter.Route[](route.stables.length);
+        IAerodromeV2Router.Route[] memory routes = new IAerodromeV2Router.Route[](route.stables.length);
         for (uint256 i = 0; i < route.stables.length; i++) {
-            routes[i] = IRouter.Route({from: route.path[i], to: route.path[i + 1], stable: route.stables[i], factory: AERODROME_V2_FACTORY});
+            routes[i] = IAerodromeV2Router.Route({from: route.path[i], to: route.path[i + 1], stable: route.stables[i], factory: AERODROME_V2_FACTORY});
         }
-        uint256[] memory amounts = IRouter(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), deadline);
+        uint256[] memory amounts = IAerodromeV2Router(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), deadline);
         return amounts[amounts.length - 1];
     }
 }

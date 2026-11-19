@@ -19,8 +19,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IPool} from "aave-v3-origin/interfaces/IPool.sol";
-import {IPriceOracleGetter} from "aave-v3-origin/interfaces/IPriceOracleGetter.sol";
+import {IPool as IAaveV3LendingPool} from "aave-v3/interfaces/IPool.sol";
+import {IPriceOracleGetter as IAaveV3Oracle} from "aave-v3/interfaces/IPriceOracleGetter.sol";
 
 /**
  * @title AWKAaveV3BorrowAdapterCore
@@ -34,8 +34,8 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
 
     uint256 internal constant VARIABLE_RATE_MODE = 2;
 
-    function _decodeMarket(bytes memory market) internal pure returns (IPool pool, address collateralAsset, address debtAsset, uint8 eModeCategory) {
-        (pool, collateralAsset, debtAsset, eModeCategory) = abi.decode(market, (IPool, address, address, uint8));
+    function _decodeMarket(bytes memory market) internal pure returns (IAaveV3LendingPool pool, address collateralAsset, address debtAsset, uint8 eModeCategory) {
+        (pool, collateralAsset, debtAsset, eModeCategory) = abi.decode(market, (IAaveV3LendingPool, address, address, uint8));
     }
 
     function _marketAssets(bytes memory market) internal view virtual override returns (address collateralAsset, address debtAsset) {
@@ -43,12 +43,12 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
     }
 
     function _debtOf(bytes memory market) internal view virtual override returns (uint256) {
-        (IPool pool,, address debtAsset,) = _decodeMarket(market);
+        (IAaveV3LendingPool pool,, address debtAsset,) = _decodeMarket(market);
         return IERC20(pool.getReserveVariableDebtToken(debtAsset)).balanceOf(address(this));
     }
 
     function collateralReceiptToken(bytes memory market) public view virtual override returns (address) {
-        (IPool pool, address collateralAsset,,) = _decodeMarket(market);
+        (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
         return pool.getReserveAToken(collateralAsset);
     }
 
@@ -69,8 +69,8 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
     ///      debt, so it is reported as 0 (borrows then revert, other actions use the last price); the Base AaveOracle
     ///      itself reverts on a non-positive source answer
     function _debtPriceInCollateral(bytes memory market) internal view virtual override returns (uint256) {
-        (IPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
-        IPriceOracleGetter oracle = IPriceOracleGetter(pool.ADDRESSES_PROVIDER().getPriceOracle());
+        (IAaveV3LendingPool pool, address collateralAsset, address debtAsset,) = _decodeMarket(market);
+        IAaveV3Oracle oracle = IAaveV3Oracle(pool.ADDRESSES_PROVIDER().getPriceOracle());
         uint256 debtValue = oracle.getAssetPrice(debtAsset) * 10 ** IERC20Metadata(collateralAsset).decimals();
         uint256 collateralValue = oracle.getAssetPrice(collateralAsset) * 10 ** IERC20Metadata(debtAsset).decimals();
         if (collateralValue == 0) return 0;
@@ -81,7 +81,7 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
     ///      and never for an isolation-mode asset. The call does nothing when it is already enabled, and reverts for a
     ///      reserve with LTV 0 (it can't back a borrow), so such a supply fails here rather than at borrow time.
     function _supplyCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
-        (IPool pool, address collateralAsset,, uint8 eModeCategory) = _decodeMarket(market);
+        (IAaveV3LendingPool pool, address collateralAsset,, uint8 eModeCategory) = _decodeMarket(market);
         IERC20(collateralAsset).forceApprove(address(pool), amount);
         pool.supply({asset: collateralAsset, amount: amount, onBehalfOf: address(this), referralCode: 0});
         IERC20(collateralAsset).forceApprove(address(pool), 0);
@@ -93,19 +93,19 @@ abstract contract AWKAaveV3BorrowAdapterCore is AWKBorrowAdapter {
     /// @dev Capped at the wallet's collateral like the other borrow adapters (Aave reverts above the balance unless
     ///      asked for everything)
     function _withdrawCollateral(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
-        (IPool pool, address collateralAsset,,) = _decodeMarket(market);
+        (IAaveV3LendingPool pool, address collateralAsset,,) = _decodeMarket(market);
         uint256 requested = amount >= _collateralOf(market) ? type(uint256).max : amount;
         return pool.withdraw({asset: collateralAsset, amount: requested, to: address(this)});
     }
 
     function _borrow(bytes memory market, uint256 amount) internal virtual override returns (uint256) {
-        (IPool pool,, address debtAsset,) = _decodeMarket(market);
+        (IAaveV3LendingPool pool,, address debtAsset,) = _decodeMarket(market);
         pool.borrow({asset: debtAsset, amount: amount, interestRateMode: VARIABLE_RATE_MODE, referralCode: 0, onBehalfOf: address(this)});
         return amount;
     }
 
     function _repay(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
-        (IPool pool,, address debtAsset,) = _decodeMarket(market);
+        (IAaveV3LendingPool pool,, address debtAsset,) = _decodeMarket(market);
         uint256 debt = _debtOf(market);
         bool isFullRepay = amount >= debt;
         IERC20(debtAsset).forceApprove(address(pool), isFullRepay ? debt : amount);

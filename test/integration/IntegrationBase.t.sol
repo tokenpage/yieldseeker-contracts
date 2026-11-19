@@ -19,6 +19,7 @@ import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
+import {IMorphoBlue, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -34,7 +35,6 @@ import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, Mock
 import {MockAaveV3AddressesProvider, MockAaveV3Oracle, MockAaveV4Oracle, MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho, MockMorphoOracle} from "../mocks/MockLendingMarkets.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
-import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
 
 interface IMintableToken {
     function mint(address recipient, uint256 amount) external;

@@ -19,8 +19,8 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IPeripheryPayments} from "slipstream/periphery/interfaces/IPeripheryPayments.sol";
-import {ISwapRouter} from "slipstream/periphery/interfaces/ISwapRouter.sol";
+import {IPeripheryPayments} from "aerodrome-slipstream/periphery/interfaces/IPeripheryPayments.sol";
+import {ISwapRouter as IAerodromeCLSwapRouter} from "aerodrome-slipstream/periphery/interfaces/ISwapRouter.sol";
 
 error InvalidAerodromeCLRouterTarget(address target, address expected);
 
@@ -84,7 +84,7 @@ abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
         for (uint256 i = 0; i < route.tickSpacings.length; i++) {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.tickSpacings[i]), abi.encodePacked(route.path[i + 1]));
         }
-        return ISwapRouter(router).exactInput(ISwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
+        return IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
 }
 

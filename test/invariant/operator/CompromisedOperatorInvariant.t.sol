@@ -19,6 +19,7 @@ import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {IMorphoBlue, IMorphoOracle, MarketParams} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -40,8 +41,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
-import {MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
-import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 
 interface IOperatorEntryPoint {
     function depositTo(address account) external payable;
@@ -699,7 +698,7 @@ contract CompromisedOperatorHandler is Test {
             return;
         }
         MarketParams memory params = _morphoParams();
-        uint256 collateralValue = Math.mulDiv(collateralAmount, IOracle(params.oracle).price(), 1e36);
+        uint256 collateralValue = Math.mulDiv(collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
         uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
         uint256 borrowAmount = Math.min(_smallBorrowAmount(amountSeed), borrowLimit / 2);
         (bool borrowed,) = _operatorExecute(wallet, address(morphoBlueBorrowAdapter), target, abi.encodeCall(morphoBlueBorrowAdapter.borrow, (morphoMarket, borrowAmount)));
@@ -987,7 +986,7 @@ contract CompromisedOperatorHandler is Test {
     function _borrowMorphoAtLimit(MorphoLifecycleSetup memory setup) private returns (bool) {
         AgentWallet wallet = setup.wallet;
         MarketParams memory params = _morphoParams();
-        uint256 collateralValue = Math.mulDiv(setup.collateralAmount, IOracle(params.oracle).price(), 1e36);
+        uint256 collateralValue = Math.mulDiv(setup.collateralAmount, IMorphoOracle(params.oracle).price(), 1e36);
         uint256 borrowLimit = Math.mulDiv(collateralValue, params.lltv, 1e18);
         address target = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
         (bool borrowed,) = _operatorExecute(wallet, address(morphoBlueBorrowAdapter), target, abi.encodeCall(morphoBlueBorrowAdapter.borrow, (morphoMarket, borrowLimit)));

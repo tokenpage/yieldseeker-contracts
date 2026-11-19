@@ -9,6 +9,8 @@ import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferA
 import {YieldSeekerMorphoBlueBorrowAdapter} from "../../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
+import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol";
+import {IMorphoBlue, IMorphoOracle, Id, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
@@ -18,10 +20,6 @@ import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IPool} from "aave-v3-origin/interfaces/IPool.sol";
-import {IPriceOracleGetter} from "aave-v3-origin/interfaces/IPriceOracleGetter.sol";
-import {IMorphoStaticTyping, Id, MarketParams} from "morpho-blue/interfaces/IMorpho.sol";
-import {IOracle} from "morpho-blue/interfaces/IOracle.sol";
 
 interface IAaveV3UserConfiguration {
     struct UserConfigurationMap {
@@ -110,15 +108,15 @@ contract BorrowForkTest is ForkBase {
 
     function _marketDebtPriceInBaseAsset(address adapter, bytes memory market) internal view returns (uint256) {
         if (adapter == address(aaveAdapter)) {
-            (IPool pool, address collateralToken, address debtToken,) = abi.decode(market, (IPool, address, address, uint8));
-            IPriceOracleGetter marketOracle = IPriceOracleGetter(pool.ADDRESSES_PROVIDER().getPriceOracle());
+            (IAaveV3LendingPool pool, address collateralToken, address debtToken,) = abi.decode(market, (IAaveV3LendingPool, address, address, uint8));
+            IAaveV3Oracle marketOracle = IAaveV3Oracle(pool.ADDRESSES_PROVIDER().getPriceOracle());
             uint256 debtValue = marketOracle.getAssetPrice(debtToken) * 10 ** IERC20Metadata(collateralToken).decimals();
             uint256 collateralValue = marketOracle.getAssetPrice(collateralToken) * 10 ** IERC20Metadata(debtToken).decimals();
             return Math.mulDiv(debtValue, 1e36, collateralValue);
         }
 
-        (, MarketParams memory params) = abi.decode(market, (address, MarketParams));
-        return Math.mulDiv(1e36, 1e36, IOracle(params.oracle).price());
+        (, MarketParams memory params) = abi.decode(market, (IMorphoBlue, MarketParams));
+        return Math.mulDiv(1e36, 1e36, IMorphoOracle(params.oracle).price());
     }
 
     function _runBorrowCycle(address adapter, bytes memory market) internal {
@@ -215,10 +213,10 @@ contract BorrowForkTest is ForkBase {
         if (adapter == address(aaveAdapter)) {
             _repayAaveExternally(externalRepayer);
         } else {
-            (, morphoParams) = abi.decode(market, (address, MarketParams));
+            (, morphoParams) = abi.decode(market, (IMorphoBlue, MarketParams));
             morphoMarketId = keccak256(abi.encode(morphoParams));
             _repayMorphoExternally(externalRepayer, morphoParams);
-            (, uint128 remainingBorrowShares,) = IMorphoStaticTyping(MORPHO).position(Id.wrap(morphoMarketId), address(wallet));
+            (, uint128 remainingBorrowShares,) = IMorphoBlue(MORPHO).position(Id.wrap(morphoMarketId), address(wallet));
             assertEq(remainingBorrowShares, 0);
         }
 
@@ -237,7 +235,7 @@ contract BorrowForkTest is ForkBase {
     }
 
     function _repayAaveExternally(address externalRepayer) internal {
-        IPool pool = IPool(AAVE_POOL);
+        IAaveV3LendingPool pool = IAaveV3LendingPool(AAVE_POOL);
         uint256 debt = IERC20(pool.getReserveVariableDebtToken(USDC)).balanceOf(address(wallet));
         deal(USDC, externalRepayer, debt);
         vm.prank(externalRepayer);
@@ -248,7 +246,7 @@ contract BorrowForkTest is ForkBase {
     }
 
     function _repayMorphoExternally(address externalRepayer, MarketParams memory marketParams) internal {
-        IMorphoStaticTyping morpho = IMorphoStaticTyping(MORPHO);
+        IMorphoBlue morpho = IMorphoBlue(MORPHO);
         Id marketId = Id.wrap(keccak256(abi.encode(marketParams)));
         morpho.accrueInterest(marketParams);
         (, uint128 borrowShares,) = morpho.position(marketId, address(wallet));
@@ -307,7 +305,7 @@ contract BorrowForkTest is ForkBase {
         assertLe(bought, debt, "swap output does not exceed the reported debt");
         assertEq(IERC20(USDC).balanceOf(address(wallet)), bought, "swap buys borrowed token for repayment");
 
-        address variableDebtToken = IPool(AAVE_POOL).getReserveVariableDebtToken(USDC);
+        address variableDebtToken = IAaveV3LendingPool(AAVE_POOL).getReserveVariableDebtToken(USDC);
         uint256 aaveDebtBeforeRepay = IERC20(variableDebtToken).balanceOf(address(wallet));
         _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, bought));
         uint256 remainingDebt = borrowFeeModule.tokenDebt(address(wallet), USDC);
