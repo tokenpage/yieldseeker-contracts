@@ -15,8 +15,12 @@
 pragma solidity 0.8.38;
 
 import {AWKAdapter, UnknownOperation} from "../AWKAdapter.sol";
-import {AWKErrors} from "../AWKErrors.sol";
 import {IMerklDistributor} from "vendored-interfaces/IMerklDistributor.sol";
+
+/// @notice The call a wallet can pass to the Merkl adapter's execute. The adapter decodes it; it doesn't implement it
+interface IAWKMerklAdapter {
+    function claim(address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external;
+}
 
 /**
  * @title AWKMerklAdapter
@@ -26,18 +30,10 @@ import {IMerklDistributor} from "vendored-interfaces/IMerklDistributor.sol";
  */
 contract AWKMerklAdapter is AWKAdapter {
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.claim.selector) revert UnknownOperation();
+        if (bytes4(data[:4]) != IAWKMerklAdapter.claim.selector) revert UnknownOperation();
         (address[] memory tokens, uint256[] memory amounts, bytes32[][] memory proofs) = abi.decode(data[4:], (address[], uint256[], bytes32[][]));
         _claimOperation(target, tokens, amounts, proofs);
         return "";
-    }
-
-    /**
-     * @notice Claim the wallet's Merkl rewards (public interface, should not be called directly)
-     * @dev Only used for selector generation
-     */
-    function claim(address[] calldata tokens, uint256[] calldata amounts, bytes32[][] calldata proofs) external pure {
-        revert AWKErrors.DirectCallForbidden();
     }
 
     // ============ Operations (override to add rules) ============

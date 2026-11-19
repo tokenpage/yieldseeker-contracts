@@ -5,11 +5,14 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV
 import {IPriceFeed, IYieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {IYieldSeekerSwapSellPolicy, SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKBorrowAdapter} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
+import {IAWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {InvalidSlippage, SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../../src/swaps/VaultSwapPolicy.sol";
+import {toArray} from "../../helpers/Arrays.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
@@ -117,13 +120,13 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
         assertEq(openPolicy.getSellableTokens().length, 2);
 
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
-        swapSellPolicy.addSellableToken(address(0));
+        swapSellPolicy.addSellableTokens(toArray(address(0)));
         address[] memory zeroToken = new address[](1);
         vm.expectRevert(AWKErrors.ZeroAddress.selector);
         swapSellPolicy.addSellableTokens(zeroToken);
         vm.expectRevert();
         vm.prank(owner);
-        swapSellPolicy.addSellableToken(address(rewardToken));
+        swapSellPolicy.addSellableTokens(toArray(address(rewardToken)));
         vm.expectRevert();
         vm.prank(owner);
         swapSellPolicy.removeSellableToken(address(rewardToken));
@@ -167,18 +170,18 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
             uint256 sellAmount = priceOracle.quote(address(weth), address(usdc), buyAmount);
             assertGt(sellAmount, 0);
             assertEq(usdc.balanceOf(address(wallet)), 0, "previous swap left collateral in the wallet");
-            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, sellAmount)));
+            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.withdrawCollateral, (aaveV3Market, sellAmount)));
             assertEq(usdc.balanceOf(address(wallet)), sellAmount, "swap input did not come from withdrawn collateral");
             uniswapV3Router.setBuyAmount(buyAmount);
 
             AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-            _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, sellAmount, uint256(1), block.timestamp)));
+            _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, sellAmount, uint256(1), block.timestamp)));
 
             assertEq(weth.balanceOf(address(wallet)), buyAmount);
             assertLe(weth.balanceOf(address(wallet)), Math.mulDiv(debtBefore, 10_300, 10_000), "swap held more than debt plus 3% buffer");
 
             uint256 repayAmount = i == ethPrices.length - 1 ? type(uint256).max : buyAmount;
-            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, repayAmount)));
+            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, repayAmount)));
             assertEq(weth.balanceOf(address(wallet)), 0);
         }
 
@@ -196,8 +199,8 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
     }
 
     function _borrowCallAllowed(YieldSeekerBorrowSwapPolicy policy, address wallet, address sellToken, address buyToken) private view returns (bool allowed) {

@@ -4,6 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerCompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -29,7 +30,7 @@ contract CompoundV3ForkTest is ForkBase {
         _registerAdapter(address(adapter), COMET_USDC);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
-        bytes memory depositResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
+        bytes memory depositResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, DEPOSIT_AMOUNT));
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Compound V3 deposit must consume the full requested amount");
         assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 2, "Compound V3 balance must increase ~1:1 with deposited assets");
@@ -44,7 +45,7 @@ contract CompoundV3ForkTest is ForkBase {
         assertGt(totalVaultBalanceBefore, DEPOSIT_AMOUNT, "Comet balance should have accrued interest");
 
         uint256 feeCollectorBalanceBefore = asset.balanceOf(feeCollector);
-        bytes memory withdrawResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.withdraw.selector, totalVaultBalanceBefore));
+        bytes memory withdrawResult = _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, totalVaultBalanceBefore));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertEq(assetsReceived, totalVaultBalanceBefore, "Full redemption must return the live Comet balance");
         assertEq(comet.balanceOf(address(wallet)), 0, "Live Comet balance should be fully withdrawn");
@@ -69,7 +70,7 @@ contract CompoundV3ForkTest is ForkBase {
 
         bytes memory zeroCredit = abi.encodeWithSignature("Error(string)", "AWKCompoundV3Adapter: zero balance credited");
         vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, zeroCredit));
-        _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(adapter.deposit.selector, type(uint256).max));
+        _execute(wallet, address(adapter), COMET_USDC, abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, type(uint256).max));
 
         assertEq(IERC20Metadata(USDC).balanceOf(address(wallet)), DEPOSIT_AMOUNT, "Comet reads max as the wallet's (zero) borrow balance");
         assertEq(IERC20Metadata(USDC).allowance(address(wallet), COMET_USDC), 0, "no approval is left");

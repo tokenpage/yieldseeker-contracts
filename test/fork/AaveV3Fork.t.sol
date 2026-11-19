@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -28,7 +29,7 @@ contract AaveV3ForkTest is ForkBase {
         _registerAdapter(address(adapter), A_BAS_USDC);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
-        bytes memory depositResult = _execute(wallet, address(adapter), A_BAS_USDC, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
+        bytes memory depositResult = _execute(wallet, address(adapter), A_BAS_USDC, abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, DEPOSIT_AMOUNT));
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Aave deposit must consume the full requested amount");
         assertApproxEqAbs(shares, DEPOSIT_AMOUNT, 10, "Aave aTokens must mint ~1:1 with deposited assets");
@@ -43,7 +44,7 @@ contract AaveV3ForkTest is ForkBase {
         assertGt(totalVaultBalanceBefore, DEPOSIT_AMOUNT, "Aave aToken balance should have accrued interest");
 
         uint256 feeCollectorBalanceBefore = asset.balanceOf(feeCollector);
-        bytes memory withdrawResult = _execute(wallet, address(adapter), A_BAS_USDC, abi.encodeWithSelector(adapter.withdraw.selector, totalVaultBalanceBefore));
+        bytes memory withdrawResult = _execute(wallet, address(adapter), A_BAS_USDC, abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, totalVaultBalanceBefore));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertEq(assetsReceived, totalVaultBalanceBefore, "Full redemption must return the live aToken balance");
         assertEq(aToken.balanceOf(address(wallet)), 0, "Live aToken balance should be fully withdrawn");

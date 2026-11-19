@@ -40,8 +40,7 @@ contract YieldSeekerSwapSellPolicy is AccessControl, IYieldSeekerSwapSellPolicy 
     event AllowSellingAllTokensSet(bool enabled);
 
     constructor(address admin, address emergencyAdmin, bool initialAllowSellingAllTokens) {
-        if (admin == address(0)) revert AWKErrors.ZeroAddress();
-        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
+        if (admin == address(0) || emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
         allowSellingAllTokens = initialAllowSellingAllTokens;
@@ -50,11 +49,6 @@ contract YieldSeekerSwapSellPolicy is AccessControl, IYieldSeekerSwapSellPolicy 
     function setAllowSellingAllTokens(bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
         allowSellingAllTokens = enabled;
         emit AllowSellingAllTokensSet(enabled);
-    }
-
-    function addSellableToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (token == address(0)) revert AWKErrors.ZeroAddress();
-        if (sellableTokens.add(token)) emit SellableTokenAdded(token);
     }
 
     function addSellableTokens(address[] calldata tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {

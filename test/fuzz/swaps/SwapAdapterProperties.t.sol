@@ -10,9 +10,13 @@ import {FeesOwed, NoSwapPolicy} from "../../../src/adapters/SwapAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKAerodromeCLSwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore, IAerodromeCLSwapRouter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {IAWKAerodromeV2SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore, IAerodromeV2Router} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {IAWKBorrowAdapter} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress, SwapExpired, SwapInputMismatch} from "../../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {IAWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -160,10 +164,10 @@ contract SwapAdapterProperties is IntegrationBase {
     function test_rewardSalesStillWorkWhileBorrowFeesStayOwed() public {
         address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(wallet, address(usdc), 100e6);
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, 100e6)));
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 1e16)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, 100e6)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, 1e16)));
         vm.warp(block.timestamp + 365 days);
-        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market)));
         assertGt(wallet.feeTracker().feesOwedInBaseAsset(address(wallet)), 1);
 
         routers[0].configure(RouterBehaviorMock.Behavior.Exact, 1, 1);
@@ -196,7 +200,7 @@ contract SwapAdapterProperties is IntegrationBase {
         _fund(address(weth), address(routers[0]), boughtAmount);
         routers[0].configure(RouterBehaviorMock.Behavior.Exact, boughtAmount, boughtAmount);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(usdc), address(weth), route, sellAmount, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, sellAmount, uint256(1), block.timestamp));
         vm.recordLogs();
         bytes memory result = _execute(wallet, address(uniswapAdapter), address(routers[0]), data);
         Vm.Log[] memory firstSwapLogs = vm.getRecordedLogs();
@@ -229,7 +233,7 @@ contract SwapAdapterProperties is IntegrationBase {
         assertEq(address(policylessWallet.swapPolicy()), address(0));
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(rewardToken), address(usdc));
-        bytes memory data = abi.encodeCall(uniswapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
         uint256 callsBefore = routers[0].calls();
         _executeExpectRevert(policylessWallet, address(uniswapAdapter), address(routers[0]), data, abi.encodeWithSelector(NoSwapPolicy.selector));
         assertEq(routers[0].calls(), callsBefore);
@@ -265,15 +269,15 @@ contract SwapAdapterProperties is IntegrationBase {
         bytes memory expected = abi.encodeWithSelector(InvalidSwapTokenAddress.selector, sellToken == address(0) ? address(0) : buyToken);
         if (dex == 0) {
             AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(sellToken, buyToken);
-            data = abi.encodeCall(uniswapAdapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(uniswapAdapter);
         } else if (dex == 1) {
             AWKAerodromeV2SwapAdapterCore.SwapRoute memory route = _aerodromeV2Route(sellToken, buyToken);
-            data = abi.encodeCall(aerodromeV2Adapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(aerodromeV2Adapter);
         } else {
             AWKAerodromeCLSwapAdapterCore.SwapRoute memory route = _aerodromeCLRoute(sellToken, buyToken);
-            data = abi.encodeCall(aerodromeCLAdapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (sellToken, buyToken, route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(aerodromeCLAdapter);
         }
         _executeExpectRevert(wallet, adapter, address(routers[dex]), data, expected);
@@ -290,7 +294,7 @@ contract SwapAdapterProperties is IntegrationBase {
             if (mismatchedAuxiliaryLength) route.path[1] = address(usdc);
             route.fees = new uint24[](mismatchedAuxiliaryLength ? 0 : 0);
             expected = mismatchedAuxiliaryLength ? abi.encodeWithSelector(InvalidSwapRoute.selector) : abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1));
-            data = abi.encodeCall(uniswapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(uniswapAdapter);
         } else if (dex == 1) {
             AWKAerodromeV2SwapAdapterCore.SwapRoute memory route;
@@ -299,7 +303,7 @@ contract SwapAdapterProperties is IntegrationBase {
             if (mismatchedAuxiliaryLength) route.path[1] = address(usdc);
             route.stables = new bool[](0);
             expected = mismatchedAuxiliaryLength ? abi.encodeWithSelector(InvalidSwapRoute.selector) : abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1));
-            data = abi.encodeCall(aerodromeV2Adapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(aerodromeV2Adapter);
         } else {
             AWKAerodromeCLSwapAdapterCore.SwapRoute memory route;
@@ -308,7 +312,7 @@ contract SwapAdapterProperties is IntegrationBase {
             if (mismatchedAuxiliaryLength) route.path[1] = address(usdc);
             route.tickSpacings = new int24[](0);
             expected = mismatchedAuxiliaryLength ? abi.encodeWithSelector(InvalidSwapRoute.selector) : abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1));
-            data = abi.encodeCall(aerodromeCLAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1), block.timestamp));
             adapter = address(aerodromeCLAdapter);
         }
         _executeExpectRevert(wallet, adapter, address(routers[dex]), data, expected);
@@ -317,14 +321,14 @@ contract SwapAdapterProperties is IntegrationBase {
     function _executeDex(uint8 dex, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) private returns (bytes memory) {
         if (dex == 0) {
             AWKUniswapV3SwapAdapterCore.SwapRoute memory uniswapRoute = _uniswapRoute(address(rewardToken), address(usdc));
-            return _execute(wallet, address(uniswapAdapter), address(routers[dex]), abi.encodeCall(uniswapAdapter.swap, (address(rewardToken), address(usdc), uniswapRoute, sellAmount, minBuyAmount, deadline)));
+            return _execute(wallet, address(uniswapAdapter), address(routers[dex]), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniswapRoute, sellAmount, minBuyAmount, deadline)));
         }
         if (dex == 1) {
             AWKAerodromeV2SwapAdapterCore.SwapRoute memory aerodromeV2Route = _aerodromeV2Route(address(rewardToken), address(usdc));
-            return _execute(wallet, address(aerodromeV2Adapter), address(routers[dex]), abi.encodeCall(aerodromeV2Adapter.swap, (address(rewardToken), address(usdc), aerodromeV2Route, sellAmount, minBuyAmount, deadline)));
+            return _execute(wallet, address(aerodromeV2Adapter), address(routers[dex]), abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), aerodromeV2Route, sellAmount, minBuyAmount, deadline)));
         }
         AWKAerodromeCLSwapAdapterCore.SwapRoute memory aerodromeCLRoute = _aerodromeCLRoute(address(rewardToken), address(usdc));
-        return _execute(wallet, address(aerodromeCLAdapter), address(routers[dex]), abi.encodeCall(aerodromeCLAdapter.swap, (address(rewardToken), address(usdc), aerodromeCLRoute, sellAmount, minBuyAmount, deadline)));
+        return _execute(wallet, address(aerodromeCLAdapter), address(routers[dex]), abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), aerodromeCLRoute, sellAmount, minBuyAmount, deadline)));
     }
 
     function _executeDexExpectRevert(uint8 dex, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory innerError) private {
@@ -332,15 +336,15 @@ contract SwapAdapterProperties is IntegrationBase {
         address adapter;
         if (dex == 0) {
             AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(rewardToken), address(usdc));
-            data = abi.encodeCall(uniswapAdapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
+            data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
             adapter = address(uniswapAdapter);
         } else if (dex == 1) {
             AWKAerodromeV2SwapAdapterCore.SwapRoute memory route = _aerodromeV2Route(address(rewardToken), address(usdc));
-            data = abi.encodeCall(aerodromeV2Adapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
+            data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
             adapter = address(aerodromeV2Adapter);
         } else {
             AWKAerodromeCLSwapAdapterCore.SwapRoute memory route = _aerodromeCLRoute(address(rewardToken), address(usdc));
-            data = abi.encodeCall(aerodromeCLAdapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
+            data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, sellAmount, minBuyAmount, deadline));
             adapter = address(aerodromeCLAdapter);
         }
         _executeExpectRevert(wallet, adapter, address(routers[dex]), data, innerError);
@@ -352,15 +356,15 @@ contract SwapAdapterProperties is IntegrationBase {
         bytes memory expected = abi.encodeWithSelector(InvalidRouteEndpoints.selector, address(rewardToken), address(usdc));
         if (dex == 0) {
             AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(wellToken), address(usdc));
-            data = abi.encodeCall(uniswapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
+            data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
             adapter = address(uniswapAdapter);
         } else if (dex == 1) {
             AWKAerodromeV2SwapAdapterCore.SwapRoute memory route = _aerodromeV2Route(address(wellToken), address(usdc));
-            data = abi.encodeCall(aerodromeV2Adapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
             adapter = address(aerodromeV2Adapter);
         } else {
             AWKAerodromeCLSwapAdapterCore.SwapRoute memory route = _aerodromeCLRoute(address(wellToken), address(usdc));
-            data = abi.encodeCall(aerodromeCLAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
+            data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, SELL_AMOUNT, uint256(1e6), block.timestamp));
             adapter = address(aerodromeCLAdapter);
         }
         _executeExpectRevert(wallet, adapter, address(routers[dex]), data, expected);

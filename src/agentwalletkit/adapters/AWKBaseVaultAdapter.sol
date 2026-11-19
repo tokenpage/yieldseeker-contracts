@@ -20,9 +20,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 error InvalidPercentage(uint256 percentage);
 
+/// @notice The calls a wallet can pass to a vault adapter's execute. The adapter decodes them; it doesn't implement them
+interface IAWKVaultAdapter {
+    /// @param amount The amount of the vault asset to deposit
+    function deposit(uint256 amount) external returns (uint256 shares, uint256 assetsDeposited);
+    /// @param percentageBps The share of the wallet's vault asset balance to deposit, in basis points (10000 = 100%)
+    function depositPercentage(uint256 percentageBps) external returns (uint256 shares, uint256 assetsDeposited);
+    /// @param shares The amount of vault shares to withdraw
+    function withdraw(uint256 shares) external returns (uint256 assets);
+}
+
 /**
  * @title AWKBaseVaultAdapter
- * @notice Base class for vault adapters: deposit, deposit a percentage of the balance, and withdraw
+ * @notice Base class for vault adapters: deposit, deposit a percentage of the balance, and withdraw (IAWKVaultAdapter)
  * @dev execute validates the input and calls the operation (_depositOperation / _withdrawOperation), which an
  *      operations layer implements around the protocol implementation (_deposit / _withdraw): AWKVaultOperations for a
  *      plain kit adapter, or a wallet's own rules layer.
@@ -31,38 +41,9 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
     event Withdrawn(address indexed wallet, address indexed vault, uint256 shares, uint256 assets);
 
-    /**
-     * @notice Deposit assets into a vault (public interface, should not be called directly)
-     * @param amount The amount of assets to deposit
-     * @return shares The amount of vault shares received
-     * @return assetsDeposited The actual amount of base asset deposited
-     */
-    function deposit(uint256 amount) external pure returns (uint256 shares, uint256 assetsDeposited) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    /**
-     * @notice Deposit a percentage of the vault asset balance into a vault (public interface, should not be called directly)
-     * @param percentageBps The percentage in basis points (10000 = 100%)
-     * @return shares The amount of vault shares received
-     * @return assetsDeposited The actual amount of base asset deposited
-     */
-    function depositPercentage(uint256 percentageBps) external pure returns (uint256 shares, uint256 assetsDeposited) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    /**
-     * @notice Withdraw assets from a vault (public interface, should not be called directly)
-     * @param shares The amount of vault shares to withdraw
-     * @return assets The amount of assets received
-     */
-    function withdraw(uint256 shares) external pure returns (uint256 assets) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
-        if (selector == this.withdraw.selector) {
+        if (selector == IAWKVaultAdapter.withdraw.selector) {
             uint256 shares = abi.decode(data[4:], (uint256));
             if (shares == 0) revert AWKErrors.ZeroAmount();
             uint256 assets = _withdrawOperation(target, shares);
@@ -70,9 +51,9 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
             return abi.encode(assets);
         }
         uint256 amount;
-        if (selector == this.deposit.selector) {
+        if (selector == IAWKVaultAdapter.deposit.selector) {
             amount = abi.decode(data[4:], (uint256));
-        } else if (selector == this.depositPercentage.selector) {
+        } else if (selector == IAWKVaultAdapter.depositPercentage.selector) {
             uint256 percentageBps = abi.decode(data[4:], (uint256));
             if (percentageBps == 0 || percentageBps > 1e4) revert InvalidPercentage(percentageBps);
             amount = (IERC20(_getVaultAsset(target)).balanceOf(address(this)) * percentageBps) / 1e4;

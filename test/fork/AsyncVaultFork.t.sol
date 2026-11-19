@@ -4,6 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -19,7 +20,7 @@ contract AsyncVaultForkTest is ForkBase {
         YieldSeekerERC4626Adapter adapter = new YieldSeekerERC4626Adapter();
         _registerAdapter(address(adapter), YO_USD);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
-        _execute(wallet, address(adapter), YO_USD, abi.encodeCall(adapter.deposit, (DEPOSIT_AMOUNT)));
+        _execute(wallet, address(adapter), YO_USD, abi.encodeCall(IAWKVaultAdapter.deposit, (DEPOSIT_AMOUNT)));
         uint256 shares = IERC20(YO_USD).balanceOf(address(wallet));
         assertGt(shares, 0);
 
@@ -27,12 +28,12 @@ contract AsyncVaultForkTest is ForkBase {
         deal(USDC, YO_USD, 0);
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSignature("Error(string)", "AWKERC4626Adapter: nothing received")));
-        wallet.executeViaAdapter(address(adapter), YO_USD, abi.encodeCall(adapter.withdraw, (shares)));
+        wallet.executeViaAdapter(address(adapter), YO_USD, abi.encodeCall(IAWKVaultAdapter.withdraw, (shares)));
         assertEq(IERC20(YO_USD).balanceOf(address(wallet)), shares);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), YO_USD), DEPOSIT_AMOUNT);
 
         deal(USDC, YO_USD, freeBalance);
-        _execute(wallet, address(adapter), YO_USD, abi.encodeCall(adapter.withdraw, (shares)));
+        _execute(wallet, address(adapter), YO_USD, abi.encodeCall(IAWKVaultAdapter.withdraw, (shares)));
         assertEq(IERC20(YO_USD).balanceOf(address(wallet)), 0);
         assertGt(IERC20(USDC).balanceOf(address(wallet)), 0);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), YO_USD), 0);

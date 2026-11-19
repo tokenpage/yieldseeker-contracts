@@ -5,13 +5,15 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3BorrowAdapter} from "../../src/adapters/AaveV3BorrowAdapter.sol";
+import {IYieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerMorphoBlueBorrowAdapter} from "../../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol";
+import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {IMorphoBlue, IMorphoOracle, Id, MarketParams} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
-import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IAWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -121,9 +123,9 @@ contract BorrowForkTest is ForkBase {
 
     function _runBorrowCycle(address adapter, bytes memory market) internal {
         address target = aaveAdapter.marketTarget(market);
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
+        _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, 1 ether));
         assertEq(IERC20(WETH).balanceOf(address(wallet)), 0, "collateral supplied");
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 1_000e6));
+        _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.borrow.selector, market, 1_000e6));
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 1_000e6, "borrowed cash in wallet");
 
         vm.warp(vm.getBlockTimestamp() + 365 days);
@@ -136,14 +138,14 @@ contract BorrowForkTest is ForkBase {
         oracle.removeSource(WETH);
         oracle.removeSource(USDC);
 
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
+        _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.repay.selector, market, type(uint256).max));
         assertEq(IERC20(USDC).balanceOf(feeCollector), 0, "Borrow fee is not paid in debt token at repay");
         (uint128 lastDebt,,) = borrowFeeModule.debtPositions(address(wallet), target);
         assertEq(lastDebt, 0, "debt cleared");
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBaseAssetFee, "Borrow fee is owed in the collateral asset");
 
         uint256 feeCollectorWethBefore = IERC20(WETH).balanceOf(feeCollector);
-        uint256 withdrawn = abi.decode(_execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
+        uint256 withdrawn = abi.decode(_execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
         uint256 expectedYieldFee;
         if (adapter == address(aaveAdapter) && withdrawn > 1 ether) {
             expectedYieldFee = Math.mulDiv(withdrawn - 1 ether, 1_000, 10_000, Math.Rounding.Ceil);
@@ -171,7 +173,7 @@ contract BorrowForkTest is ForkBase {
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
         uint256 requestedSupply = 1 ether;
-        uint256 supplied = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, requestedSupply)), (uint256));
+        uint256 supplied = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, requestedSupply)), (uint256));
         assertEq(supplied, requestedSupply);
 
         uint256 start = vm.getBlockTimestamp();
@@ -179,7 +181,7 @@ contract BorrowForkTest is ForkBase {
         vm.roll(block.number + 1);
         uint256 collectorBalanceBefore = IERC20(WETH).balanceOf(feeCollector);
         uint256 walletBalanceBefore = IERC20(WETH).balanceOf(address(wallet));
-        uint256 withdrawn = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
+        uint256 withdrawn = abi.decode(_execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.withdrawCollateral.selector, market, type(uint256).max)), (uint256));
 
         assertGt(withdrawn, supplied);
         uint256 expectedFee = Math.mulDiv(withdrawn - supplied, 1_000, 10_000, Math.Rounding.Ceil);
@@ -196,8 +198,8 @@ contract BorrowForkTest is ForkBase {
 
     function _runExternalRepayRegression(address adapter, bytes memory market) internal {
         address target = aaveAdapter.marketTarget(market);
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
-        _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 1_000e6));
+        _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, 1 ether));
+        _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.borrow.selector, market, 1_000e6));
 
         (uint128 lastDebt,, uint192 lastPrice) = borrowFeeModule.debtPositions(address(wallet), target);
         assertGt(lastPrice, 0);
@@ -222,7 +224,7 @@ contract BorrowForkTest is ForkBase {
 
         uint256 feeCollectorBefore = IERC20(WETH).balanceOf(feeCollector);
         uint256 walletBalanceBefore = IERC20(WETH).balanceOf(address(wallet));
-        bytes memory result = _execute(adapter, target, abi.encodeWithSelector(aaveAdapter.withdrawCollateral.selector, market, type(uint256).max));
+        bytes memory result = _execute(adapter, target, abi.encodeWithSelector(IAWKBorrowAdapter.withdrawCollateral.selector, market, type(uint256).max));
         uint256 withdrawn = abi.decode(result, (uint256));
         uint256 expectedYieldFee;
         if (adapter == address(aaveAdapter) && withdrawn > 1 ether) {
@@ -274,7 +276,7 @@ contract BorrowForkTest is ForkBase {
         uint256 swapAmount = 0.1 ether;
         uint256 debt = 2 * oracle.quote(WETH, USDC, swapAmount);
         deal(WETH, address(wallet), 2 ether);
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 0.5 ether));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, 0.5 ether));
         IAaveV3UserConfiguration pool = IAaveV3UserConfiguration(AAVE_POOL);
         address[] memory reserves = pool.getReservesList();
         uint256 wethReserveIndex = type(uint256).max;
@@ -285,9 +287,9 @@ contract BorrowForkTest is ForkBase {
         uint256 collateralBit = uint256(1) << (2 * wethReserveIndex + 1);
         assertTrue((pool.getUserConfiguration(address(wallet)).data & collateralBit) != 0);
 
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 0.5 ether));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, 0.5 ether));
         assertTrue((pool.getUserConfiguration(address(wallet)).data & collateralBit) != 0);
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, debt));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.borrow.selector, market, debt));
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, USDC);
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 0);
@@ -299,7 +301,7 @@ contract BorrowForkTest is ForkBase {
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
-        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1, block.timestamp));
+        bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(IAWKUniswapV3SwapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1, block.timestamp));
         uint256 bought = abi.decode(result, (uint256));
         assertGe(bought, (oracle.quote(WETH, USDC, swapAmount) * 99) / 100, "swap output within the oracle bound");
         assertLe(bought, debt, "swap output does not exceed the reported debt");
@@ -307,12 +309,12 @@ contract BorrowForkTest is ForkBase {
 
         address variableDebtToken = IAaveV3LendingPool(AAVE_POOL).getReserveVariableDebtToken(USDC);
         uint256 aaveDebtBeforeRepay = IERC20(variableDebtToken).balanceOf(address(wallet));
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, bought));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.repay.selector, market, bought));
         uint256 remainingDebt = borrowFeeModule.tokenDebt(address(wallet), USDC);
         assertEq(remainingDebt, aaveDebtBeforeRepay - bought, "reported debt tracks Aave's live balance before repayment");
         vm.prank(owner);
         IERC20(USDC).transfer(address(wallet), remainingDebt + 1);
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.repay.selector, market, type(uint256).max));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.repay.selector, market, type(uint256).max));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), USDC), 0);
         assertLe(IERC20(USDC).balanceOf(address(wallet)), 1, "at most Aave's 1-unit rounding is left over");
     }
@@ -322,9 +324,9 @@ contract BorrowForkTest is ForkBase {
         AgentWallet vaultWallet = factory.createAgentWallet(owner, 1, USDC, VAULT_AGENT_PROFILE, new FeePlanChoice[](0));
         bytes memory market = _aaveMarket();
         address target = aaveAdapter.marketTarget(market);
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.supplyCollateral.selector, market, 1 ether));
-        _execute(address(aaveAdapter), target, abi.encodeWithSelector(aaveAdapter.borrow.selector, market, 500e6));
-        _execute(address(transferAdapter), address(transferAdapter), abi.encodeWithSelector(transferAdapter.transfer.selector, USDC, address(vaultWallet), 500e6));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.supplyCollateral.selector, market, 1 ether));
+        _execute(address(aaveAdapter), target, abi.encodeWithSelector(IAWKBorrowAdapter.borrow.selector, market, 500e6));
+        _execute(address(transferAdapter), address(transferAdapter), abi.encodeWithSelector(IYieldSeekerAgentTransferAdapter.transfer.selector, USDC, address(vaultWallet), 500e6));
         assertEq(IERC20(USDC).balanceOf(address(vaultWallet)), 500e6, "vault agent received the borrowed cash");
         assertEq(IERC20(USDC).balanceOf(address(wallet)), 0, "borrow agent sent it all");
     }

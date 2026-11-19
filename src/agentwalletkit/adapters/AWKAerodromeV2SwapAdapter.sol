@@ -23,6 +23,11 @@ import {IRouter as IAerodromeV2Router} from "aerodrome/interfaces/IRouter.sol";
 
 error InvalidAerodromeV2RouterTarget(address target, address expected);
 
+/// @notice The call a wallet can pass to this adapter's execute. The adapter decodes it; it doesn't implement it
+interface IAWKAerodromeV2SwapAdapter {
+    function swap(address sellToken, address buyToken, AWKAerodromeV2SwapAdapterCore.SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external returns (uint256);
+}
+
 /**
  * @title AWKAerodromeV2SwapAdapterCore
  * @notice Aerodrome V2 swaps using structured route parameters, without an operations layer
@@ -48,14 +53,6 @@ abstract contract AWKAerodromeV2SwapAdapterCore is AWKSwapAdapter {
 
     // ============ Swap Operations ============
 
-    /**
-     * @notice Swap tokens via Aerodrome V2 (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
-     */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
     // ============ Swap Execution (delegatecall only) ============
 
     /**
@@ -65,7 +62,7 @@ abstract contract AWKAerodromeV2SwapAdapterCore is AWKSwapAdapter {
      * @return ABI-encoded buy amount
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
+        if (bytes4(data[:4]) != IAWKAerodromeV2SwapAdapter.swap.selector) revert UnknownOperation();
         (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != AERODROME_V2_ROUTER) revert InvalidAerodromeV2RouterTarget(target, AERODROME_V2_ROUTER);
         _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.stables.length);

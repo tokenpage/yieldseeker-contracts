@@ -24,6 +24,11 @@ import {ISwapRouter as IAerodromeCLSwapRouter} from "aerodrome-slipstream/periph
 
 error InvalidAerodromeCLRouterTarget(address target, address expected);
 
+/// @notice The call a wallet can pass to this adapter's execute. The adapter decodes it; it doesn't implement it
+interface IAWKAerodromeCLSwapAdapter {
+    function swap(address sellToken, address buyToken, AWKAerodromeCLSwapAdapterCore.SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external returns (uint256);
+}
+
 /**
  * @title AWKAerodromeCLSwapAdapterCore
  * @notice Aerodrome CL swaps using structured route parameters, without an operations layer
@@ -47,14 +52,6 @@ abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
 
     // ============ Swap Operations ============
 
-    /**
-     * @notice Swap tokens via Aerodrome CL (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
-     */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
     // ============ Swap Execution (delegatecall only) ============
 
     /**
@@ -64,7 +61,7 @@ abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
      * @return ABI-encoded buy amount
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
+        if (bytes4(data[:4]) != IAWKAerodromeCLSwapAdapter.swap.selector) revert UnknownOperation();
         (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != AERODROME_CL_ROUTER) revert InvalidAerodromeCLRouterTarget(target, AERODROME_CL_ROUTER);
         _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.tickSpacings.length);

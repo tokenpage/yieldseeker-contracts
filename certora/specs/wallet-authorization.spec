@@ -80,8 +80,8 @@ rule ownerCanChangeWalletBlocklists(env e, address adapterProbe, address targetP
     require !currentContract.isAdapterBlocked(e, adapterProbe);
     require !currentContract.isTargetBlocked(e, targetProbe);
 
-    currentContract.blockAdapter(e, adapterProbe);
-    currentContract.blockTarget(e, targetProbe);
+    currentContract.setAdapterBlocked(e, adapterProbe, true);
+    currentContract.setTargetBlocked(e, targetProbe, true);
     satisfy currentContract.isAdapterBlocked(e, adapterProbe) &&
         currentContract.isTargetBlocked(e, targetProbe);
 }

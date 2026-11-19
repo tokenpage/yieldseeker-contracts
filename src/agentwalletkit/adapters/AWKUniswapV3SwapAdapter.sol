@@ -25,6 +25,11 @@ import {IPeripheryPayments} from "@uniswap/v3-periphery/contracts/interfaces/IPe
 error InvalidUniswapV3RouterTarget(address target, address expected);
 error InvalidUniswapV3FeeTier(uint24 fee);
 
+/// @notice The call a wallet can pass to this adapter's execute. The adapter decodes it; it doesn't implement it
+interface IAWKUniswapV3SwapAdapter {
+    function swap(address sellToken, address buyToken, AWKUniswapV3SwapAdapterCore.SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external returns (uint256);
+}
+
 /**
  * @title AWKUniswapV3SwapAdapterCore
  * @notice Uniswap V3 swaps using structured route parameters, without an operations layer
@@ -48,14 +53,6 @@ abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
 
     // ============ Swap Operations ============
 
-    /**
-     * @notice Swap tokens via Uniswap V3 (public interface, should not be called directly)
-     * @dev This is a placeholder function signature. Actual execution happens via execute() -> _swapOperation()
-     */
-    function swap(address sellToken, address buyToken, SwapRoute calldata route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
     // ============ Swap Execution (delegatecall only) ============
 
     /**
@@ -65,7 +62,7 @@ abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
      * @return ABI-encoded buy amount
      */
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
+        if (bytes4(data[:4]) != IAWKUniswapV3SwapAdapter.swap.selector) revert UnknownOperation();
         (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
         _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.fees.length);

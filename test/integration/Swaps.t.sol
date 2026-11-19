@@ -12,14 +12,20 @@ import {SellTokenNotAllowed} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKAerodromeCLSwapAdapter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {IAWKAerodromeV2SwapAdapter} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore, IAerodromeV2Router, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress, SwapExpired, SwapInputMismatch} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
+import {IAWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
 import {SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../src/swaps/IYieldSeekerSwapPolicy.sol";
+import {toArray} from "../helpers/Arrays.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -162,20 +168,20 @@ contract SwapsTest is IntegrationBase {
         recipientUniswapRouter.setBuyAmount(200e6);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory uniRoute = _uniswapRoute(address(rewardToken), address(usdc));
         bytes memory result =
-            _execute(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(recipientUniswapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, sellAmount, uint256(1), block.timestamp)));
+            _execute(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, sellAmount, uint256(1), block.timestamp)));
         assertEq(_decodeUint(result), 200e6);
 
         recipientAerodromeV2Router.setBuyAmount(150e6);
         AWKAerodromeV2SwapAdapterCore.SwapRoute memory v2Route = _aerodromeV2Route(address(rewardToken), address(usdc));
         result = _execute(
-            wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(recipientAerodromeV2Adapter.swap, (address(rewardToken), address(usdc), v2Route, sellAmount, uint256(1), block.timestamp))
+            wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, sellAmount, uint256(1), block.timestamp))
         );
         assertEq(_decodeUint(result), 150e6);
 
         recipientAerodromeCLRouter.setBuyAmount(120e6);
         AWKAerodromeCLSwapAdapterCore.SwapRoute memory clRoute = _aerodromeCLRoute(address(rewardToken), address(usdc));
         result = _execute(
-            wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(recipientAerodromeCLAdapter.swap, (address(rewardToken), address(usdc), clRoute, sellAmount, uint256(1), block.timestamp))
+            wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, sellAmount, uint256(1), block.timestamp))
         );
         assertEq(_decodeUint(result), 120e6);
 
@@ -198,19 +204,19 @@ contract SwapsTest is IntegrationBase {
         uint256 deadline = block.timestamp + 10 minutes;
         vm.warp(deadline + 1);
         bytes memory expired = abi.encodeWithSelector(SwapExpired.selector, deadline);
-        _executeExpectRevert(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(recipientUniswapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, 10e18, uint256(1), deadline)), expired);
+        _executeExpectRevert(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, 10e18, uint256(1), deadline)), expired);
         _executeExpectRevert(
-            wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(recipientAerodromeV2Adapter.swap, (address(rewardToken), address(usdc), v2Route, 10e18, uint256(1), deadline)), expired
+            wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, 10e18, uint256(1), deadline)), expired
         );
         _executeExpectRevert(
-            wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(recipientAerodromeCLAdapter.swap, (address(rewardToken), address(usdc), clRoute, 10e18, uint256(1), deadline)), expired
+            wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, 10e18, uint256(1), deadline)), expired
         );
         assertEq(rewardToken.balanceOf(address(wallet)), 30e18);
 
         vm.warp(deadline);
-        _execute(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(recipientUniswapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, 10e18, uint256(1), deadline)));
-        _execute(wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(recipientAerodromeV2Adapter.swap, (address(rewardToken), address(usdc), v2Route, 10e18, uint256(1), deadline)));
-        _execute(wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(recipientAerodromeCLAdapter.swap, (address(rewardToken), address(usdc), clRoute, 10e18, uint256(1), deadline)));
+        _execute(wallet, address(recipientUniswapAdapter), address(recipientUniswapRouter), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, 10e18, uint256(1), deadline)));
+        _execute(wallet, address(recipientAerodromeV2Adapter), address(recipientAerodromeV2Router), abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, 10e18, uint256(1), deadline)));
+        _execute(wallet, address(recipientAerodromeCLAdapter), address(recipientAerodromeCLRouter), abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, 10e18, uint256(1), deadline)));
         assertEq(rewardToken.balanceOf(address(wallet)), 0);
         assertEq(recipientAerodromeV2Router.lastDeadline(), deadline);
         assertEq(recipientAerodromeCLRouter.lastDeadline(), deadline);
@@ -221,19 +227,19 @@ contract SwapsTest is IntegrationBase {
         _fundWallet(wallet, address(rewardToken), 100e18);
         _fundWallet(wallet, address(usdc), 100e6);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory rewardToWeth = _uniswapRoute(address(rewardToken), address(weth));
-        bytes memory rewardToWethData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(weth), rewardToWeth, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory rewardToWethData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(weth), rewardToWeth, uint256(1e18), uint256(1), block.timestamp));
         bytes memory notRewardSale = abi.encodeWithSelector(SwapNotAllowed.selector, address(rewardToken), address(weth));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), rewardToWethData, notRewardSale);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory baseToWeth = _uniswapRoute(address(usdc), address(weth));
-        swapSellPolicy.addSellableToken(address(usdc));
-        bytes memory baseToWethData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), baseToWeth, uint256(10e6), uint256(1), block.timestamp));
+        swapSellPolicy.addSellableTokens(toArray(address(usdc)));
+        bytes memory baseToWethData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), baseToWeth, uint256(10e6), uint256(1), block.timestamp));
         bytes memory baseSaleNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(weth));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), baseToWethData, baseSaleNotAllowed);
 
         swapSellPolicy.removeSellableToken(address(rewardToken));
         AWKUniswapV3SwapAdapterCore.SwapRoute memory rewardToBase = _uniswapRoute(address(rewardToken), address(usdc));
-        bytes memory rewardToBaseData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), rewardToBase, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory rewardToBaseData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), rewardToBase, uint256(1e18), uint256(1), block.timestamp));
         bytes memory sellBlocked = abi.encodeWithSelector(SellTokenNotAllowed.selector, address(rewardToken));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), rewardToBaseData, sellBlocked);
 
@@ -246,18 +252,18 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         uint256 positionAmount = 100e6;
         _fundWallet(wallet, address(usdc), 2 * positionAmount);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (positionAmount)));
-        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (positionAmount)));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (positionAmount)));
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(IAWKVaultAdapter.deposit, (positionAmount)));
         _fundWallet(wallet, address(rewardToken), 10e18);
         swapSellPolicy.setAllowSellingAllTokens(true);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory shareRoute = _uniswapRoute(address(erc4626Vault), address(usdc));
-        bytes memory shareSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(erc4626Vault), address(usdc), shareRoute, positionAmount, uint256(1), block.timestamp));
+        bytes memory shareSale = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(erc4626Vault), address(usdc), shareRoute, positionAmount, uint256(1), block.timestamp));
         bytes memory shareNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(erc4626Vault), address(usdc));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), shareSale, shareNotAllowed);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory aTokenRoute = _uniswapRoute(address(aaveV3Vault), address(usdc));
-        bytes memory aTokenSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(aaveV3Vault), address(usdc), aTokenRoute, positionAmount, uint256(1), block.timestamp));
+        bytes memory aTokenSale = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(aaveV3Vault), address(usdc), aTokenRoute, positionAmount, uint256(1), block.timestamp));
         bytes memory aTokenNotAllowed = abi.encodeWithSelector(SwapNotAllowed.selector, address(aaveV3Vault), address(usdc));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), aTokenSale, aTokenNotAllowed);
 
@@ -265,7 +271,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(aaveV3Vault.balanceOf(address(wallet)), positionAmount);
         uniswapV3Router.setBuyAmount(100e6);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory rewardRoute = _uniswapRoute(address(rewardToken), address(usdc));
-        bytes memory rewardSale = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), rewardRoute, 10e18, uint256(1), block.timestamp));
+        bytes memory rewardSale = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), rewardRoute, 10e18, uint256(1), block.timestamp));
         uint256 feesBefore = _feesCollected(address(usdc));
         bytes memory result = _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), rewardSale);
         assertEq(_decodeUint(result), 100e6);
@@ -278,23 +284,23 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(rewardToken), 10e18);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(wellToken), address(usdc));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         bytes memory invalidEndpoints = abi.encodeWithSelector(InvalidRouteEndpoints.selector, address(rewardToken), address(usdc));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, invalidEndpoints);
 
         route = _uniswapRoute(address(rewardToken), address(wellToken));
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, invalidEndpoints);
 
         route.path = new address[](1);
         route.path[0] = address(rewardToken);
         route.fees = new uint24[](0);
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1)));
 
         route = _uniswapRoute(address(rewardToken), address(usdc));
         route.fees = new uint24[](0);
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, abi.encodeWithSelector(InvalidSwapRoute.selector));
 
         route.path = new address[](3);
@@ -304,18 +310,18 @@ contract SwapsTest is IntegrationBase {
         route.fees = new uint24[](2);
         route.fees[0] = 3000;
         route.fees[1] = 3000;
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, abi.encodeWithSelector(InvalidSwapTokenAddress.selector, address(0)));
 
         route = _uniswapRoute(address(rewardToken), address(usdc));
         route.fees[0] = 250;
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, abi.encodeWithSelector(InvalidUniswapV3FeeTier.selector, uint24(250)));
 
         address wrongTarget = address(0x1234);
         vaultRegistry.setTargetAdapter(wrongTarget, address(uniswapV3SwapAdapter));
         route = _uniswapRoute(address(rewardToken), address(usdc));
-        data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), wrongTarget, data, abi.encodeWithSelector(InvalidUniswapV3RouterTarget.selector, wrongTarget, address(uniswapV3Router)));
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
     }
@@ -324,23 +330,23 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(rewardToken), 10e18);
         AWKAerodromeV2SwapAdapterCore.SwapRoute memory route = _aerodromeV2Route(address(wellToken), address(usdc));
-        bytes memory data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         bytes memory invalidEndpoints = abi.encodeWithSelector(InvalidRouteEndpoints.selector, address(rewardToken), address(usdc));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), data, invalidEndpoints);
 
         route = _aerodromeV2Route(address(rewardToken), address(wellToken));
-        data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), data, invalidEndpoints);
 
         route.path = new address[](1);
         route.path[0] = address(rewardToken);
         route.stables = new bool[](0);
-        data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), data, abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1)));
 
         route = _aerodromeV2Route(address(rewardToken), address(usdc));
         route.stables = new bool[](0);
-        data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), data, abi.encodeWithSelector(InvalidSwapRoute.selector));
 
         route.path = new address[](3);
@@ -348,13 +354,13 @@ contract SwapsTest is IntegrationBase {
         route.path[1] = address(0);
         route.path[2] = address(usdc);
         route.stables = new bool[](2);
-        data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), data, abi.encodeWithSelector(InvalidSwapTokenAddress.selector, address(0)));
 
         address wrongTarget = address(0x1234);
         vaultRegistry.setTargetAdapter(wrongTarget, address(aerodromeV2SwapAdapter));
         route = _aerodromeV2Route(address(rewardToken), address(usdc));
-        data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), wrongTarget, data, abi.encodeWithSelector(InvalidAerodromeV2RouterTarget.selector, wrongTarget, address(aerodromeV2Router)));
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
     }
@@ -363,23 +369,23 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(rewardToken), 10e18);
         AWKAerodromeCLSwapAdapterCore.SwapRoute memory route = _aerodromeCLRoute(address(wellToken), address(usdc));
-        bytes memory data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         bytes memory invalidEndpoints = abi.encodeWithSelector(InvalidRouteEndpoints.selector, address(rewardToken), address(usdc));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, invalidEndpoints);
 
         route = _aerodromeCLRoute(address(rewardToken), address(wellToken));
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, invalidEndpoints);
 
         route.path = new address[](1);
         route.path[0] = address(rewardToken);
         route.tickSpacings = new int24[](0);
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, abi.encodeWithSelector(InvalidRouteLength.selector, uint256(1)));
 
         route = _aerodromeCLRoute(address(rewardToken), address(usdc));
         route.tickSpacings = new int24[](0);
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, abi.encodeWithSelector(InvalidSwapRoute.selector));
 
         route.path = new address[](3);
@@ -389,13 +395,13 @@ contract SwapsTest is IntegrationBase {
         route.tickSpacings = new int24[](2);
         route.tickSpacings[0] = 100;
         route.tickSpacings[1] = 100;
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), data, abi.encodeWithSelector(InvalidSwapTokenAddress.selector, address(0)));
 
         address wrongTarget = address(0x1234);
         vaultRegistry.setTargetAdapter(wrongTarget, address(aerodromeCLSwapAdapter));
         route = _aerodromeCLRoute(address(rewardToken), address(usdc));
-        data = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        data = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), wrongTarget, data, abi.encodeWithSelector(InvalidAerodromeCLRouterTarget.selector, wrongTarget, address(aerodromeCLRouter)));
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
     }
@@ -407,25 +413,25 @@ contract SwapsTest is IntegrationBase {
         AWKAerodromeV2SwapAdapterCore.SwapRoute memory v2Route = _aerodromeV2Route(address(rewardToken), address(usdc));
         AWKAerodromeCLSwapAdapterCore.SwapRoute memory clRoute = _aerodromeCLRoute(address(rewardToken), address(usdc));
 
-        bytes memory uniData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(0), uint256(0), block.timestamp));
+        bytes memory uniData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(0), uint256(0), block.timestamp));
         bytes memory zeroAmount = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), uniData, zeroAmount);
-        bytes memory v2Data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(0), uint256(0), block.timestamp));
+        bytes memory v2Data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(0), uint256(0), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), v2Data, zeroAmount);
-        bytes memory clData = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(0), uint256(0), block.timestamp));
+        bytes memory clData = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(0), uint256(0), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), clData, zeroAmount);
-        uniData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(0), block.timestamp));
+        uniData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(0), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), uniData, zeroAmount);
 
         uniswapV3Router.setBuyAmount(1);
-        uniData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(2), block.timestamp));
+        uniData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(1e18), uint256(2), block.timestamp));
         bytes memory insufficientOutput = abi.encodeWithSelector(InsufficientOutput.selector, uint256(1), uint256(2));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), uniData, insufficientOutput);
         aerodromeV2Router.setBuyAmount(1);
-        v2Data = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(1e18), uint256(2), block.timestamp));
+        v2Data = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(1e18), uint256(2), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeV2SwapAdapter), address(aerodromeV2Router), v2Data, insufficientOutput);
         aerodromeCLRouter.setBuyAmount(1);
-        clData = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(1e18), uint256(2), block.timestamp));
+        clData = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(1e18), uint256(2), block.timestamp));
         _executeExpectRevert(wallet, address(aerodromeCLSwapAdapter), address(aerodromeCLRouter), clData, insufficientOutput);
 
         assertEq(rewardToken.balanceOf(address(wallet)), 3e18);
@@ -438,7 +444,7 @@ contract SwapsTest is IntegrationBase {
         uint256 amountIn = 100e6;
         _fundWallet(borrowWallet, address(usdc), amountIn);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         bytes memory invalidBorrowSwap = abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(weth));
         _executeExpectRevert(borrowWallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, invalidBorrowSwap);
 
@@ -460,7 +466,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(_feesCollected(address(usdc)), collectorBefore);
         assertEq(borrowYieldFeeModule.feesOwed(address(borrowWallet)), 0);
 
-        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(borrowWallet), address(weth)), 0);
         assertEq(weth.balanceOf(address(borrowWallet)), 0);
     }
@@ -475,7 +481,7 @@ contract SwapsTest is IntegrationBase {
         uint256 wethBefore = weth.balanceOf(address(wallet));
         uniswapV3Router.setBuyAmount(output);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         bytes memory floorError = abi.encodeWithSelector(SwapBelowOraclePrice.selector, output, minimum);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, floorError);
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
@@ -494,7 +500,7 @@ contract SwapsTest is IntegrationBase {
         uint256 floorMinimum = quote * (10_000 - BORROW_SWAP_MAX_SLIPPAGE_BPS) / 10_000;
         uint256 ceilMinimum = Math.mulDiv(quote, 10_000 - BORROW_SWAP_MAX_SLIPPAGE_BPS, 10_000, Math.Rounding.Ceil);
         assertEq(ceilMinimum, floorMinimum + 1);
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
 
         uniswapV3Router.setBuyAmount(floorMinimum);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, abi.encodeWithSelector(SwapBelowOraclePrice.selector, floorMinimum, ceilMinimum));
@@ -515,27 +521,27 @@ contract SwapsTest is IntegrationBase {
         bytes memory expired = abi.encodeWithSelector(SwapExpired.selector, deadline);
 
         _executeExpectRevert(
-            wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)), expired
+            wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)), expired
         );
         _executeExpectRevert(
             wallet,
             address(aerodromeV2SwapAdapter),
             address(aerodromeV2Router),
-            abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(usdc), address(weth), _aerodromeV2Route(address(usdc), address(weth)), amountIn, uint256(1), deadline)),
+            abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(usdc), address(weth), _aerodromeV2Route(address(usdc), address(weth)), amountIn, uint256(1), deadline)),
             expired
         );
         _executeExpectRevert(
             wallet,
             address(aerodromeCLSwapAdapter),
             address(aerodromeCLRouter),
-            abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(usdc), address(weth), _aerodromeCLRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)),
+            abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(usdc), address(weth), _aerodromeCLRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)),
             expired
         );
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
 
         vm.warp(deadline);
         uniswapV3Router.setBuyAmount(priceOracle.quote(address(usdc), address(weth), amountIn));
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), deadline)));
         assertEq(usdc.balanceOf(address(wallet)), 0);
     }
 
@@ -556,7 +562,7 @@ contract SwapsTest is IntegrationBase {
         YieldSeekerUniswapV3SwapAdapter adapter = new YieldSeekerUniswapV3SwapAdapter(address(router));
         _registerTarget(borrowRegistry, address(router), address(adapter));
         _fund(address(weth), address(router), 1);
-        bytes memory data = abi.encodeCall(adapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
         uint256 otherWethBefore = weth.balanceOf(address(other));
 
         bytes memory receiverExecuting = abi.encodeWithSelector(AdapterExecutionFailed.selector, abi.encodeWithSelector(ReceiverIsExecuting.selector, address(wallet)));
@@ -576,7 +582,7 @@ contract SwapsTest is IntegrationBase {
         uint256 minimum = Math.mulDiv(priceOracle.quote(address(usdc), address(weth), amountIn), 10_000 - BORROW_SWAP_MAX_SLIPPAGE_BPS, 10_000, Math.Rounding.Ceil);
         (MidSwapInflowRouter router, YieldSeekerUniswapV3SwapAdapter adapter) = _inflowRouter(borrowRegistry, address(weth), minimum, 1);
         _fund(address(weth), address(router), 1);
-        bytes memory data = abi.encodeCall(adapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
 
         _executeExpectRevert(wallet, address(adapter), address(router), data, abi.encodeWithSelector(SwapBelowOraclePrice.selector, 1, minimum));
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
@@ -594,7 +600,7 @@ contract SwapsTest is IntegrationBase {
         uint256 payout = _oracleFloor(amountIn - inflow);
         (MidSwapInflowRouter router, YieldSeekerUniswapV3SwapAdapter adapter) = _inflowRouter(borrowRegistry, address(usdc), inflow, payout);
         _fund(address(weth), address(router), payout);
-        bytes memory data = abi.encodeCall(adapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), _uniswapRoute(address(usdc), address(weth)), amountIn, uint256(1), block.timestamp));
 
         _executeExpectRevert(wallet, address(adapter), address(router), data, abi.encodeWithSelector(SwapInputMismatch.selector, amountIn - inflow, amountIn));
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
@@ -610,7 +616,8 @@ contract SwapsTest is IntegrationBase {
         _fund(address(usdc), address(router), payout);
         uint256 feesBefore = _feesCollected(address(usdc));
 
-        bytes memory result = _execute(wallet, address(adapter), address(router), abi.encodeCall(adapter.swap, (address(rewardToken), address(usdc), _uniswapRoute(address(rewardToken), address(usdc)), 10e18, uint256(1), block.timestamp)));
+        bytes memory result =
+            _execute(wallet, address(adapter), address(router), abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), _uniswapRoute(address(rewardToken), address(usdc)), 10e18, uint256(1), block.timestamp)));
 
         uint256 fee = Math.mulDiv(payout, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         assertEq(_decodeUint(result), payout);
@@ -623,12 +630,12 @@ contract SwapsTest is IntegrationBase {
         _borrowWeth(wallet, 1_000e6, 1e18);
         _fundWallet(wallet, address(rewardToken), 10e18);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory sellBorrowed = _uniswapRoute(address(weth), address(usdc));
-        bytes memory sellBorrowedData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(weth), address(usdc), sellBorrowed, uint256(1e17), uint256(1), block.timestamp));
+        bytes memory sellBorrowedData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(weth), address(usdc), sellBorrowed, uint256(1e17), uint256(1), block.timestamp));
         bytes memory borrowedNotSellable = abi.encodeWithSelector(SwapNotAllowed.selector, address(weth), address(usdc));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), sellBorrowedData, borrowedNotSellable);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory buyUnborrowed = _uniswapRoute(address(usdc), address(rewardToken));
-        bytes memory buyUnborrowedData = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(rewardToken), buyUnborrowed, uint256(1e6), uint256(1), block.timestamp));
+        bytes memory buyUnborrowedData = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(rewardToken), buyUnborrowed, uint256(1e6), uint256(1), block.timestamp));
         bytes memory unborrowedNotBuyable = abi.encodeWithSelector(SwapNotAllowed.selector, address(usdc), address(rewardToken));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), buyUnborrowedData, unborrowedNotBuyable);
 
@@ -646,10 +653,10 @@ contract SwapsTest is IntegrationBase {
         uniswapV3Router.setBuyAmount(1_000e6);
 
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(aToken, address(usdc));
-        bytes memory sale = abi.encodeCall(uniswapV3SwapAdapter.swap, (aToken, address(usdc), route, uint256(1_000e6), uint256(1), block.timestamp));
+        bytes memory sale = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (aToken, address(usdc), route, uint256(1_000e6), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), sale, abi.encodeWithSelector(SwapNotAllowed.selector, aToken, address(usdc)));
 
-        bytes memory withdrawViaReceipt = abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max));
+        bytes memory withdrawViaReceipt = abi.encodeCall(IAWKBorrowAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max));
         bytes memory notAMarket = abi.encodeWithSelector(MarketTargetMismatch.selector, aToken, aaveV3BorrowAdapter.marketTarget(aaveV3Market));
         _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), aToken, withdrawViaReceipt, notAMarket);
         assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
@@ -667,7 +674,7 @@ contract SwapsTest is IntegrationBase {
         uint256 held = debt + debt * borrowSwapPolicy.DEBT_BUFFER_BPS() / 1e4 + 1;
         uniswapV3Router.setBuyAmount(held);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         bytes memory aboveDebt = abi.encodeWithSelector(SwapAboveDebt.selector, held, debt);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, aboveDebt);
 
@@ -677,7 +684,7 @@ contract SwapsTest is IntegrationBase {
 
         vm.prank(owner);
         weth.transfer(address(wallet), debt);
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
@@ -693,12 +700,12 @@ contract SwapsTest is IntegrationBase {
         _fundWallet(wallet, address(usdc), amountIn);
         uniswapV3Router.setBuyAmount(debt + surplus);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(weth.balanceOf(address(wallet)), debt + surplus);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
         assertEq(weth.balanceOf(address(wallet)), surplus);
@@ -708,7 +715,7 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 debt = 1e18;
         _borrowWeth(wallet, 3_000e6, debt);
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
 
         uint256 amountIn = 20e6;
@@ -716,7 +723,7 @@ contract SwapsTest is IntegrationBase {
         _fundWallet(wallet, address(usdc), amountIn);
         uniswapV3Router.setBuyAmount(bought);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         bytes memory aboveDebt = abi.encodeWithSelector(SwapAboveDebt.selector, bought, uint256(0));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, aboveDebt);
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
@@ -737,7 +744,7 @@ contract SwapsTest is IntegrationBase {
         usdcPriceFeed.setPrice(1e8, timestamp);
         wethPriceFeed.setPrice(2000e8, timestamp);
         aaveV3LendingPool.growDebt(address(weth), address(wallet), interest);
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market)));
         uint256 debt = principal + interest;
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
@@ -752,11 +759,11 @@ contract SwapsTest is IntegrationBase {
         _fundWallet(wallet, address(usdc), amountIn);
         uniswapV3Router.setBuyAmount(debt);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(weth.balanceOf(address(wallet)), debt);
 
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
@@ -773,7 +780,7 @@ contract SwapsTest is IntegrationBase {
         _fundWallet(wallet, address(usdc), 3 * amountIn);
         uniswapV3Router.setBuyAmount(oldMinimum);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
 
         bytes memory result = _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(_decodeUint(result), oldMinimum);
@@ -791,7 +798,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), debt);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
-        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
@@ -803,7 +810,7 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = AgentWallet(payable(address(factory.createAgentWallet(owner, 1, address(usdc), NO_SWAP_POLICY_PROFILE, noFeePlans))));
         _fundWallet(wallet, address(rewardToken), 10e18);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(rewardToken), address(usdc));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         bytes memory noPolicy = abi.encodeWithSelector(NoSwapPolicy.selector);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, noPolicy);
         assertEq(rewardToken.balanceOf(address(wallet)), 10e18);
@@ -813,7 +820,7 @@ contract SwapsTest is IntegrationBase {
     function testWalletRejectsAdapterTargetNotMappedToAdapter() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(rewardToken), address(usdc));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, uint256(1e18), uint256(1), block.timestamp));
         bytes memory expectedError = abi.encodeWithSelector(AWKErrors.AdapterNotRegistered.selector, address(uniswapV3SwapAdapter));
         vm.expectRevert(expectedError);
         vm.prank(operator);
@@ -830,7 +837,7 @@ contract SwapsTest is IntegrationBase {
         uint256 timestamp = vm.getBlockTimestamp();
         usdcPriceFeed.setPrice(1e8, timestamp);
         wethPriceFeed.setPrice(2000e8, timestamp);
-        bytes memory checkpoint = abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market));
+        bytes memory checkpoint = abi.encodeCall(IAWKBorrowAdapter.checkpoint, (aaveV3Market));
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), checkpoint);
         uint256 owed = borrowFeeModule.feesOwed(address(wallet));
         assertGt(owed, 0);
@@ -841,7 +848,7 @@ contract SwapsTest is IntegrationBase {
         uint256 output = priceOracle.quote(address(usdc), address(weth), amountIn);
         uniswapV3Router.setBuyAmount(output);
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
-        bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, uint256(1), block.timestamp));
         bytes memory unpaidFees = abi.encodeWithSelector(FeesOwed.selector, owed);
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data, unpaidFees);
         assertEq(usdc.balanceOf(address(wallet)), amountIn);
@@ -875,9 +882,9 @@ contract SwapsTest is IntegrationBase {
         targets[0] = address(uniswapV3Router);
         targets[1] = address(aerodromeV2Router);
         targets[2] = address(aerodromeCLRouter);
-        datas[0] = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(100e18), uint256(100e6), block.timestamp));
-        datas[1] = abi.encodeCall(aerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(100e18), uint256(100e6), block.timestamp));
-        datas[2] = abi.encodeCall(aerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(100e18), uint256(100e6), block.timestamp));
+        datas[0] = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), uniRoute, uint256(100e18), uint256(100e6), block.timestamp));
+        datas[1] = abi.encodeCall(IAWKAerodromeV2SwapAdapter.swap, (address(rewardToken), address(usdc), v2Route, uint256(100e18), uint256(100e6), block.timestamp));
+        datas[2] = abi.encodeCall(IAWKAerodromeCLSwapAdapter.swap, (address(rewardToken), address(usdc), clRoute, uint256(100e18), uint256(100e6), block.timestamp));
         uint256 feesBefore = _feesCollected(address(usdc));
         bytes[] memory results = _executeBatch(wallet, adapters, targets, datas);
         assertEq(_decodeUint(results[0]), 120e6);
@@ -890,9 +897,9 @@ contract SwapsTest is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
-        bytes memory supply = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
+        bytes memory supply = abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supply);
-        bytes memory borrow = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
+        bytes memory borrow = abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrow);
     }
 

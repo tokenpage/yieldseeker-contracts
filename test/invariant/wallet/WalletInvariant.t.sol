@@ -4,10 +4,12 @@ pragma solidity 0.8.38;
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
+import {IYieldSeekerAgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {IAWKVaultAdapter} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IAWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
@@ -113,14 +115,14 @@ contract WalletWorkflowHandler is Test {
         if (available == 0) return;
         uint256 amount = bound(amountSeed, 1, available);
         uint256 sharesBefore = vault.balanceOf(address(ownerAgent));
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (amount));
+        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (amount));
         if (!_operatorExecute(ownerAgent, address(vaultAdapter), address(vault), depositData)) return;
         uint256 shares = vault.balanceOf(address(ownerAgent)) - sharesBefore;
         if (shares == 0) return;
 
         uint256 yieldAmount = bound(yieldSeed, 0, 10e6);
         if (yieldAmount > 0) usdc.mint(address(vault), yieldAmount);
-        bytes memory withdrawData = abi.encodeCall(vaultAdapter.withdraw, (shares));
+        bytes memory withdrawData = abi.encodeCall(IAWKVaultAdapter.withdraw, (shares));
         if (_operatorExecute(ownerAgent, address(vaultAdapter), address(vault), withdrawData)) vaultCalls++;
     }
 
@@ -135,7 +137,7 @@ contract WalletWorkflowHandler is Test {
         route.path[1] = address(usdc);
         route.fees = new uint24[](1);
         route.fees[0] = 3000;
-        bytes memory data = abi.encodeCall(swapAdapter.swap, (address(rewardToken), address(usdc), route, amount, uint256(1e6), block.timestamp));
+        bytes memory data = abi.encodeCall(IAWKUniswapV3SwapAdapter.swap, (address(rewardToken), address(usdc), route, amount, uint256(1e6), block.timestamp));
         if (_operatorExecute(ownerAgent, address(swapAdapter), address(router), data)) swapCalls++;
     }
 
@@ -158,16 +160,16 @@ contract WalletWorkflowHandler is Test {
         blocklistCalls++;
         address adapter = blockSwapAdapter ? address(swapAdapter) : address(vaultAdapter);
         vm.prank(owner);
-        if (blockIt) ownerAgent.blockAdapter(adapter);
-        else ownerAgent.unblockAdapter(adapter);
+        if (blockIt) ownerAgent.setAdapterBlocked(adapter, true);
+        else ownerAgent.setAdapterBlocked(adapter, false);
     }
 
     function ownerBlocksTarget(bool blockSwapTarget, bool blockIt) external {
         blocklistCalls++;
         address target = blockSwapTarget ? address(router) : address(vault);
         vm.prank(owner);
-        if (blockIt) ownerAgent.blockTarget(target);
-        else ownerAgent.unblockTarget(target);
+        if (blockIt) ownerAgent.setTargetBlocked(target, true);
+        else ownerAgent.setTargetBlocked(target, false);
     }
 
     function operatorMovesFundsBetweenAgents(uint96 amountSeed, bool moveForward) external {
@@ -176,7 +178,7 @@ contract WalletWorkflowHandler is Test {
         uint256 balance = usdc.balanceOf(address(sender));
         if (balance < 2) return;
         uint256 amount = bound(amountSeed, 1, balance / 2);
-        bytes memory data = abi.encodeCall(transferAdapter.transfer, (address(usdc), address(receiver), amount));
+        bytes memory data = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(receiver), amount));
         if (_operatorExecute(sender, address(transferAdapter), address(transferAdapter), data)) transferCalls++;
     }
 
@@ -184,10 +186,10 @@ contract WalletWorkflowHandler is Test {
         attackCalls++;
         AgentWallet wallet = _walletFor(walletChoice);
         bytes[] memory calls = new bytes[](18);
-        calls[0] = abi.encodeCall(wallet.blockAdapter, (address(vaultAdapter)));
-        calls[1] = abi.encodeCall(wallet.unblockAdapter, (address(vaultAdapter)));
-        calls[2] = abi.encodeCall(wallet.blockTarget, (address(vault)));
-        calls[3] = abi.encodeCall(wallet.unblockTarget, (address(vault)));
+        calls[0] = abi.encodeCall(wallet.setAdapterBlocked, (address(vaultAdapter), true));
+        calls[1] = abi.encodeCall(wallet.setAdapterBlocked, (address(vaultAdapter), false));
+        calls[2] = abi.encodeCall(wallet.setTargetBlocked, (address(vault), true));
+        calls[3] = abi.encodeCall(wallet.setTargetBlocked, (address(vault), false));
         calls[4] = abi.encodeCall(wallet.upgradeToLatest, ());
         calls[5] = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(factory.agentWalletImplementation()), bytes(""));
         calls[6] = abi.encodeCall(wallet.withdrawAssetToUser, (attacker, address(usdc), 1));

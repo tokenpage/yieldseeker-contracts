@@ -4,6 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {ClaimDeliveryMismatch} from "../../src/adapters/MerklAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKMerklAdapter} from "../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -72,7 +73,7 @@ contract RewardAdaptersTest is IntegrationBase {
         for (uint256 i; i < proofs.length; ++i) {
             proofs[i] = new bytes32[](0);
         }
-        return abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs));
+        return abi.encodeCall(IAWKMerklAdapter.claim, (tokens, amounts, proofs));
     }
 
     function testMerklClaimsBaseRewardsImmediatelyAndDeduplicatesRewardTokenAccounting() public {

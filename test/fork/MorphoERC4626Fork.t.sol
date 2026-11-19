@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -36,7 +37,7 @@ contract MorphoERC4626ForkTest is ForkBase {
         _registerAdapter(address(adapter), vaultAddress);
         deal(USDC, address(wallet), DEPOSIT_AMOUNT);
 
-        bytes memory depositResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(adapter.deposit.selector, DEPOSIT_AMOUNT));
+        bytes memory depositResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, DEPOSIT_AMOUNT));
         (uint256 shares, uint256 assetsDeposited) = abi.decode(abi.decode(depositResult, (bytes)), (uint256, uint256));
         assertEq(assetsDeposited, DEPOSIT_AMOUNT, "Vault deposit must consume the full requested amount");
         assertGt(shares, 0, "Deposit returned no vault shares");
@@ -51,7 +52,7 @@ contract MorphoERC4626ForkTest is ForkBase {
         assertGt(previewedAssets, DEPOSIT_AMOUNT, "Vault share value should have accrued yield");
 
         uint256 feeCollectorBalanceBefore = asset.balanceOf(feeCollector);
-        bytes memory withdrawResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(adapter.withdraw.selector, shares));
+        bytes memory withdrawResult = _execute(wallet, address(adapter), vaultAddress, abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, shares));
         uint256 assetsReceived = abi.decode(abi.decode(withdrawResult, (bytes)), (uint256));
         assertEq(assetsReceived, previewedAssets, "Redeemed assets must match previewed value");
         assertEq(vault.balanceOf(address(wallet)), 0, "Live vault share balance should be fully withdrawn");

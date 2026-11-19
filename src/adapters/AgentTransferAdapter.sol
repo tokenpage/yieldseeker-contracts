@@ -30,6 +30,11 @@ error InvalidTransferTarget(address target);
 error NotOwnersAgentWallet(address wallet);
 error ReceiverIsExecuting(address wallet);
 
+/// @notice The call a wallet can pass to the transfer adapter's execute. The adapter decodes it; it doesn't implement it
+interface IYieldSeekerAgentTransferAdapter {
+    function transfer(address token, address to, uint256 amount) external returns (uint256);
+}
+
 /**
  * @title YieldSeekerAgentTransferAdapter
  * @notice Move a token from this wallet to another agent wallet of the same owner
@@ -47,12 +52,8 @@ contract YieldSeekerAgentTransferAdapter is YieldSeekerAdapter {
 
     event TransferredToAgentWallet(address indexed from, address indexed to, address indexed token, uint256 amount);
 
-    function transfer(address token, address to, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
     function execute(address target, bytes calldata data) external payable override onlyDelegateCall returns (bytes memory) {
-        if (bytes4(data[:4]) != this.transfer.selector) revert UnknownOperation();
+        if (bytes4(data[:4]) != IYieldSeekerAgentTransferAdapter.transfer.selector) revert UnknownOperation();
         if (target != SELF) revert InvalidTransferTarget(target);
         (address token, address to, uint256 amount) = abi.decode(data[4:], (address, address, uint256));
         if (amount == 0) revert AWKErrors.ZeroAmount();

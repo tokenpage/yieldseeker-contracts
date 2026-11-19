@@ -1,9 +1,11 @@
 pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
+import {IYieldSeekerAgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
 import {InvalidTransferTarget, NotOwnersAgentWallet, ReceiverIsExecuting} from "../../src/adapters/AgentTransferAdapter.sol";
 import {AgentWalletStorageV3} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
+import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 
 contract OwnershipTransferWalletV3 is AgentWallet {
@@ -83,7 +85,7 @@ contract AgentTransfersTest is IntegrationBase {
         uint256 expectedFee = (debtAmount * BORROW_FEE_BPS * elapsed) / (365 days * 10_000);
         expectedFee = (expectedFee * 2_000 * (10 ** uint256(usdc.decimals()))) / (10 ** uint256(weth.decimals()));
         vm.warp(vm.getBlockTimestamp() + elapsed);
-        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        bytes memory repayData = abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max));
         _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), expectedFee);
 
@@ -109,13 +111,13 @@ contract AgentTransfersTest is IntegrationBase {
         uint256 expectedFee = (debtAmount * BORROW_FEE_BPS * elapsed) / (365 days * 10_000);
         expectedFee = (expectedFee * 2_000 * (10 ** uint256(usdc.decimals()))) / (10 ** uint256(weth.decimals()));
         vm.warp(vm.getBlockTimestamp() + elapsed);
-        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        bytes memory repayData = abi.encodeCall(IAWKBorrowAdapter.repay, (aaveV3Market, type(uint256).max));
         _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
         _fundWallet(borrowWallet, address(usdc), expectedFee);
 
         uint256 collectorBalanceBefore = _feesCollected(address(usdc));
         bytes memory innerError = abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector);
-        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(vaultWallet), 1)), innerError);
+        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(vaultWallet), 1)), innerError);
 
         assertEq(usdc.balanceOf(address(borrowWallet)), expectedFee);
         assertEq(usdc.balanceOf(address(vaultWallet)), 0);
@@ -134,13 +136,13 @@ contract AgentTransfersTest is IntegrationBase {
 
         AgentTransferSpoofWallet spoof = new AgentTransferSpoofWallet(owner, borrowWallet.ownerAgentIndex());
         bytes memory spoofError = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(spoof));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(spoof), 1)), spoofError);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(spoof), 1)), spoofError);
 
         bytes memory otherOwnerError = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(otherOwnerWallet));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(otherOwnerWallet), 1)), otherOwnerError);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(otherOwnerWallet), 1)), otherOwnerError);
 
         bytes memory targetError = abi.encodeWithSelector(InvalidTransferTarget.selector, invalidTarget);
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), invalidTarget, abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), targetError);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), invalidTarget, abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), targetError);
     }
 
     function testTransferRejectsReceiverNoLongerOwnedByTheSameOwner() public {
@@ -154,7 +156,7 @@ contract AgentTransfersTest is IntegrationBase {
         vm.stopPrank();
 
         bytes memory notOwnersWallet = abi.encodeWithSelector(NotOwnersAgentWallet.selector, address(borrowWallet));
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), notOwnersWallet);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 1)), notOwnersWallet);
     }
 
     function testTransferRejectsTokensNotAccountedByReceiverAndZeroAmounts() public {
@@ -165,30 +167,30 @@ contract AgentTransfersTest is IntegrationBase {
         assertTrue(borrowFeeModule.isAccountedToken(address(borrowWallet), address(weth)));
         assertFalse(vaultFeeTracker.isAccountedToken(address(vaultWallet), address(weth)));
         bytes memory invalidAssetError = abi.encodeWithSelector(InvalidAsset.selector);
-        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(weth), address(vaultWallet), 1)), invalidAssetError);
+        _executeExpectRevert(borrowWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(weth), address(vaultWallet), 1)), invalidAssetError);
 
         bytes memory zeroAmountError = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
-        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 0)), zeroAmountError);
+        _executeExpectRevert(vaultWallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(borrowWallet), 0)), zeroAmountError);
     }
 
     function testTransferToTheSendingWalletRevertsBecauseItIsExecuting() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         _fundWallet(wallet, address(usdc), 100e6);
-        bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(wallet), uint256(100e6)));
+        bytes memory data = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (address(usdc), address(wallet), uint256(100e6)));
         _executeExpectRevert(wallet, address(agentTransferAdapter), address(agentTransferAdapter), data, abi.encodeWithSelector(ReceiverIsExecuting.selector, address(wallet)));
         assertEq(usdc.balanceOf(address(wallet)), 100e6);
     }
 
     function _borrowWeth(AgentWallet wallet, uint256 collateral, uint256 borrowed) private {
         _fundWallet(wallet, address(usdc), collateral);
-        bytes memory supplyData = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateral));
+        bytes memory supplyData = abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (aaveV3Market, collateral));
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supplyData);
-        bytes memory borrowData = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowed));
+        bytes memory borrowData = abi.encodeCall(IAWKBorrowAdapter.borrow, (aaveV3Market, borrowed));
         _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrowData);
     }
 
     function _transfer(AgentWallet from, address token, address to, uint256 amount) private {
-        bytes memory data = abi.encodeCall(agentTransferAdapter.transfer, (token, to, amount));
+        bytes memory data = abi.encodeCall(IYieldSeekerAgentTransferAdapter.transfer, (token, to, amount));
         _execute(from, address(agentTransferAdapter), address(agentTransferAdapter), data);
     }
 }

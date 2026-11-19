@@ -4,6 +4,7 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRe
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../../src/adapters/AaveV4BorrowAdapter.sol";
 import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol";
+import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -116,7 +117,7 @@ contract AaveV4ForkTest is ForkBase {
         uint256 debtPriceInBaseAsset = _debtPriceInCollateral();
         uint256 expectedBorrowFee = Math.mulDiv(expectedDebtFee, debtPriceInBaseAsset, 1e36, Math.Rounding.Ceil);
         uint256 feeCollectorBalanceBefore = IERC20(COLLATERAL_ASSET).balanceOf(feeCollector);
-        uint256 repaid = abi.decode(_execute(adapter, adapter.marketTarget(market), abi.encodeCall(adapter.repay, (market, type(uint256).max))), (uint256));
+        uint256 repaid = abi.decode(_execute(adapter, adapter.marketTarget(market), abi.encodeCall(IAWKBorrowAdapter.repay, (market, type(uint256).max))), (uint256));
 
         assertEq(repaid, debt);
         assertEq(spoke.getUserTotalDebt(DEBT_RESERVE_ID, address(wallet)), 0);
@@ -125,7 +126,7 @@ contract AaveV4ForkTest is ForkBase {
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedBorrowFee);
         assertGt(expectedBorrowFee, 0);
 
-        uint256 withdrawn = abi.decode(_execute(adapter, adapter.marketTarget(market), abi.encodeCall(adapter.withdrawCollateral, (market, type(uint256).max))), (uint256));
+        uint256 withdrawn = abi.decode(_execute(adapter, adapter.marketTarget(market), abi.encodeCall(IAWKBorrowAdapter.withdrawCollateral, (market, type(uint256).max))), (uint256));
         assertEq(withdrawn, suppliedAssets);
         uint256 expectedYieldFee = withdrawn > COLLATERAL_AMOUNT ? Math.mulDiv(withdrawn - COLLATERAL_AMOUNT, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil) : 0;
         uint256 expectedTotalFee = expectedBorrowFee + expectedYieldFee;
@@ -170,17 +171,17 @@ contract AaveV4ForkTest is ForkBase {
         assertEq(spoke.getUserTotalDebt(DEBT_RESERVE_ID, address(wallet)), debt);
 
         deal(USDC, address(wallet), debt + REPAY_SURPLUS);
-        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(adapter.repay, (market, type(uint256).max)));
+        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(IAWKBorrowAdapter.repay, (market, type(uint256).max)));
         assertEq(spoke.getUserTotalDebt(DEBT_RESERVE_ID, address(wallet)), 0);
         assertGt(borrowFeeModule.feesOwed(address(wallet)), 0);
     }
 
     function _supplyAndBorrow() internal {
         deal(COLLATERAL_ASSET, address(wallet), COLLATERAL_AMOUNT);
-        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(adapter.supplyCollateral, (market, COLLATERAL_AMOUNT)));
+        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(IAWKBorrowAdapter.supplyCollateral, (market, COLLATERAL_AMOUNT)));
         assertEq(IERC20(COLLATERAL_ASSET).balanceOf(address(wallet)), 0);
         assertEq(spoke.getUserSuppliedAssets(COLLATERAL_RESERVE_ID, address(wallet)), COLLATERAL_AMOUNT);
-        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(adapter.borrow, (market, BORROW_AMOUNT)));
+        _execute(adapter, adapter.marketTarget(market), abi.encodeCall(IAWKBorrowAdapter.borrow, (market, BORROW_AMOUNT)));
         assertEq(IERC20(USDC).balanceOf(address(wallet)), BORROW_AMOUNT);
     }
 

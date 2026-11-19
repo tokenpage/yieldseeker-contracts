@@ -76,9 +76,7 @@ abstract contract AWKAgentWalletFactory is AccessControlEnumerable {
     /// @param emergencyAdmin Address that can remove agent operators at once (removeAgentOperator)
     /// @param agentOperator Address that can create agent wallets (the backend server, after the handover)
     constructor(address admin, address emergencyAdmin, address agentOperator) {
-        if (admin == address(0)) revert AWKErrors.ZeroAddress();
-        if (emergencyAdmin == address(0)) revert AWKErrors.ZeroAddress();
-        if (agentOperator == address(0)) revert AWKErrors.ZeroAddress();
+        if (admin == address(0) || emergencyAdmin == address(0) || agentOperator == address(0)) revert AWKErrors.ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EMERGENCY_ROLE, emergencyAdmin);
         _grantRole(AGENT_OPERATOR_ROLE, agentOperator);

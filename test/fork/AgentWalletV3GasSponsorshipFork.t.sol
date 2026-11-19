@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 
 import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/AgentWalletFactory.sol";
 import {YieldSeekerAgentWalletV3 as AgentWalletV3} from "../../src/AgentWalletV3.sol";
@@ -214,7 +215,7 @@ contract AgentWalletV3GasSponsorshipForkTest is Test {
     }
 
     function test_RelayerSubmitsOperatorSignedAdapterExecution_Succeeds() public {
-        bytes memory depositData = abi.encodeCall(vaultAdapter.deposit, (500e6));
+        bytes memory depositData = abi.encodeCall(IAWKVaultAdapter.deposit, (500e6));
         bytes memory callData = abi.encodeWithSelector(wallet.executeViaAdapter.selector, address(vaultAdapter), address(vault), depositData);
         UserOperation[] memory ops = new UserOperation[](1);
         ops[0] = _buildSignedUserOp(callData, operatorKey);

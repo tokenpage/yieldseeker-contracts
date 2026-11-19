@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerMerklAdapter} from "../../src/adapters/MerklAdapter.sol";
+import {IAWKMerklAdapter} from "../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
 import {IMerklDistributor} from "../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -71,6 +72,6 @@ contract MerklForkTest is ForkBase {
         amounts[0] = cumulativeAmount;
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
-        _execute(wallet, address(merklAdapter), MERKL, abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs)));
+        _execute(wallet, address(merklAdapter), MERKL, abi.encodeCall(IAWKMerklAdapter.claim, (tokens, amounts, proofs)));
     }
 }

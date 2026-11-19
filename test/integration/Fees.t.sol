@@ -3,6 +3,10 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV3BorrowAdapter} from "../../src/adapters/AaveV3BorrowAdapter.sol";
+import {IAWKVaultAdapter} from "../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
+import {IAWKBorrowAdapter} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
+import {IAWKMerklAdapter} from "../../src/agentwalletkit/adapters/AWKMerklAdapter.sol";
+import {IAWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, InsufficientGasForModules} from "../../src/fees/FeeTracker.sol";
@@ -87,15 +91,15 @@ contract FeesIntegrationTest is IntegrationBase {
 
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
         _fundWallet(defaultVaultWallet, address(usdc), 1_000 * USDC);
-        _execute(defaultVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(defaultVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 100 * USDC);
-        _execute(defaultVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
+        _execute(defaultVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 10 * USDC);
 
         _fundWallet(customVaultWallet, address(usdc), 1_000 * USDC);
-        _execute(customVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(customVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 100 * USDC);
-        _execute(customVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
+        _execute(customVaultWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 15 * USDC);
         assertEq(usdc.balanceOf(address(customVaultWallet)), 1_095 * USDC);
 
@@ -104,10 +108,10 @@ contract FeesIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(borrowWallet)), 80 * USDC);
 
         _fundWallet(borrowWallet, address(usdc), USDC);
-        _executeLending(borrowWallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
-        _executeLending(borrowWallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
+        _executeLending(borrowWallet, IAWKBorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(borrowWallet, IAWKBorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(borrowWallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
+        _executeLending(borrowWallet, IAWKBorrowAdapter.repay.selector, type(uint256).max);
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 55 * USDC);
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 0);
     }
@@ -130,16 +134,16 @@ contract FeesIntegrationTest is IntegrationBase {
     function testPartialAndFullWithdrawalsChargeOnlyRealizedYield() public {
         AgentWallet wallet = _createVaultWallet(owner, 10);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 100 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 500 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 5 * USDC);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 500 * USDC);
         assertEq(usdc.balanceOf(address(wallet)), 545 * USDC);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 500 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 10 * USDC);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 1_090 * USDC);
@@ -149,13 +153,13 @@ contract FeesIntegrationTest is IntegrationBase {
         AgentWallet wallet = _createVaultWallet(owner, 30);
         address newCollector = makeAddr("new-collector");
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 100 * USDC);
         uint256 oldCollectorBefore = usdc.balanceOf(feeCollector);
 
         vm.prank(admin);
         vaultFeeTracker.setFeeCollector(newCollector);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
 
         assertEq(usdc.balanceOf(newCollector), 10 * USDC);
         assertEq(usdc.balanceOf(feeCollector), oldCollectorBefore);
@@ -164,11 +168,11 @@ contract FeesIntegrationTest is IntegrationBase {
     function testLossWithdrawalReleasesBasisWithoutChargingFee() public {
         AgentWallet wallet = _createVaultWallet(owner, 11);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.burn(address(erc4626Vault), 100 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
 
         assertEq(usdc.balanceOf(feeCollector), collectorBefore);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
@@ -178,13 +182,13 @@ contract FeesIntegrationTest is IntegrationBase {
     function testPartialProfitThenLossReleasesRemainingBasis() public {
         AgentWallet wallet = _createVaultWallet(owner, 15);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 100 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 500 * USDC));
         usdc.burn(address(erc4626Vault), 100 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 500 * USDC));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 5 * USDC);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
@@ -199,23 +203,23 @@ contract FeesIntegrationTest is IntegrationBase {
         AgentWallet defaultWallet = _createVaultWallet(owner, 18);
         _fundWallet(customWallet, address(usdc), 1_000 * USDC);
         _fundWallet(defaultWallet, address(usdc), 1_000 * USDC);
-        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.deposit.selector, 1_000 * USDC));
-        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.deposit.selector, 1_000 * USDC));
+        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
+        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         aaveV3Vault.addYield(address(customWallet), 100 * USDC);
         aaveV3Vault.addYield(address(defaultWallet), 100 * USDC);
         usdc.mint(address(aaveV3Vault), 200 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.withdraw.selector, 550 * USDC));
-        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.withdraw.selector, 550 * USDC));
+        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 550 * USDC));
+        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 550 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 7_500_000);
         assertEq(vaultYieldFeeModule.costBasis(address(customWallet), address(aaveV3Vault)), 500 * USDC);
         assertEq(vaultYieldFeeModule.costBasis(address(defaultWallet), address(aaveV3Vault)), 500 * USDC);
         assertEq(usdc.balanceOf(address(customWallet)), 547_500_000);
         assertEq(usdc.balanceOf(address(defaultWallet)), 545 * USDC);
 
-        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.withdraw.selector, 550 * USDC));
-        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.withdraw.selector, 550 * USDC));
+        _execute(customWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 550 * USDC));
+        _execute(defaultWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 550 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 15 * USDC);
         assertEq(vaultYieldFeeModule.costBasis(address(customWallet), address(aaveV3Vault)), 0);
         assertEq(vaultYieldFeeModule.costBasis(address(defaultWallet), address(aaveV3Vault)), 0);
@@ -228,17 +232,17 @@ contract FeesIntegrationTest is IntegrationBase {
         AgentWallet secondWallet = _createVaultWallet(owner, 17);
         _fundWallet(firstWallet, address(usdc), 2_000 * USDC);
         _fundWallet(secondWallet, address(usdc), 1_000 * USDC);
-        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
-        _execute(firstWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.deposit.selector, 1_000 * USDC));
-        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
+        _execute(firstWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
+        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(erc4626Vault), 200 * USDC);
         aaveV3Vault.addYield(address(firstWallet), 100 * USDC);
         usdc.mint(address(aaveV3Vault), 100 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
-        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 1_000 * USDC));
-        _execute(firstWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(aaveV3Adapter.withdraw.selector, 1_100 * USDC));
+        _execute(firstWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
+        _execute(secondWallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_000 * USDC));
+        _execute(firstWallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 1_100 * USDC));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 30 * USDC);
         assertEq(usdc.balanceOf(address(firstWallet)), 2_180 * USDC);
@@ -257,7 +261,7 @@ contract FeesIntegrationTest is IntegrationBase {
         erc4626Vault.transfer(address(wallet), shares);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, shares));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, shares));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 10 * USDC);
         assertEq(usdc.balanceOf(address(wallet)), 90 * USDC);
 
@@ -276,7 +280,7 @@ contract FeesIntegrationTest is IntegrationBase {
         fees[0] = 3_000;
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(20 * USDC);
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, 100e18, 20 * USDC, block.timestamp));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(IAWKUniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, 100e18, 20 * USDC, block.timestamp));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 22 * USDC);
         assertEq(usdc.balanceOf(address(wallet)), 198 * USDC);
@@ -297,7 +301,7 @@ contract FeesIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(feeCollector), collectorBefore);
         assertEq(erc4626Vault.balanceOf(address(wallet)), shares);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, shares));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, shares));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 10 * USDC);
         assertEq(usdc.balanceOf(address(wallet)), 90 * USDC);
@@ -307,7 +311,7 @@ contract FeesIntegrationTest is IntegrationBase {
     function testRewardSharesSpreadCostBasisAcrossPartialAndFullWithdrawals() public {
         AgentWallet wallet = _createVaultWallet(owner, 19);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 1_000 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 1_000 * USDC));
         usdc.mint(address(this), 100 * USDC);
         usdc.approve(address(erc4626Vault), 100 * USDC);
         uint256 rewardShares = erc4626Vault.deposit(100 * USDC, address(this));
@@ -320,11 +324,11 @@ contract FeesIntegrationTest is IntegrationBase {
         uint256 finalFee = Math.mulDiv(660 * USDC - remainingBasis, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         _claim(wallet, address(erc4626Vault), rewardShares);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 500 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 500 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, partialFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 545_454_546);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 600 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 600 * USDC));
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, partialFee + finalFee);
         assertEq(vaultYieldFeeModule.costBasis(address(wallet), address(erc4626Vault)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 1_210 * USDC - partialFee - finalFee);
@@ -333,10 +337,10 @@ contract FeesIntegrationTest is IntegrationBase {
     function testFeeModulesRunInOrderAndCapPaymentsToFundsAvailable() public {
         AgentWallet wallet = _createBorrowWallet(owner, 20);
         _fundWallet(wallet, address(usdc), USDC);
-        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
-        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
+        _executeLending(wallet, IAWKBorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(wallet, IAWKBorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, IAWKBorrowAdapter.repay.selector, type(uint256).max);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 10 * USDC);
 
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
@@ -364,11 +368,11 @@ contract FeesIntegrationTest is IntegrationBase {
         YieldSeekerYieldFeeModule replacement = new YieldSeekerYieldFeeModule(vaultFeeTracker, 5_000);
         vaultFeeTracker.setFeeModule(YIELD_FEE, replacement);
         _fundWallet(wallet, address(usdc), 100 * USDC);
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.deposit.selector, 100 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 100 * USDC));
         usdc.mint(address(erc4626Vault), 10 * USDC);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
 
-        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(erc4626Adapter.withdraw.selector, 100 * USDC));
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeWithSelector(IAWKVaultAdapter.withdraw.selector, 100 * USDC));
 
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, USDC);
         assertEq(usdc.balanceOf(address(wallet)), 109 * USDC);
@@ -381,7 +385,7 @@ contract FeesIntegrationTest is IntegrationBase {
         ActionFailingFeeModule failure = new ActionFailingFeeModule(address(vaultFeeTracker), ACTION_FAILURE_FEE);
         vaultFeeTracker.setFeeModule(ACTION_FAILURE_FEE, failure);
         _fundWallet(wallet, address(usdc), 100 * USDC);
-        bytes memory deposit = abi.encodeWithSelector(erc4626Adapter.deposit.selector, 100 * USDC);
+        bytes memory deposit = abi.encodeWithSelector(IAWKVaultAdapter.deposit.selector, 100 * USDC);
         bytes memory failureError = abi.encodeWithSelector(FeeModuleActionFailed.selector);
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), deposit, failureError);
         assertEq(usdc.balanceOf(address(wallet)), 100 * USDC);
@@ -398,10 +402,10 @@ contract FeesIntegrationTest is IntegrationBase {
     function testFeeViewsIgnoreModulesThatRevert() public {
         AgentWallet wallet = _createBorrowWallet(owner, 50);
         _fundWallet(wallet, address(usdc), USDC);
-        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
-        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
+        _executeLending(wallet, IAWKBorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(wallet, IAWKBorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, IAWKBorrowAdapter.repay.selector, type(uint256).max);
         ViewFailingFeeModule failure = new ViewFailingFeeModule(address(borrowFeeTracker), VIEW_FAILURE_FEE);
         borrowFeeTracker.setFeeModule(VIEW_FAILURE_FEE, failure);
         _fundWallet(wallet, address(usdc), 20 * USDC);
@@ -419,9 +423,9 @@ contract FeesIntegrationTest is IntegrationBase {
     function testPlainBorrowCollateralTradeDoesNotAccrueYieldFees() public {
         AgentWallet wallet = _createBorrowWallet(owner, 60);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, 1_000 * USDC);
+        _executeLending(wallet, IAWKBorrowAdapter.supplyCollateral.selector, 1_000 * USDC);
         uint256 bought = 0.05e18;
-        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, bought);
+        _executeLending(wallet, IAWKBorrowAdapter.borrow.selector, bought);
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, address(weth));
         _fundWallet(wallet, address(usdc), 100 * USDC);
@@ -433,13 +437,13 @@ contract FeesIntegrationTest is IntegrationBase {
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(bought);
 
-        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought, block.timestamp));
+        _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(IAWKUniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought, block.timestamp));
 
         assertEq(vaultYieldFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(feeCollector), 0);
         assertEq(weth.balanceOf(address(wallet)), bought);
 
-        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, IAWKBorrowAdapter.repay.selector, type(uint256).max);
         assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
@@ -451,7 +455,7 @@ contract FeesIntegrationTest is IntegrationBase {
         amounts[0] = amount;
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](0);
-        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeCall(merklAdapter.claim, (tokens, amounts, proofs)));
+        _execute(wallet, address(merklAdapter), address(merklDistributor), abi.encodeCall(IAWKMerklAdapter.claim, (tokens, amounts, proofs)));
     }
 
     function _executeLending(AgentWallet wallet, bytes4 selector, uint256 amount) private {

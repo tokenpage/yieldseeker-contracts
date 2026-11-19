@@ -19,9 +19,19 @@ import {AWKErrors} from "../AWKErrors.sol";
 
 error MarketTargetMismatch(address target, address expected);
 
+/// @notice The calls a wallet can pass to a borrow adapter's execute. The adapter decodes them; it doesn't implement them
+interface IAWKBorrowAdapter {
+    function supplyCollateral(bytes calldata market, uint256 amount) external returns (uint256);
+    function withdrawCollateral(bytes calldata market, uint256 amount) external returns (uint256);
+    function borrow(bytes calldata market, uint256 amount) external returns (uint256);
+    function repay(bytes calldata market, uint256 amount) external returns (uint256);
+    function checkpoint(bytes calldata market) external returns (uint256);
+}
+
 /**
  * @title AWKBorrowAdapter
  * @notice Base class for borrow adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
+ *         (IAWKBorrowAdapter)
  * @dev Every market is its own registry target: target = marketTarget(market), where `market` is the
  *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
  *      used once the registry admin has mapped its target to this adapter.
@@ -34,26 +44,6 @@ abstract contract AWKBorrowAdapter is AWKAdapter {
     event Borrowed(address indexed wallet, address indexed market, uint256 amount);
     event Repaid(address indexed wallet, address indexed market, uint256 amount);
     event Checkpointed(address indexed wallet, address indexed market, uint256 debt);
-
-    function supplyCollateral(bytes calldata market, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    function withdrawCollateral(bytes calldata market, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    function borrow(bytes calldata market, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    function repay(bytes calldata market, uint256 amount) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
-
-    function checkpoint(bytes calldata market) external pure returns (uint256) {
-        revert AWKErrors.DirectCallForbidden();
-    }
 
     /// @notice The registry target that identifies a market
     function marketTarget(bytes memory market) public pure returns (address) {
@@ -76,25 +66,27 @@ abstract contract AWKBorrowAdapter is AWKAdapter {
 
     function execute(address target, bytes calldata data) external payable virtual override onlyDelegateCall returns (bytes memory) {
         bytes4 selector = bytes4(data[:4]);
-        if (selector == this.checkpoint.selector) {
+        if (selector == IAWKBorrowAdapter.checkpoint.selector) {
             bytes memory checkpointMarket = abi.decode(data[4:], (bytes));
             if (marketTarget(checkpointMarket) != target) revert MarketTargetMismatch(target, marketTarget(checkpointMarket));
             uint256 debt = _checkpointOperation(checkpointMarket);
             emit Checkpointed(address(this), target, debt);
             return abi.encode(debt);
         }
-        if (selector != this.supplyCollateral.selector && selector != this.withdrawCollateral.selector && selector != this.borrow.selector && selector != this.repay.selector) revert UnknownOperation();
+        if (selector != IAWKBorrowAdapter.supplyCollateral.selector && selector != IAWKBorrowAdapter.withdrawCollateral.selector && selector != IAWKBorrowAdapter.borrow.selector && selector != IAWKBorrowAdapter.repay.selector) {
+            revert UnknownOperation();
+        }
         (bytes memory market, uint256 amount) = abi.decode(data[4:], (bytes, uint256));
         if (marketTarget(market) != target) revert MarketTargetMismatch(target, marketTarget(market));
         if (amount == 0) revert AWKErrors.ZeroAmount();
         uint256 result;
-        if (selector == this.supplyCollateral.selector) {
+        if (selector == IAWKBorrowAdapter.supplyCollateral.selector) {
             result = _supplyCollateralOperation(market, amount);
             emit CollateralSupplied(address(this), target, result);
-        } else if (selector == this.withdrawCollateral.selector) {
+        } else if (selector == IAWKBorrowAdapter.withdrawCollateral.selector) {
             result = _withdrawCollateralOperation(market, amount);
             emit CollateralWithdrawn(address(this), target, result);
-        } else if (selector == this.borrow.selector) {
+        } else if (selector == IAWKBorrowAdapter.borrow.selector) {
             result = _borrowOperation(market, amount);
             emit Borrowed(address(this), target, result);
         } else {

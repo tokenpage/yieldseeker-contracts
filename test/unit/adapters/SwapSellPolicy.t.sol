@@ -3,6 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerSwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
+import {toArray} from "../../helpers/Arrays.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -31,7 +32,7 @@ contract SwapSellPolicyTest is Test {
         bytes memory notAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, bytes32(0));
         vm.expectRevert(notAdmin);
         vm.prank(nonAdmin);
-        policy.addSellableToken(tokenA);
+        policy.addSellableTokens(toArray(tokenA));
         assertFalse(policy.isSellableToken(tokenA));
 
         address[] memory tokens = new address[](2);
@@ -43,7 +44,7 @@ contract SwapSellPolicyTest is Test {
         assertTrue(policy.isSellableToken(tokenB));
         vm.expectRevert(abi.encodeWithSelector(AWKErrors.ZeroAddress.selector));
         vm.prank(admin);
-        policy.addSellableToken(address(0));
+        policy.addSellableTokens(toArray(address(0)));
 
         address[] memory invalidTokens = new address[](2);
         invalidTokens[0] = tokenC;
@@ -56,7 +57,7 @@ contract SwapSellPolicyTest is Test {
 
     function testEmergencyRemovalAndAllowAllRequireTheirRespectiveRoles() public {
         vm.prank(admin);
-        policy.addSellableToken(tokenA);
+        policy.addSellableTokens(toArray(tokenA));
 
         bytes32 emergencyRole = policy.EMERGENCY_ROLE();
         bytes memory notEmergencyAdmin = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, emergencyRole);
