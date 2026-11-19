@@ -10,7 +10,6 @@ import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFe
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
-import {MockCToken} from "../../mocks/MockCompoundV2.sol";
 import {MockCompoundV3Comet} from "../../mocks/MockCompoundV3.sol";
 import {MockLendingAaveV3Pool} from "../../mocks/MockLendingMarkets.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,25 +17,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-
-contract PowerUserDualRewards {
-    IERC20 private immutable WELL;
-    IERC20 private immutable BASE;
-    uint256 private immutable WELL_AMOUNT;
-    uint256 private immutable BASE_AMOUNT;
-
-    constructor(IERC20 well_, IERC20 base_, uint256 wellAmount_, uint256 baseAmount_) {
-        WELL = well_;
-        BASE = base_;
-        WELL_AMOUNT = wellAmount_;
-        BASE_AMOUNT = baseAmount_;
-    }
-
-    function claimReward(address holder, address[] calldata) external {
-        require(WELL.transfer(holder, WELL_AMOUNT));
-        require(BASE.transfer(holder, BASE_AMOUNT));
-    }
-}
 
 struct PowerUserHandlerSetup {
     IntegrationBase system;
@@ -47,7 +27,6 @@ struct PowerUserHandlerSetup {
     AgentWallet vaultB;
     AgentWallet borrowA;
     AgentWallet borrowB;
-    PowerUserDualRewards dualRewards;
 }
 
 contract PowerUserHandler is Test {
@@ -59,7 +38,6 @@ contract PowerUserHandler is Test {
     address private constant LOSS_SINK = address(0xdead);
 
     IntegrationBase private immutable SYSTEM;
-    PowerUserDualRewards private immutable dualRewards;
     address[2] private owners;
     AgentWallet[2] private vaultWallets;
     AgentWallet[2] private borrowWallets;
@@ -87,10 +65,10 @@ contract PowerUserHandler is Test {
     mapping(address wallet => mapping(address position => uint256 debt)) public unreportedDebt;
     mapping(address wallet => mapping(address token => uint256 amount)) private merklClaimable;
 
-    uint256[4] public vaultDepositCalls;
-    uint256[4] public vaultWithdrawalCalls;
-    uint256[4] public vaultGainCalls;
-    uint256[4] public vaultLossCalls;
+    uint256[3] public vaultDepositCalls;
+    uint256[3] public vaultWithdrawalCalls;
+    uint256[3] public vaultGainCalls;
+    uint256[3] public vaultLossCalls;
     uint256[3] public lendingSupplyCalls;
     uint256[3] public lendingBorrowCalls;
     uint256[3] public lendingRepayCalls;
@@ -99,7 +77,6 @@ contract PowerUserHandler is Test {
     uint256 public lendingCollateralYieldCalls;
     uint256 public interestAccrualCalls;
     uint256 public merklCalls;
-    uint256 public moonwellCalls;
     uint256[3] public rewardSaleCalls;
     uint256[3] public borrowSwapCalls;
     uint256 public transferCalls;
@@ -115,7 +92,6 @@ contract PowerUserHandler is Test {
 
     constructor(PowerUserHandlerSetup memory setup) {
         SYSTEM = setup.system;
-        dualRewards = setup.dualRewards;
         owners[0] = setup.ownerA;
         owners[1] = setup.ownerB;
         operator = setup.operator;
@@ -129,7 +105,7 @@ contract PowerUserHandler is Test {
 
     function operatorDepositsVault(uint8 ownerSeed, uint8 adapterSeed, uint96 amountSeed, bool percentage) public {
         uint8 ownerIndex = ownerSeed % 2;
-        uint8 adapterIndex = adapterSeed % 4;
+        uint8 adapterIndex = adapterSeed % 3;
         AgentWallet wallet = vaultWallets[ownerIndex];
         address adapter = _vaultAdapter(adapterIndex);
         address target = _vaultTarget(adapterIndex);
@@ -157,7 +133,7 @@ contract PowerUserHandler is Test {
     }
 
     function operatorWithdrawsVault(uint8 ownerSeed, uint8 adapterSeed, bool withdrawAll) public {
-        uint8 adapterIndex = adapterSeed % 4;
+        uint8 adapterIndex = adapterSeed % 3;
         AgentWallet wallet = vaultWallets[ownerSeed % 2];
         address adapter = _vaultAdapter(adapterIndex);
         address target = _vaultTarget(adapterIndex);
@@ -179,7 +155,7 @@ contract PowerUserHandler is Test {
 
     function operatorChangesVaultValue(uint8 ownerSeed, uint8 adapterSeed, uint96 amountSeed, uint8 modeSeed) public {
         uint8 ownerIndex = ownerSeed % 2;
-        uint8 adapterIndex = adapterSeed % 4;
+        uint8 adapterIndex = adapterSeed % 3;
         AgentWallet wallet = vaultWallets[ownerIndex];
         uint256 amount = bound(uint256(amountSeed), 1e6, 100e6);
         uint8 mode = modeSeed % 3;
@@ -198,13 +174,6 @@ contract PowerUserHandler is Test {
         } else if (adapterIndex == 1) {
             SYSTEM.aaveV3Vault().addYield(address(wallet), amount);
             SYSTEM.usdc().mint(address(SYSTEM.aaveV3Vault()), amount);
-        } else if (adapterIndex == 2) {
-            MockCToken market = SYSTEM.compoundV2Vault();
-            uint256 poolValueBefore = Math.mulDiv(market.totalSupply(), market.exchangeRateCurrent(), 1e18);
-            market.addYield(100);
-            uint256 poolValueAfter = Math.mulDiv(market.totalSupply(), market.exchangeRateCurrent(), 1e18);
-            uint256 gain = poolValueAfter - poolValueBefore;
-            SYSTEM.usdc().mint(address(market), gain + 2);
         } else {
             SYSTEM.compoundV3Market().addYield(address(wallet), amount);
             SYSTEM.usdc().mint(address(SYSTEM.compoundV3Market()), amount);
@@ -353,34 +322,6 @@ contract PowerUserHandler is Test {
         }
     }
 
-    function operatorClaimsMoonwellAndSells(uint8 ownerSeed, uint8 dexSeed) public {
-        AgentWallet wallet = vaultWallets[ownerSeed % 2];
-        uint256 wellAmount = 1e18;
-        uint256 baseAmount = 1e6;
-        SYSTEM.wellToken().mint(address(dualRewards), wellAmount);
-        SYSTEM.usdc().mint(address(dualRewards), baseAmount);
-        address[] memory markets = new address[](2);
-        markets[0] = address(SYSTEM.compoundV2Vault());
-        markets[1] = address(SYSTEM.compoundV3Market());
-        address adapter = address(SYSTEM.moonwellRewardAdapter());
-        address target = address(dualRewards);
-        _prepareExecution(wallet, adapter, target);
-        bytes memory claimData = abi.encodeCall(SYSTEM.moonwellRewardAdapter().claimReward, (address(wallet), markets));
-        vm.recordLogs();
-        vm.prank(operator);
-        wallet.executeViaAdapter(adapter, target, claimData);
-        _captureFees();
-        _recordYield(wallet, baseAmount);
-        authorizedGains += baseAmount;
-        moonwellCalls++;
-        uint256 balance = SYSTEM.wellToken().balanceOf(address(wallet));
-        if (balance > 0) {
-            uint256 received = _swapReward(wallet, address(SYSTEM.wellToken()), dexSeed % 3, balance);
-            authorizedGains += received;
-            _recordYield(wallet, received);
-        }
-    }
-
     function operatorRunsBorrowSwapAndRepays(uint8 ownerSeed, uint8 dexSeed, uint96 amountSeed) public {
         AgentWallet wallet = borrowWallets[ownerSeed % 2];
         _ensureMarketDebt(wallet, 0);
@@ -515,7 +456,7 @@ contract PowerUserHandler is Test {
 
     function ownerBlocksOrUnblocks(uint8 walletSeed, uint8 targetSeed, bool blockIt, bool adapterBlock) public {
         AgentWallet wallet = _wallet(walletSeed);
-        uint8 adapterIndex = targetSeed % 4;
+        uint8 adapterIndex = targetSeed % 3;
         address adapter = _vaultAdapter(adapterIndex);
         address target = _vaultTarget(adapterIndex);
         vm.prank(wallet.owner());
@@ -574,7 +515,7 @@ contract PowerUserHandler is Test {
     function assertPositionAccounting() external view {
         for (uint256 i; i < 2; i++) {
             AgentWallet vaultWallet = vaultWallets[i];
-            for (uint8 vaultIndex; vaultIndex < 4; vaultIndex++) {
+            for (uint8 vaultIndex; vaultIndex < 3; vaultIndex++) {
                 address target = _vaultTarget(vaultIndex);
                 assertEq(_vaultPosition(vaultWallet, vaultIndex), IERC20(target).balanceOf(address(vaultWallet)));
                 assertEq(basisGhost[address(vaultWallet)][target], SYSTEM.vaultYieldFeeModule().costBasis(address(vaultWallet), target));
@@ -643,7 +584,7 @@ contract PowerUserHandler is Test {
 
         for (uint256 i; i < 2; i++) {
             AgentWallet vaultWallet = vaultWallets[i];
-            for (uint8 vaultIndex; vaultIndex < 4; vaultIndex++) {
+            for (uint8 vaultIndex; vaultIndex < 3; vaultIndex++) {
                 _closeVaultPosition(vaultWallet, vaultIndex);
             }
             _sellIfHeld(vaultWallet, address(SYSTEM.rewardToken()));
@@ -695,7 +636,7 @@ contract PowerUserHandler is Test {
     }
 
     function runRepresentativeWorkflows() public {
-        for (uint8 i; i < 4; i++) {
+        for (uint8 i; i < 3; i++) {
             operatorDepositsVault(0, i, uint96(50 * USDC_UNIT), false);
             operatorDepositsVault(1, i, uint96(40 * USDC_UNIT), true);
             operatorChangesVaultValue(0, i, uint96(100 * USDC_UNIT), 0);
@@ -720,7 +661,7 @@ contract PowerUserHandler is Test {
         operatorRunsBorrowSwapAndRepays(1, 2, uint96(10 * USDC_UNIT));
         operatorClaimsMerklAndSells(0, 0, uint96(1e18));
         operatorClaimsMerklAndSells(1, 1, uint96(1e18));
-        operatorClaimsMoonwellAndSells(0, 2);
+        operatorClaimsMerklAndSells(0, 2, uint96(1e18));
         operatorMovesBetweenWallets(0, uint96(2 * USDC_UNIT), true);
         operatorMovesBetweenWallets(1, uint96(2 * USDC_UNIT), false);
         ownerWithdrawsOneAsset(0, uint96(1 * USDC_UNIT));
@@ -738,7 +679,7 @@ contract PowerUserHandler is Test {
     }
 
     function assertEveryWorkflowWasCalled() external view {
-        for (uint256 i; i < 4; i++) {
+        for (uint256 i; i < 3; i++) {
             assertGt(vaultDepositCalls[i], 0);
             assertGt(vaultWithdrawalCalls[i], 0);
             assertGt(vaultGainCalls[i], 0);
@@ -756,7 +697,6 @@ contract PowerUserHandler is Test {
         assertGt(lendingCollateralYieldCalls, 0);
         assertGt(interestAccrualCalls, 0);
         assertGt(merklCalls, 0);
-        assertGt(moonwellCalls, 0);
         assertGt(transferCalls, 0);
         assertGt(singleWithdrawalCalls, 0);
         assertGt(allWithdrawalCalls, 0);
@@ -777,7 +717,7 @@ contract PowerUserHandler is Test {
             AgentWallet vaultWallet = vaultWallets[i];
             AgentWallet borrowWallet = borrowWallets[i];
             assets += SYSTEM.usdc().balanceOf(address(vaultWallet)) + SYSTEM.usdc().balanceOf(address(borrowWallet));
-            for (uint8 vaultIndex; vaultIndex < 4; vaultIndex++) {
+            for (uint8 vaultIndex; vaultIndex < 3; vaultIndex++) {
                 assets += _vaultPositionValue(vaultWallet, vaultIndex);
             }
             for (uint8 marketIndex; marketIndex < 3; marketIndex++) {
@@ -806,12 +746,10 @@ contract PowerUserHandler is Test {
             AgentWallet vaultWallet = vaultWallets[i];
             assertEq(SYSTEM.erc4626Vault().balanceOf(owners[i]), 0);
             assertEq(SYSTEM.aaveV3Vault().balanceOf(owners[i]), 0);
-            assertEq(SYSTEM.compoundV2Vault().balanceOf(owners[i]), 0);
             assertEq(SYSTEM.compoundV3Market().balanceOf(owners[i]), 0);
             assertEq(SYSTEM.erc4626Vault().balanceOf(address(vaultWallet)), _vaultPosition(vaultWallet, 0));
             assertEq(SYSTEM.aaveV3Vault().balanceOf(address(vaultWallet)), _vaultPosition(vaultWallet, 1));
-            assertEq(SYSTEM.compoundV2Vault().balanceOf(address(vaultWallet)), _vaultPosition(vaultWallet, 2));
-            assertEq(SYSTEM.compoundV3Market().balanceOf(address(vaultWallet)), _vaultPosition(vaultWallet, 3));
+            assertEq(SYSTEM.compoundV3Market().balanceOf(address(vaultWallet)), _vaultPosition(vaultWallet, 2));
 
             AgentWallet borrowWallet = borrowWallets[i];
             assertEq(SYSTEM.aaveV3CollateralAToken().balanceOf(owners[i]), 0);
@@ -840,7 +778,7 @@ contract PowerUserHandler is Test {
             assertEq(SYSTEM.rewardToken().balanceOf(address(borrowWallet)), 0);
             assertEq(SYSTEM.wellToken().balanceOf(address(vaultWallet)), 0);
             assertEq(SYSTEM.wellToken().balanceOf(address(borrowWallet)), 0);
-            for (uint8 vaultIndex; vaultIndex < 4; vaultIndex++) {
+            for (uint8 vaultIndex; vaultIndex < 3; vaultIndex++) {
                 assertEq(_vaultPosition(vaultWallet, vaultIndex), 0);
             }
             for (uint8 marketIndex; marketIndex < 3; marketIndex++) {
@@ -1024,16 +962,6 @@ contract PowerUserHandler is Test {
             aToken.transfer(LOSS_SINK, loss);
             return loss;
         }
-        if (index == 2) {
-            MockCToken market = SYSTEM.compoundV2Vault();
-            uint256 shares = market.balanceOf(address(wallet));
-            if (shares == 0) return 0;
-            uint256 lostShares = Math.min(bound(amountSeed, 1, shares), Math.max(shares / 10, 1));
-            lossValue = Math.mulDiv(lostShares, market.exchangeRateCurrent(), 1e18);
-            vm.prank(address(wallet));
-            market.transfer(LOSS_SINK, lostShares);
-            return lossValue;
-        }
         MockCompoundV3Comet market = SYSTEM.compoundV3Market();
         uint256 held = market.balanceOf(address(wallet));
         if (held == 0) return 0;
@@ -1114,14 +1042,12 @@ contract PowerUserHandler is Test {
     function _vaultAdapter(uint8 index) private view returns (address) {
         if (index == 0) return address(SYSTEM.erc4626Adapter());
         if (index == 1) return address(SYSTEM.aaveV3Adapter());
-        if (index == 2) return address(SYSTEM.compoundV2Adapter());
         return address(SYSTEM.compoundV3Adapter());
     }
 
     function _vaultTarget(uint8 index) private view returns (address) {
         if (index == 0) return address(SYSTEM.erc4626Vault());
         if (index == 1) return address(SYSTEM.aaveV3Vault());
-        if (index == 2) return address(SYSTEM.compoundV2Vault());
         return address(SYSTEM.compoundV3Market());
     }
 
@@ -1132,7 +1058,6 @@ contract PowerUserHandler is Test {
     function _vaultPositionValue(AgentWallet wallet, uint8 index) private view returns (uint256) {
         if (index == 0) return SYSTEM.erc4626Vault().convertToAssets(SYSTEM.erc4626Vault().balanceOf(address(wallet)));
         if (index == 1) return SYSTEM.aaveV3Vault().balanceOf(address(wallet));
-        if (index == 2) return Math.mulDiv(SYSTEM.compoundV2Vault().balanceOf(address(wallet)), SYSTEM.compoundV2Vault().exchangeRateCurrent(), 1e18);
         return SYSTEM.compoundV3Market().balanceOf(address(wallet));
     }
 
@@ -1345,7 +1270,7 @@ contract PowerUserHandler is Test {
 
     function _allVaultPositionValue() private view returns (uint256 total) {
         for (uint256 i; i < 2; i++) {
-            for (uint8 vaultIndex; vaultIndex < 4; vaultIndex++) {
+            for (uint8 vaultIndex; vaultIndex < 3; vaultIndex++) {
                 total += _vaultPositionValue(vaultWallets[i], vaultIndex);
             }
         }
@@ -1381,14 +1306,8 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         AgentWallet vaultB = _createVaultWallet(ownerB, 0, vaultPlans);
         AgentWallet borrowA = _createBorrowWallet(ownerA, 1);
         AgentWallet borrowB = _createBorrowWallet(ownerB, 1, borrowPlans);
-        PowerUserDualRewards dualRewards = new PowerUserDualRewards(IERC20(address(wellToken)), IERC20(address(usdc)), 1e18, 1e6);
-        borrowRegistry.registerAdapter(address(moonwellRewardAdapter));
-        borrowRegistry.setTargetAdapter(address(dualRewards), address(moonwellRewardAdapter));
-        vaultRegistry.setTargetAdapter(address(dualRewards), address(moonwellRewardAdapter));
 
-        handler = new PowerUserHandler(
-            PowerUserHandlerSetup({system: IntegrationBase(address(this)), ownerA: ownerA, ownerB: ownerB, operator: operator, vaultA: vaultA, vaultB: vaultB, borrowA: borrowA, borrowB: borrowB, dualRewards: dualRewards})
-        );
+        handler = new PowerUserHandler(PowerUserHandlerSetup({system: IntegrationBase(address(this)), ownerA: ownerA, ownerB: ownerB, operator: operator, vaultA: vaultA, vaultB: vaultB, borrowA: borrowA, borrowB: borrowB}));
         factory.grantRole(factory.DEFAULT_ADMIN_ROLE(), address(handler));
         vaultRegistry.grantRole(vaultRegistry.DEFAULT_ADMIN_ROLE(), address(handler));
         vaultRegistry.grantRole(vaultRegistry.EMERGENCY_ROLE(), address(handler));
@@ -1396,7 +1315,7 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         borrowRegistry.grantRole(borrowRegistry.EMERGENCY_ROLE(), address(handler));
 
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](22);
+        bytes4[] memory selectors = new bytes4[](21);
         selectors[0] = PowerUserHandler.operatorDepositsVault.selector;
         selectors[1] = PowerUserHandler.operatorWithdrawsVault.selector;
         selectors[2] = PowerUserHandler.operatorChangesVaultValue.selector;
@@ -1408,17 +1327,16 @@ contract PowerUserInvariantTest is StdInvariant, IntegrationBase {
         selectors[8] = PowerUserHandler.operatorCheckpointsMarket.selector;
         selectors[9] = PowerUserHandler.protocolAccruesInterest.selector;
         selectors[10] = PowerUserHandler.operatorClaimsMerklAndSells.selector;
-        selectors[11] = PowerUserHandler.operatorClaimsMoonwellAndSells.selector;
-        selectors[12] = PowerUserHandler.operatorRunsBorrowSwapAndRepays.selector;
-        selectors[13] = PowerUserHandler.operatorMovesBetweenWallets.selector;
-        selectors[14] = PowerUserHandler.ownerWithdrawsOneAsset.selector;
-        selectors[15] = PowerUserHandler.ownerWithdrawsAllBase.selector;
-        selectors[16] = PowerUserHandler.ownerWithdrawsBatch.selector;
-        selectors[17] = PowerUserHandler.ownerWithdrawsEth.selector;
-        selectors[18] = PowerUserHandler.ownerBlocksOrUnblocks.selector;
-        selectors[19] = PowerUserHandler.adminChangesRegistryThenSyncs.selector;
-        selectors[20] = PowerUserHandler.timePasses.selector;
-        selectors[21] = PowerUserHandler.marketPricesMove.selector;
+        selectors[11] = PowerUserHandler.operatorRunsBorrowSwapAndRepays.selector;
+        selectors[12] = PowerUserHandler.operatorMovesBetweenWallets.selector;
+        selectors[13] = PowerUserHandler.ownerWithdrawsOneAsset.selector;
+        selectors[14] = PowerUserHandler.ownerWithdrawsAllBase.selector;
+        selectors[15] = PowerUserHandler.ownerWithdrawsBatch.selector;
+        selectors[16] = PowerUserHandler.ownerWithdrawsEth.selector;
+        selectors[17] = PowerUserHandler.ownerBlocksOrUnblocks.selector;
+        selectors[18] = PowerUserHandler.adminChangesRegistryThenSyncs.selector;
+        selectors[19] = PowerUserHandler.timePasses.selector;
+        selectors[20] = PowerUserHandler.marketPricesMove.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -1461,9 +1379,9 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
     function testFuzz_vaultOwnerLifecycleFromFirstDepositToFullExit(uint256 amountSeed, uint256 yieldSeed, uint256 timeSeed, uint256 priceSeed) public {
         address vaultOwner = makeAddr("vault lifecycle owner");
         AgentWallet wallet = _createVaultWallet(vaultOwner, 0);
-        uint256[4] memory principal;
-        uint256[4] memory expectedOut;
-        for (uint8 i; i < 4; i++) {
+        uint256[3] memory principal;
+        uint256[3] memory expectedOut;
+        for (uint8 i; i < 3; i++) {
             principal[i] = bound(uint256(keccak256(abi.encode(amountSeed, i))), 10e6, 1_000e6);
             usdc.mint(vaultOwner, principal[i]);
             vm.prank(vaultOwner);
@@ -1473,7 +1391,7 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
 
         uint256 yieldBps = bound(yieldSeed, 1, 1_000);
         uint256 totalFee;
-        for (uint8 i; i < 4; i++) {
+        for (uint8 i; i < 3; i++) {
             if (i == 0) {
                 uint256 gain = Math.mulDiv(principal[i], yieldBps, 10_000);
                 usdc.mint(address(erc4626Vault), gain);
@@ -1483,15 +1401,6 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
                 aaveV3Vault.addYield(address(wallet), gain);
                 usdc.mint(address(aaveV3Vault), gain);
                 expectedOut[i] = aaveV3Vault.balanceOf(address(wallet));
-            } else if (i == 2) {
-                MockCToken market = compoundV2Vault;
-                uint256 oldRate = market.exchangeRateCurrent();
-                uint256 shares = market.balanceOf(address(wallet));
-                uint256 nextRate = oldRate * (10_000 + yieldBps) / 10_000;
-                expectedOut[i] = Math.mulDiv(shares, nextRate, 1e18);
-                uint256 needed = expectedOut[i] > principal[i] ? expectedOut[i] - principal[i] : 0;
-                usdc.mint(address(market), needed + 2);
-                market.addYield(yieldBps);
             } else {
                 uint256 gain = Math.mulDiv(principal[i], yieldBps, 10_000);
                 compoundV3Market.addYield(address(wallet), gain);
@@ -1509,7 +1418,7 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         aaveV4Spoke.setReservePrice(2, price);
 
         uint256 expectedGross;
-        for (uint8 i; i < 4; i++) {
+        for (uint8 i; i < 3; i++) {
             uint256 output = expectedOut[i];
             if (output > principal[i]) totalFee += Math.mulDiv(output - principal[i], YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
             expectedGross += output;
@@ -1523,7 +1432,7 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(wallet)), 0);
         assertEq(vaultYieldFeeModule.feesOwed(address(wallet)), 0);
         assertEq(usdc.balanceOf(feeCollector), totalFee);
-        for (uint8 i; i < 4; i++) {
+        for (uint8 i; i < 3; i++) {
             assertEq(IERC20(_vaultTarget(i)).balanceOf(address(wallet)), 0);
             assertEq(vaultYieldFeeModule.costBasis(address(wallet), _vaultTarget(i)), 0);
         }
@@ -1600,14 +1509,12 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
     function _vaultAdapter(uint8 index) private view returns (address) {
         if (index == 0) return address(erc4626Adapter);
         if (index == 1) return address(aaveV3Adapter);
-        if (index == 2) return address(compoundV2Adapter);
         return address(compoundV3Adapter);
     }
 
     function _vaultTarget(uint8 index) private view returns (address) {
         if (index == 0) return address(erc4626Vault);
         if (index == 1) return address(aaveV3Vault);
-        if (index == 2) return address(compoundV2Vault);
         return address(compoundV3Market);
     }
 

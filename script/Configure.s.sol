@@ -171,7 +171,7 @@ contract ConfigureScript is Script {
             _vaultTargets.push(target);
             (string memory v2AdapterKey, string memory adapterKey) = _vaultAdapterKeys(_config.readString(_at(".vaultTargets", i, "adapter")));
             _setTarget(v2Registry, target, _deployments.readAddress(v2AdapterKey), label);
-            _setTarget(vaultRegistry, target, _deployments.readAddress(adapterKey), label);
+            if (bytes(adapterKey).length != 0) _setTarget(vaultRegistry, target, _deployments.readAddress(adapterKey), label);
         }
     }
 
@@ -387,14 +387,14 @@ contract ConfigureScript is Script {
     }
 
     /// @return v2AdapterKey The V2 vault registry adapter's key in deployments.json
-    /// @return adapterKey The V3 vault registry adapter's key in deployments.json
+    /// @return adapterKey The V3 vault registry adapter's key in deployments.json; empty for kinds only V2 wallets use (Moonwell)
     function _vaultAdapterKeys(string memory kind) internal pure returns (string memory v2AdapterKey, string memory adapterKey) {
         bytes32 name = keccak256(bytes(kind));
         if (name == keccak256("erc4626")) return (".agentWalletV2Erc4626Adapter", ".erc4626Adapter");
         if (name == keccak256("aaveV3")) return (".agentWalletV2AaveV3Adapter", ".aaveV3Adapter");
         if (name == keccak256("compoundV3")) return (".agentWalletV2CompoundV3Adapter", ".compoundV3Adapter");
-        if (name == keccak256("compoundV2")) return (".agentWalletV2CompoundV2Adapter", ".compoundV2Adapter");
-        if (name == keccak256("moonwellReward")) return (".agentWalletV2MoonwellRewardAdapter", ".moonwellRewardAdapter");
+        if (name == keccak256("compoundV2")) return (".agentWalletV2CompoundV2Adapter", "");
+        if (name == keccak256("moonwellReward")) return (".agentWalletV2MoonwellRewardAdapter", "");
         if (name == keccak256("merkl")) return (".agentWalletV2MerklAdapter", ".merklAdapter");
         if (name == keccak256("uniswapV3")) return (".agentWalletV2UniswapV3SwapAdapter", ".uniswapV3SwapAdapter");
         if (name == keccak256("aerodromeV2")) return (".agentWalletV2AerodromeV2SwapAdapter", ".aerodromeV2SwapAdapter");

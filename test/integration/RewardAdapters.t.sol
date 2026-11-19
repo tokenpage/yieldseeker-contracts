@@ -4,7 +4,6 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {ClaimDeliveryMismatch} from "../../src/adapters/MerklAdapter.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {InvalidClaimHolder} from "../../src/agentwalletkit/adapters/AWKMoonwellRewardAdapter.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -63,27 +62,6 @@ contract BurnOnReceiptWrapper is ERC20 {
         if (from == DISTRIBUTOR) {
             _burn(to, value);
             require(UNDERLYING.transferFrom(HOLDER, to, value));
-        }
-    }
-}
-
-contract MockMoonwellDualRewardComptroller {
-    IERC20 public immutable wellToken;
-    IERC20 public immutable baseAsset;
-    uint256 public wellPerMarket;
-    uint256 public basePerMarket;
-
-    constructor(IERC20 wellToken_, IERC20 baseAsset_, uint256 wellPerMarket_, uint256 basePerMarket_) {
-        wellToken = wellToken_;
-        baseAsset = baseAsset_;
-        wellPerMarket = wellPerMarket_;
-        basePerMarket = basePerMarket_;
-    }
-
-    function claimReward(address holder, address[] calldata markets) external {
-        for (uint256 i; i < markets.length; ++i) {
-            require(wellToken.transfer(holder, wellPerMarket), "WELL transfer failed");
-            require(baseAsset.transfer(holder, basePerMarket), "Base transfer failed");
         }
     }
 }
@@ -222,49 +200,6 @@ contract RewardAdaptersTest is IntegrationBase {
         amounts[0] = 1_000e6;
         bytes memory expectedError = abi.encodeWithSelector(ClaimDeliveryMismatch.selector, address(wrapper), 1_000e6, 0);
         _executeExpectRevert(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts), expectedError);
-        assertEq(usdc.balanceOf(address(wallet)), 0);
-    }
-
-    function testMoonwellClaimCollectsBaseAssetFeeAndKeepsWELLRewardsInWallet() public {
-        AgentWallet wallet = _createVaultWallet(owner, 1);
-        uint256 wellReward = 200e18;
-        uint256 baseReward = 500e6;
-        MockMoonwellDualRewardComptroller comptroller = new MockMoonwellDualRewardComptroller(IERC20(address(wellToken)), IERC20(address(usdc)), wellReward, baseReward);
-        _fund(address(wellToken), address(comptroller), wellReward);
-        _fund(address(usdc), address(comptroller), baseReward);
-        vaultRegistry.setTargetAdapter(address(comptroller), address(moonwellRewardAdapter));
-        address[] memory markets = new address[](1);
-        markets[0] = address(0x1111);
-
-        _execute(wallet, address(moonwellRewardAdapter), address(comptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (address(wallet), markets)));
-
-        uint256 baseFee = baseReward * YIELD_FEE_BPS / 10_000;
-        assertEq(usdc.balanceOf(address(wallet)), baseReward - baseFee);
-        assertEq(wellToken.balanceOf(address(wallet)), wellReward);
-        assertEq(_feesCollected(address(usdc)), baseFee);
-        assertEq(vaultYieldFeeModule.feesOwed(address(wallet)), 0);
-
-        vm.prank(owner);
-        wallet.withdrawAllAssetToUser(owner, address(usdc));
-        assertEq(usdc.balanceOf(owner), baseReward - baseFee);
-    }
-
-    function testMoonwellClaimRejectsAHolderOtherThanTheWallet() public {
-        AgentWallet wallet = _createVaultWallet(owner, 1);
-        address[] memory markets = new address[](1);
-        markets[0] = address(0x1111);
-        bytes memory holderError = abi.encodeWithSelector(InvalidClaimHolder.selector, owner);
-        _executeExpectRevert(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (owner, markets)), holderError);
-    }
-
-    function testMoonwellComptrollerFailureRevertsTheWalletAction() public {
-        AgentWallet wallet = _createVaultWallet(owner, 1);
-        moonwellComptroller.setShouldRevert(true);
-        address[] memory markets = new address[](1);
-        markets[0] = address(0x1111);
-        bytes memory expectedError = abi.encodeWithSignature("Error(string)", "claim failed");
-        _executeExpectRevert(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (address(wallet), markets)), expectedError);
-        assertEq(wellToken.balanceOf(address(wallet)), 0);
         assertEq(usdc.balanceOf(address(wallet)), 0);
     }
 }

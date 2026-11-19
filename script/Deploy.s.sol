@@ -12,11 +12,9 @@ import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../src/adap
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../src/adapters/AgentTransferAdapter.sol";
-import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
-import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
@@ -88,8 +86,6 @@ contract DeployScript is Script {
         address erc4626Adapter;
         address aaveV3Adapter;
         address compoundV3Adapter;
-        address compoundV2Adapter;
-        address moonwellRewardAdapter;
         address merklAdapter;
         address uniswapV3SwapAdapter;
         address aerodromeV2SwapAdapter;
@@ -240,13 +236,6 @@ contract DeployScript is Script {
         revert(string.concat("Unsupported chain id for Aerodrome CL4 router: ", vm.toString(chainId)));
     }
 
-    function getWellToken(uint256 chainId) internal pure returns (address) {
-        if (chainId == 8453) {
-            return 0xA88594D404727625A9437C3f886C7643872296AE;
-        }
-        revert(string.concat("Unsupported chain id for WELL token: ", vm.toString(chainId)));
-    }
-
     function run() public {
         address serverAddress = vm.envAddress("SERVER_ADDRESS");
         address feeCollectorAddress = vm.envAddress("FEE_COLLECTOR_ADDRESS");
@@ -306,8 +295,6 @@ contract DeployScript is Script {
             erc4626Adapter: _readDeployed(deployJson, ".erc4626Adapter"),
             aaveV3Adapter: _readDeployed(deployJson, ".aaveV3Adapter"),
             compoundV3Adapter: _readDeployed(deployJson, ".compoundV3Adapter"),
-            compoundV2Adapter: _readDeployed(deployJson, ".compoundV2Adapter"),
-            moonwellRewardAdapter: _readDeployed(deployJson, ".moonwellRewardAdapter"),
             merklAdapter: _readDeployed(deployJson, ".merklAdapter"),
             uniswapV3SwapAdapter: _readDeployed(deployJson, ".uniswapV3SwapAdapter"),
             aerodromeV2SwapAdapter: _readDeployed(deployJson, ".aerodromeV2SwapAdapter"),
@@ -470,21 +457,6 @@ contract DeployScript is Script {
             console2.log("-> Using existing compoundV3Adapter:", deployments.compoundV3Adapter);
         }
 
-        // Compound V2 Adapter (for Moonwell and other Compound V2 forks)
-        if (deployments.compoundV2Adapter == address(0)) {
-            deployments.compoundV2Adapter = deployCreate2(abi.encodePacked(type(CompoundV2Adapter).creationCode));
-            console2.log("-> CompoundV2Adapter deployed at:", deployments.compoundV2Adapter);
-        } else {
-            console2.log("-> Using existing compoundV2Adapter:", deployments.compoundV2Adapter);
-        }
-
-        if (deployments.moonwellRewardAdapter == address(0)) {
-            deployments.moonwellRewardAdapter = deployCreate2(abi.encodePacked(type(MoonwellRewardAdapter).creationCode, abi.encode(getWellToken(block.chainid))));
-            console2.log("-> MoonwellRewardAdapter deployed at:", deployments.moonwellRewardAdapter);
-        } else {
-            console2.log("-> Using existing moonwellRewardAdapter:", deployments.moonwellRewardAdapter);
-        }
-
         if (deployments.merklAdapter == address(0)) {
             deployments.merklAdapter = deployCreate2(abi.encodePacked(type(MerklAdapter).creationCode));
             console2.log("-> MerklAdapter deployed at:", deployments.merklAdapter);
@@ -586,8 +558,6 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "erc4626Adapter", deployments.erc4626Adapter);
         vm.serializeAddress(json, "aaveV3Adapter", deployments.aaveV3Adapter);
         vm.serializeAddress(json, "compoundV3Adapter", deployments.compoundV3Adapter);
-        vm.serializeAddress(json, "compoundV2Adapter", deployments.compoundV2Adapter);
-        vm.serializeAddress(json, "moonwellRewardAdapter", deployments.moonwellRewardAdapter);
         vm.serializeAddress(json, "merklAdapter", deployments.merklAdapter);
         vm.serializeAddress(json, "uniswapV3SwapAdapter", deployments.uniswapV3SwapAdapter);
         vm.serializeAddress(json, "aerodromeV2SwapAdapter", deployments.aerodromeV2SwapAdapter);
@@ -658,8 +628,6 @@ contract DeployScript is Script {
         _registerAdapter(vaultAdapterRegistry, deployments.erc4626Adapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aaveV3Adapter);
         _registerAdapter(vaultAdapterRegistry, deployments.compoundV3Adapter);
-        _registerAdapter(vaultAdapterRegistry, deployments.compoundV2Adapter);
-        _registerAdapter(vaultAdapterRegistry, deployments.moonwellRewardAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.merklAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.uniswapV3SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeV2SwapAdapter);

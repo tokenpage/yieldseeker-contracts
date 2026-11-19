@@ -34,31 +34,6 @@ contract MockMerklDistributor {
     }
 }
 
-contract MockMoonwellComptroller {
-    IERC20 public immutable wellToken;
-    uint256 public rewardPerMarket;
-    bool public shouldRevert;
-
-    constructor(IERC20 wellToken_) {
-        wellToken = wellToken_;
-    }
-
-    function setRewardPerMarket(uint256 amount) external {
-        rewardPerMarket = amount;
-    }
-
-    function setShouldRevert(bool value) external {
-        shouldRevert = value;
-    }
-
-    function claimReward(address holder, address[] calldata mTokens) external {
-        if (shouldRevert) revert("claim failed");
-        for (uint256 i = 0; i < mTokens.length; i++) {
-            require(wellToken.transfer(holder, rewardPerMarket), "Transfer failed");
-        }
-    }
-}
-
 contract MockUniswapV3Router {
     uint256 public configuredBuyAmount;
     bool public shouldRevert;

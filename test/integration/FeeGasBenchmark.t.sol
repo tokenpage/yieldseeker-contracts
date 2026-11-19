@@ -129,14 +129,12 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         _benchmarkMerklClaim(108_000, "Merkl USDC claim $0.108", 65_125, 137_824);
     }
 
-    function testMoonwellClaimAndSwapProductionGas() public {
+    function testRewardSwapProductionGas() public {
         AgentWallet wallet = _createVaultWallet(owner, 0);
         uint256 wellAmount = 1e18;
         uint256 buyAmount = 100_000;
         uint256 expectedFee = buyAmount / 10;
         address directUser = address(0xDEAD);
-        address[] memory mTokens = new address[](1);
-        mTokens[0] = address(0x1111);
         address[] memory routePath = new address[](2);
         routePath[0] = address(wellToken);
         routePath[1] = address(usdc);
@@ -145,23 +143,11 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: routePath, fees: routeFees});
         IUniswapV3SwapRouter.ExactInputParams memory directParams =
             IUniswapV3SwapRouter.ExactInputParams({path: abi.encodePacked(address(wellToken), uint24(3_000), address(usdc)), recipient: directUser, amountIn: wellAmount, amountOutMinimum: buyAmount});
-        moonwellComptroller.setRewardPerMarket(wellAmount);
+        _fund(address(wellToken), directUser, wellAmount);
+        _fundWallet(wallet, address(wellToken), wellAmount);
         uniswapV3Router.setBuyAmount(buyAmount);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
         uint256 walletBaseBeforeSwap = usdc.balanceOf(address(wallet));
-
-        uint256 directClaimStart = gasleft();
-        moonwellComptroller.claimReward(directUser, mTokens);
-        uint256 directClaimGas = directClaimStart - gasleft();
-
-        uint256 adapterClaimStart = gasleft();
-        vm.prank(operator);
-        wallet.executeViaAdapter(address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeWithSelector(moonwellRewardAdapter.claimReward.selector, address(wallet), mTokens));
-        uint256 adapterClaimGas = adapterClaimStart - gasleft();
-
-        assertEq(wellToken.balanceOf(address(wallet)), wellAmount);
-        assertEq(usdc.balanceOf(feeCollector), collectorBefore);
-        _logGas("Moonwell WELL claim $0.10", 64_231, 116_067, 0, directClaimGas, adapterClaimGas, false);
 
         vm.prank(directUser);
         wellToken.approve(address(uniswapV3Router), type(uint256).max);
