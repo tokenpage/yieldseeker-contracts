@@ -49,7 +49,7 @@ interface IAaveV3Oracle {
  *      Supplying collateral puts the account in the market's e-mode category (0 = none). Needs an Aave V3.3+ pool
  *      (getReserveAToken / getReserveVariableDebtToken, about 20k gas cheaper than getReserveData).
  */
-contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
+abstract contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VARIABLE_RATE_MODE = 2;
@@ -75,6 +75,10 @@ contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
     /// @dev Every market with the same pool and collateral asset uses the same aToken balance
     function collateralPosition(bytes memory market) public view virtual override returns (address) {
         return collateralReceiptToken(market);
+    }
+
+    function debtPosition(bytes memory market) public pure virtual override returns (address) {
+        return marketTarget(market);
     }
 
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {

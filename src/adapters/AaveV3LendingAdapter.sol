@@ -34,28 +34,4 @@ contract YieldSeekerAaveV3LendingAdapter is AWKAaveV3LendingAdapter, YieldSeeker
         (, collateralAsset, debtAsset, eModeCategory) = _decodeMarket(market);
         if (eModeCategory != 0) revert EModeNotAllowed(eModeCategory);
     }
-
-    function collateralPosition(bytes memory market) public view override(AWKAaveV3LendingAdapter, AWKLendingAdapter) returns (address) {
-        return super.collateralPosition(market);
-    }
-
-    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
-        return super._supplyCollateralOperation(market, amount);
-    }
-
-    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
-        return super._withdrawCollateralOperation(market, amount);
-    }
-
-    function _borrowOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
-        return super._borrowOperation(market, amount);
-    }
-
-    function _repayOperation(bytes memory market, uint256 amount) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
-        return super._repayOperation(market, amount);
-    }
-
-    function _checkpointOperation(bytes memory market) internal override(AWKLendingAdapter, YieldSeekerLendingAdapter) returns (uint256) {
-        return super._checkpointOperation(market);
-    }
 }

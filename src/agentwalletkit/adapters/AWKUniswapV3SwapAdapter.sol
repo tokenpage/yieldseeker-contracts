@@ -16,7 +16,7 @@ pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -41,10 +41,8 @@ interface IUniswapV3SwapRouter {
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Accepts multi-hop routes through path+fee arrays with strict validation.
  */
-contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
+abstract contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
     using SafeERC20 for IERC20;
-
-    uint256 internal constant MAX_HOPS = 4;
 
     struct SwapRoute {
         address[] path;
@@ -80,8 +78,11 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
         if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
         (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != UNISWAP_V3_ROUTER) revert InvalidUniswapV3RouterTarget(target, UNISWAP_V3_ROUTER);
-        _validateRoute(sellToken, buyToken, route);
-        _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
+        _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.fees.length);
+        for (uint256 i = 0; i < route.fees.length; i++) {
+            uint24 fee = route.fees[i];
+            if (fee != 100 && fee != 500 && fee != 3000 && fee != 10000) revert InvalidUniswapV3FeeTier(fee);
+        }
         (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
         return abi.encode(buyAmount);
     }
@@ -99,22 +100,5 @@ contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.fees[i]), abi.encodePacked(route.path[i + 1]));
         }
         return IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
-    }
-
-    function _validateFeeTier(uint24 fee) internal pure {
-        if (fee != 100 && fee != 500 && fee != 3000 && fee != 10000) revert InvalidUniswapV3FeeTier(fee);
-    }
-
-    function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {
-        uint256 pathLength = route.path.length;
-        if (pathLength < 2 || pathLength > MAX_HOPS + 1) revert InvalidRouteLength(pathLength);
-        if (route.fees.length != pathLength - 1) revert InvalidSwapRoute();
-        _validateRouteEndpoints(sellToken, buyToken, route.path[0], route.path[pathLength - 1]);
-        for (uint256 i = 0; i < pathLength; i++) {
-            if (route.path[i] == address(0)) revert InvalidSwapTokenAddress(route.path[i]);
-        }
-        for (uint256 i = 0; i < route.fees.length; i++) {
-            _validateFeeTier(route.fees[i]);
-        }
     }
 }

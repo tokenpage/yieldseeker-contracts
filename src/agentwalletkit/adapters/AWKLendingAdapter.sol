@@ -26,7 +26,7 @@ error MarketTargetMismatch(address target, address expected);
  *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
  *      used once the registry admin has mapped its target to this adapter.
  *      Pass type(uint256).max to withdraw all collateral or repay all debt. checkpoint moves no funds: it reads the
- *      market's current debt so subclasses can record it (e.g. after a liquidation outside the adapter).
+ *      market's current debt so the rules layer can record it (e.g. after a liquidation outside the adapter).
  */
 abstract contract AWKLendingAdapter is AWKAdapter {
     event CollateralSupplied(address indexed wallet, address indexed market, uint256 amount);
@@ -61,16 +61,12 @@ abstract contract AWKLendingAdapter is AWKAdapter {
     }
 
     /// @notice An id for the wallet's collateral position behind a market. Markets that share one collateral balance
-    ///         (e.g. two Aave V3 markets with the same pool and collateral) share it; by default it is the market target
-    function collateralPosition(bytes memory market) public view virtual returns (address) {
-        return marketTarget(market);
-    }
+    ///         (e.g. two Aave V3 markets with the same pool and collateral) share it
+    function collateralPosition(bytes memory market) public view virtual returns (address);
 
     /// @notice An id for the wallet's debt position behind a market. Markets that share one debt balance (e.g. two Aave V4
-    ///         markets with the same spoke and debt reserve) share it; by default it is the market target
-    function debtPosition(bytes memory market) public view virtual returns (address) {
-        return marketTarget(market);
-    }
+    ///         markets with the same spoke and debt reserve) share it
+    function debtPosition(bytes memory market) public view virtual returns (address);
 
     /// @notice The token the wallet holds for its collateral in a market (an Aave V3 aToken), or address(0) when the
     ///         protocol keeps the collateral itself
@@ -108,27 +104,17 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         return abi.encode(result);
     }
 
-    // ============ Operations (override to add rules) ============
+    // ============ Operations (implemented by the rules layer) ============
 
-    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
-        return _supplyCollateral(market, amount);
-    }
+    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
-    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
-        return _withdrawCollateral(market, amount);
-    }
+    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
-    function _borrowOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
-        return _borrow(market, amount);
-    }
+    function _borrowOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
-    function _repayOperation(bytes memory market, uint256 amount) internal virtual returns (uint256) {
-        return _repay(market, amount);
-    }
+    function _repayOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
-    function _checkpointOperation(bytes memory market) internal virtual returns (uint256 debt) {
-        return _debtOf(market);
-    }
+    function _checkpointOperation(bytes memory market) internal virtual returns (uint256 debt);
 
     // ============ Protocol Implementation ============
 

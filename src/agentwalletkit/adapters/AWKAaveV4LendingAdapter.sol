@@ -51,7 +51,7 @@ interface IAaveV4Oracle {
  * @notice Borrow against collateral on an Aave V4 spoke
  * @dev market = abi.encode(address spoke, uint256 collateralReserveId, uint256 debtReserveId).
  */
-contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
+abstract contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
     using SafeERC20 for IERC20;
 
     function _decodeMarket(bytes memory market) internal pure returns (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) {

@@ -21,6 +21,7 @@ import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.so
 import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 error UnusableDebtPrice();
 
@@ -45,45 +46,41 @@ abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAda
         if (debtAsset == collateralAsset) revert AssetNotAllowed();
     }
 
-    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 supplied) {
+    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override returns (uint256 supplied) {
         _checkedMarketAssets(market);
-        supplied = super._supplyCollateralOperation(market, amount);
+        supplied = _supplyCollateral(market, amount);
         _reportAction(FeeActions.DEPOSIT, abi.encode(FeeActions.Deposit({target: collateralPosition(market), assetsIn: supplied})));
     }
 
-    function _borrowOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 borrowed) {
+    function _borrowOperation(bytes memory market, uint256 amount) internal override returns (uint256 borrowed) {
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debtBefore = _debtOf(market);
-        borrowed = super._borrowOperation(market, amount);
+        borrowed = _borrow(market, amount);
         _reportDebtChange(market, debtAsset, debtBefore, borrowed, 0);
     }
 
-    function _repayOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 repaid) {
+    function _repayOperation(bytes memory market, uint256 amount) internal override returns (uint256 repaid) {
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debtBefore = _debtOf(market);
-        uint256 repayAmount = amount;
-        if (amount == type(uint256).max) {
-            uint256 balance = IERC20(debtAsset).balanceOf(address(this));
-            repayAmount = debtBefore < balance ? debtBefore : balance;
-        }
+        uint256 repayAmount = amount == type(uint256).max ? Math.min(debtBefore, IERC20(debtAsset).balanceOf(address(this))) : amount;
         if (repayAmount == 0) revert AWKErrors.InsufficientBalance();
-        repaid = super._repayOperation(market, repayAmount);
+        repaid = _repay(market, repayAmount);
         _reportDebtChange(market, debtAsset, debtBefore, 0, repaid);
     }
 
-    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal virtual override returns (uint256 withdrawn) {
+    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal override returns (uint256 withdrawn) {
         (, address debtAsset) = _checkedMarketAssets(market);
         uint256 debt = _debtOf(market);
         uint256 collateralBefore = _collateralOf(market);
-        withdrawn = super._withdrawCollateralOperation(market, amount);
+        withdrawn = _withdrawCollateral(market, amount);
         uint256 spent = collateralBefore - _collateralOf(market);
         _reportAction(FeeActions.WITHDRAW, abi.encode(FeeActions.Withdraw({target: collateralPosition(market), spent: spent, heldBefore: collateralBefore, assetsOut: withdrawn})));
         _reportDebtChange(market, debtAsset, debt, 0, 0);
     }
 
-    function _checkpointOperation(bytes memory market) internal virtual override returns (uint256 debt) {
+    function _checkpointOperation(bytes memory market) internal override returns (uint256 debt) {
         (, address debtAsset) = _checkedMarketAssets(market);
-        debt = super._checkpointOperation(market);
+        debt = _debtOf(market);
         _reportDebtChange(market, debtAsset, debt, 0, 0);
     }
 

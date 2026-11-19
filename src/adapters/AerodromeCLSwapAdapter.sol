@@ -17,25 +17,8 @@
 pragma solidity 0.8.38;
 
 import {AWKAerodromeCLSwapAdapter} from "../agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKSwapAdapter} from "../agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 
 contract YieldSeekerAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapter, YieldSeekerSwapAdapter {
     constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapter(aerodromeClRouter) {}
-
-    function _swapOperation(
-        address router,
-        address sellToken,
-        address buyToken,
-        uint256 sellAmount,
-        uint256 minBuyAmount,
-        uint256 deadline,
-        bytes memory route
-    )
-        internal
-        override(AWKSwapAdapter, YieldSeekerSwapAdapter)
-        returns (uint256, uint256)
-    {
-        return super._swapOperation(router, sellToken, buyToken, sellAmount, minBuyAmount, deadline, route);
-    }
 }

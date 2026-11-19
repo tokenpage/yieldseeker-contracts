@@ -16,7 +16,7 @@ pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -41,15 +41,13 @@ interface IAerodromeCLSwapRouter {
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Accepts multi-hop routes through path+tickSpacing arrays with strict validation.
  */
-contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
+abstract contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
     using SafeERC20 for IERC20;
 
     struct SwapRoute {
         address[] path;
         int24[] tickSpacings;
     }
-
-    uint256 internal constant MAX_HOPS = 4;
 
     address public immutable AERODROME_CL_ROUTER;
 
@@ -80,8 +78,7 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
         if (bytes4(data[:4]) != this.swap.selector) revert UnknownOperation();
         (address sellToken, address buyToken, SwapRoute memory route, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) = abi.decode(data[4:], (address, address, SwapRoute, uint256, uint256, uint256));
         if (target != AERODROME_CL_ROUTER) revert InvalidAerodromeCLRouterTarget(target, AERODROME_CL_ROUTER);
-        _validateRoute(sellToken, buyToken, route);
-        _validateSwap(sellToken, buyToken, sellAmount, minBuyAmount);
+        _validateSwapRoute(sellToken, buyToken, sellAmount, minBuyAmount, route.path, route.tickSpacings.length);
         (, uint256 buyAmount) = _swapOperation(target, sellToken, buyToken, sellAmount, minBuyAmount, deadline, abi.encode(route));
         return abi.encode(buyAmount);
     }
@@ -99,15 +96,5 @@ contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
             encodedPath = bytes.concat(encodedPath, abi.encodePacked(route.tickSpacings[i]), abi.encodePacked(route.path[i + 1]));
         }
         return IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
-    }
-
-    function _validateRoute(address sellToken, address buyToken, SwapRoute memory route) internal pure {
-        uint256 pathLength = route.path.length;
-        if (pathLength < 2 || pathLength > MAX_HOPS + 1) revert InvalidRouteLength(pathLength);
-        if (route.tickSpacings.length != pathLength - 1) revert InvalidSwapRoute();
-        _validateRouteEndpoints(sellToken, buyToken, route.path[0], route.path[pathLength - 1]);
-        for (uint256 i = 0; i < pathLength; i++) {
-            if (route.path[i] == address(0)) revert InvalidSwapTokenAddress(route.path[i]);
-        }
     }
 }

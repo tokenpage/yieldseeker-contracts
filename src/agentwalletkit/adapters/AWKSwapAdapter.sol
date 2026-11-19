@@ -30,10 +30,11 @@ error SwapInputMismatch(uint256 sold, uint256 sellAmount);
 /**
  * @title AWKSwapAdapter
  * @notice Base class for swap adapters
- * @dev Each DEX's execute decodes and validates its own route, then calls the operation (_swapOperation), which
- *      subclasses override to add rules; the operation measures the balances around the DEX implementation (_swap),
- *      which receives the route ABI-encoded and returns the router's reported output. Every swap carries a deadline
- *      so a signed swap can't be held and run later against a stale minimum output.
+ * @dev Each DEX's execute decodes its own route, checks it (_validateSwapRoute) and calls the operation
+ *      (_swapOperation), which the rules layer implements around the measured swap (_measuredSwap); that measures the
+ *      balances around the DEX implementation (_swap), which receives the route ABI-encoded and returns the router's
+ *      reported output. Every swap carries a deadline so a signed swap can't be held and run later against a stale
+ *      minimum output.
  *      Tokens that reach the wallet during the swap from anywhere else (e.g. a withdrawal from the owner's other
  *      wallet that an operator triggers from a token hook on the route) must not count: the wallet must have spent
  *      exactly `sellAmount`, and the output is the measured increase capped at what the router reports it paid.
@@ -41,18 +42,26 @@ error SwapInputMismatch(uint256 sold, uint256 sellAmount);
 abstract contract AWKSwapAdapter is AWKAdapter {
     event Swapped(address indexed wallet, address indexed router, address sellToken, address buyToken, uint256 soldAmount, uint256 buyAmount);
 
-    function _validateSwap(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount) internal pure {
+    uint256 internal constant MAX_HOPS = 4;
+
+    /// @dev Checks a route of `path` tokens joined by `hopCount` pools, then the swap's tokens and amounts
+    function _validateSwapRoute(address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, address[] memory path, uint256 hopCount) internal pure {
+        uint256 pathLength = path.length;
+        if (pathLength < 2 || pathLength > MAX_HOPS + 1) revert InvalidRouteLength(pathLength);
+        if (hopCount != pathLength - 1) revert InvalidSwapRoute();
+        if (path[0] != sellToken || path[pathLength - 1] != buyToken) revert InvalidRouteEndpoints(sellToken, buyToken);
+        for (uint256 i = 0; i < pathLength; i++) {
+            if (path[i] == address(0)) revert InvalidSwapTokenAddress(path[i]);
+        }
         if (sellToken == address(0) || buyToken == address(0) || sellToken == buyToken) revert InvalidSwapTokenAddress(sellToken);
         if (sellAmount == 0 || minBuyAmount == 0) revert AWKErrors.ZeroAmount();
     }
 
-    function _validateRouteEndpoints(address sellToken, address buyToken, address routeStartToken, address routeEndToken) internal pure {
-        if (routeStartToken != sellToken || routeEndToken != buyToken) revert InvalidRouteEndpoints(sellToken, buyToken);
-    }
+    // ============ Operations (implemented by the rules layer) ============
 
-    // ============ Operations (override to add rules) ============
+    function _swapOperation(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory route) internal virtual returns (uint256 soldAmount, uint256 buyAmount);
 
-    function _swapOperation(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory route) internal virtual returns (uint256 soldAmount, uint256 buyAmount) {
+    function _measuredSwap(address router, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline, bytes memory route) internal returns (uint256 soldAmount, uint256 buyAmount) {
         if (block.timestamp > deadline) revert SwapExpired(deadline);
         uint256 sellBalanceBefore = IERC20(sellToken).balanceOf(address(this));
         uint256 buyBalanceBefore = IERC20(buyToken).balanceOf(address(this));

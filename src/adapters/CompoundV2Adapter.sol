@@ -16,7 +16,6 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKBaseVaultAdapter} from "../agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
 import {AWKCompoundV2Adapter} from "../agentwalletkit/adapters/AWKCompoundV2Adapter.sol";
 import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
 
@@ -24,12 +23,4 @@ import {YieldSeekerVaultAdapter} from "./VaultAdapter.sol";
  * @title YieldSeekerCompoundV2Adapter
  * @notice YieldSeeker Compound V2 / Moonwell vault adapter: the AWK protocol code plus the shared YieldSeeker vault rules and fee reports
  */
-contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerVaultAdapter {
-    function _depositOperation(address vault, uint256 amount) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256, uint256) {
-        return super._depositOperation(vault, amount);
-    }
-
-    function _withdrawOperation(address vault, uint256 shares) internal override(AWKBaseVaultAdapter, YieldSeekerVaultAdapter) returns (uint256) {
-        return super._withdrawOperation(vault, shares);
-    }
-}
+contract YieldSeekerCompoundV2Adapter is AWKCompoundV2Adapter, YieldSeekerVaultAdapter {}

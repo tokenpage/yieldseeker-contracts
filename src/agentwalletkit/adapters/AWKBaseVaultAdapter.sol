@@ -23,8 +23,8 @@ error InvalidPercentage(uint256 percentage);
 /**
  * @title AWKBaseVaultAdapter
  * @notice Base class for vault adapters: deposit, deposit a percentage of the balance, and withdraw
- * @dev execute validates the input and calls the operation (_depositOperation / _withdrawOperation), which subclasses
- *      override to add rules; the operation calls the protocol implementation (_deposit / _withdraw).
+ * @dev execute validates the input and calls the operation (_depositOperation / _withdrawOperation), which the rules
+ *      layer implements around the protocol implementation (_deposit / _withdraw).
  */
 abstract contract AWKBaseVaultAdapter is AWKAdapter {
     event Deposited(address indexed wallet, address indexed vault, uint256 assets, uint256 shares);
@@ -84,15 +84,11 @@ abstract contract AWKBaseVaultAdapter is AWKAdapter {
         return abi.encode(sharesReceived, assetsDeposited);
     }
 
-    // ============ Operations (override to add rules) ============
+    // ============ Operations (implemented by the rules layer) ============
 
-    function _depositOperation(address vault, uint256 amount) internal virtual returns (uint256 shares, uint256 assetsDeposited) {
-        return _deposit(vault, amount);
-    }
+    function _depositOperation(address vault, uint256 amount) internal virtual returns (uint256 shares, uint256 assetsDeposited);
 
-    function _withdrawOperation(address vault, uint256 shares) internal virtual returns (uint256 assets) {
-        return _withdraw(vault, shares);
-    }
+    function _withdrawOperation(address vault, uint256 shares) internal virtual returns (uint256 assets);
 
     // ============ Protocol Implementation ============
 

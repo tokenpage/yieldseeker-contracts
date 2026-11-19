@@ -47,7 +47,7 @@ interface IMorphoOracle {
  * @notice Borrow against collateral on a Morpho Blue market
  * @dev market = abi.encode(address morpho, IMorphoBlue.MarketParams). Full repays go by shares so no interest dust is left.
  */
-contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
+abstract contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VIRTUAL_SHARES = 1e6;
@@ -73,6 +73,14 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
 
     function collateralReceiptToken(bytes memory) public pure virtual override returns (address) {
         return address(0);
+    }
+
+    function collateralPosition(bytes memory market) public pure virtual override returns (address) {
+        return marketTarget(market);
+    }
+
+    function debtPosition(bytes memory market) public pure virtual override returns (address) {
+        return marketTarget(market);
     }
 
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
