@@ -158,12 +158,12 @@ contract SwapAdapterProperties is IntegrationBase {
     }
 
     function test_rewardSalesStillWorkWhileBorrowFeesStayOwed() public {
-        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(wallet, address(usdc), 100e6);
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, 100e6)));
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1e16)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, 100e6)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 1e16)));
         vm.warp(block.timestamp + 365 days);
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         assertGt(wallet.feeTracker().feesOwedInBaseAsset(address(wallet)), 1);
 
         routers[0].configure(RouterBehaviorMock.Behavior.Exact, 1, 1);

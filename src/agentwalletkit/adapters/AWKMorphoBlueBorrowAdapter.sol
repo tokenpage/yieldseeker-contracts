@@ -14,7 +14,7 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKLendingAdapter, AWKLendingOperations} from "./AWKLendingAdapter.sol";
+import {AWKBorrowAdapter, AWKBorrowOperations} from "./AWKBorrowAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -43,11 +43,11 @@ interface IMorphoOracle {
 }
 
 /**
- * @title AWKMorphoBlueLendingAdapterCore
+ * @title AWKMorphoBlueBorrowAdapterCore
  * @notice Borrow against collateral on a Morpho Blue market, without an operations layer
  * @dev market = abi.encode(address morpho, IMorphoBlue.MarketParams). Full repays go by shares so no interest dust is left.
  */
-abstract contract AWKMorphoBlueLendingAdapterCore is AWKLendingAdapter {
+abstract contract AWKMorphoBlueBorrowAdapterCore is AWKBorrowAdapter {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VIRTUAL_SHARES = 1e6;
@@ -133,5 +133,5 @@ abstract contract AWKMorphoBlueLendingAdapterCore is AWKLendingAdapter {
     }
 }
 
-/// @notice Morpho Blue lending adapter with the kit's default operations
-contract AWKMorphoBlueLendingAdapter is AWKMorphoBlueLendingAdapterCore, AWKLendingOperations {}
+/// @notice Morpho Blue borrow adapter with the kit's default operations
+contract AWKMorphoBlueBorrowAdapter is AWKMorphoBlueBorrowAdapterCore, AWKBorrowOperations {}

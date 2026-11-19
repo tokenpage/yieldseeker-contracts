@@ -5,8 +5,8 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../../src/Age
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {IPriceFeed, YieldSeekerPriceOracle} from "../../src/PriceOracle.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../../src/adapters/AaveV3Adapter.sol";
-import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
-import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../../src/adapters/AaveV4LendingAdapter.sol";
+import {YieldSeekerAaveV3BorrowAdapter as AaveV3BorrowAdapter} from "../../src/adapters/AaveV3BorrowAdapter.sol";
+import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../../src/adapters/AaveV4BorrowAdapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
@@ -15,11 +15,11 @@ import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapt
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
 import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../../src/adapters/MoonwellRewardAdapter.sol";
-import {YieldSeekerMorphoBlueLendingAdapter as MorphoBlueLendingAdapter} from "../../src/adapters/MorphoBlueLendingAdapter.sol";
+import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
-import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IMorphoBlue} from "../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -76,9 +76,9 @@ abstract contract IntegrationBase is Test {
     AerodromeV2SwapAdapter public aerodromeV2SwapAdapter;
     AerodromeCLSwapAdapter public aerodromeCLSwapAdapter;
     AgentTransferAdapter public agentTransferAdapter;
-    AaveV3LendingAdapter public aaveV3LendingAdapter;
-    AaveV4LendingAdapter public aaveV4LendingAdapter;
-    MorphoBlueLendingAdapter public morphoBlueLendingAdapter;
+    AaveV3BorrowAdapter public aaveV3BorrowAdapter;
+    AaveV4BorrowAdapter public aaveV4BorrowAdapter;
+    MorphoBlueBorrowAdapter public morphoBlueBorrowAdapter;
 
     MockERC20 public usdc;
     MockERC20WithDecimals public weth;
@@ -209,9 +209,9 @@ abstract contract IntegrationBase is Test {
         aerodromeV2SwapAdapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
         aerodromeCLSwapAdapter = new AerodromeCLSwapAdapter(address(aerodromeCLRouter));
         agentTransferAdapter = new AgentTransferAdapter();
-        aaveV3LendingAdapter = new AaveV3LendingAdapter();
-        aaveV4LendingAdapter = new AaveV4LendingAdapter();
-        morphoBlueLendingAdapter = new MorphoBlueLendingAdapter();
+        aaveV3BorrowAdapter = new AaveV3BorrowAdapter();
+        aaveV4BorrowAdapter = new AaveV4BorrowAdapter();
+        morphoBlueBorrowAdapter = new MorphoBlueBorrowAdapter();
 
         _registerTarget(vaultRegistry, address(erc4626Vault), address(erc4626Adapter));
         _registerTarget(vaultRegistry, address(aaveV3Vault), address(aaveV3Adapter));
@@ -228,10 +228,10 @@ abstract contract IntegrationBase is Test {
         aaveV4Market = abi.encode(address(aaveV4Spoke), uint256(1), uint256(2));
         IMorphoBlue.MarketParams memory params = IMorphoBlue.MarketParams({loanToken: address(weth), collateralToken: address(usdc), oracle: address(morphoOracle), irm: address(0x1), lltv: 0.8e18});
         morphoMarket = abi.encode(address(morpho), params);
-        _registerTarget(borrowRegistry, aaveV3LendingAdapter.marketTarget(aaveV3Market), address(aaveV3LendingAdapter));
-        _registerTarget(borrowRegistry, aaveV3LendingAdapter.collateralReceiptToken(aaveV3Market), address(aaveV3LendingAdapter));
-        _registerTarget(borrowRegistry, aaveV4LendingAdapter.marketTarget(aaveV4Market), address(aaveV4LendingAdapter));
-        _registerTarget(borrowRegistry, morphoBlueLendingAdapter.marketTarget(morphoMarket), address(morphoBlueLendingAdapter));
+        _registerTarget(borrowRegistry, aaveV3BorrowAdapter.marketTarget(aaveV3Market), address(aaveV3BorrowAdapter));
+        _registerTarget(borrowRegistry, aaveV3BorrowAdapter.collateralReceiptToken(aaveV3Market), address(aaveV3BorrowAdapter));
+        _registerTarget(borrowRegistry, aaveV4BorrowAdapter.marketTarget(aaveV4Market), address(aaveV4BorrowAdapter));
+        _registerTarget(borrowRegistry, morphoBlueBorrowAdapter.marketTarget(morphoMarket), address(morphoBlueBorrowAdapter));
         _registerTarget(borrowRegistry, address(merklDistributor), address(merklAdapter));
         _registerTarget(borrowRegistry, address(uniswapV3Router), address(uniswapV3SwapAdapter));
         _registerTarget(borrowRegistry, address(aerodromeV2Router), address(aerodromeV2SwapAdapter));

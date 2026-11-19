@@ -14,7 +14,7 @@ import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
 import {AWKAerodromeCLSwapAdapterCore, IAerodromeCLSwapRouter, InvalidAerodromeCLRouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore, IAerodromeV2Router, InvalidAerodromeV2RouterTarget} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
+import {MarketTargetMismatch} from "../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {InsufficientOutput, InvalidRouteEndpoints, InvalidRouteLength, InvalidSwapRoute, InvalidSwapTokenAddress, SwapExpired, SwapInputMismatch} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter, InvalidUniswapV3FeeTier, InvalidUniswapV3RouterTarget} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeePlanChoice} from "../../src/fees/FeeTracker.sol";
@@ -460,7 +460,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(_feesCollected(address(usdc)), collectorBefore);
         assertEq(borrowYieldFeeModule.feesOwed(address(borrowWallet)), 0);
 
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(borrowWallet), address(weth)), 0);
         assertEq(weth.balanceOf(address(borrowWallet)), 0);
     }
@@ -640,7 +640,7 @@ contract SwapsTest is IntegrationBase {
     function testBorrowPolicyRejectsSellingCollateralReceiptTokensWhenAllTokensAreSellable() public {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         _borrowWeth(wallet, 1_000e6, 1e18);
-        address aToken = aaveV3LendingAdapter.collateralReceiptToken(aaveV3Market);
+        address aToken = aaveV3BorrowAdapter.collateralReceiptToken(aaveV3Market);
         assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
         swapSellPolicy.setAllowSellingAllTokens(true);
         uniswapV3Router.setBuyAmount(1_000e6);
@@ -649,9 +649,9 @@ contract SwapsTest is IntegrationBase {
         bytes memory sale = abi.encodeCall(uniswapV3SwapAdapter.swap, (aToken, address(usdc), route, uint256(1_000e6), uint256(1), block.timestamp));
         _executeExpectRevert(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), sale, abi.encodeWithSelector(SwapNotAllowed.selector, aToken, address(usdc)));
 
-        bytes memory withdrawViaReceipt = abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max));
-        bytes memory notAMarket = abi.encodeWithSelector(MarketTargetMismatch.selector, aToken, aaveV3LendingAdapter.marketTarget(aaveV3Market));
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), aToken, withdrawViaReceipt, notAMarket);
+        bytes memory withdrawViaReceipt = abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max));
+        bytes memory notAMarket = abi.encodeWithSelector(MarketTargetMismatch.selector, aToken, aaveV3BorrowAdapter.marketTarget(aaveV3Market));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), aToken, withdrawViaReceipt, notAMarket);
         assertEq(IERC20(aToken).balanceOf(address(wallet)), 1_000e6);
     }
 
@@ -677,7 +677,7 @@ contract SwapsTest is IntegrationBase {
 
         vm.prank(owner);
         weth.transfer(address(wallet), debt);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
@@ -698,7 +698,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), debt + surplus);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
         assertEq(weth.balanceOf(address(wallet)), surplus);
@@ -708,7 +708,7 @@ contract SwapsTest is IntegrationBase {
         AgentWallet wallet = _createBorrowWallet(owner, 1);
         uint256 debt = 1e18;
         _borrowWeth(wallet, 3_000e6, debt);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
 
         uint256 amountIn = 20e6;
@@ -737,7 +737,7 @@ contract SwapsTest is IntegrationBase {
         usdcPriceFeed.setPrice(1e8, timestamp);
         wethPriceFeed.setPrice(2000e8, timestamp);
         aaveV3LendingPool.growDebt(address(weth), address(wallet), interest);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         uint256 debt = principal + interest;
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
@@ -756,7 +756,7 @@ contract SwapsTest is IntegrationBase {
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
         assertEq(weth.balanceOf(address(wallet)), debt);
 
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(aaveV3VariableDebtToken.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
@@ -791,7 +791,7 @@ contract SwapsTest is IntegrationBase {
         assertEq(weth.balanceOf(address(wallet)), debt);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), debt);
 
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
 
@@ -830,8 +830,8 @@ contract SwapsTest is IntegrationBase {
         uint256 timestamp = vm.getBlockTimestamp();
         usdcPriceFeed.setPrice(1e8, timestamp);
         wethPriceFeed.setPrice(2000e8, timestamp);
-        bytes memory checkpoint = abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), checkpoint);
+        bytes memory checkpoint = abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), checkpoint);
         uint256 owed = borrowFeeModule.feesOwed(address(wallet));
         assertGt(owed, 0);
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
@@ -890,10 +890,10 @@ contract SwapsTest is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
-        bytes memory supply = abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), supply);
-        bytes memory borrow = abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowedAmount));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), borrow);
+        bytes memory supply = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supply);
+        bytes memory borrow = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrow);
     }
 
     function _oracleFloor(uint256 amountIn) private view returns (uint256) {

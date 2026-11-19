@@ -167,7 +167,7 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
             uint256 sellAmount = priceOracle.quote(address(weth), address(usdc), buyAmount);
             assertGt(sellAmount, 0);
             assertEq(usdc.balanceOf(address(wallet)), 0, "previous swap left collateral in the wallet");
-            _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, sellAmount)));
+            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, sellAmount)));
             assertEq(usdc.balanceOf(address(wallet)), sellAmount, "swap input did not come from withdrawn collateral");
             uniswapV3Router.setBuyAmount(buyAmount);
 
@@ -178,7 +178,7 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
             assertLe(weth.balanceOf(address(wallet)), Math.mulDiv(debtBefore, 10_300, 10_000), "swap held more than debt plus 3% buffer");
 
             uint256 repayAmount = i == ethPrices.length - 1 ? type(uint256).max : buyAmount;
-            _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, repayAmount)));
+            _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, repayAmount)));
             assertEq(weth.balanceOf(address(wallet)), 0);
         }
 
@@ -196,8 +196,8 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowedAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
     }
 
     function _borrowCallAllowed(YieldSeekerBorrowSwapPolicy policy, address wallet, address sellToken, address buyToken) private view returns (bool allowed) {

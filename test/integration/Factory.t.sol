@@ -29,13 +29,13 @@ contract FactoryTest is IntegrationBase {
         uint256 borrowedAmount = 1e18;
 
         _fundWallet(borrowWallet, address(usdc), collateralAmount);
-        bytes memory supplyData = abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), supplyData);
-        bytes memory borrowData = abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowedAmount));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), borrowData);
+        bytes memory supplyData = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supplyData);
+        bytes memory borrowData = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrowData);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        bytes memory repayData = abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), repayData);
+        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
 
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 5e6);
         assertTrue(borrowFeeTracker.isAccountedToken(address(borrowWallet), address(weth)));

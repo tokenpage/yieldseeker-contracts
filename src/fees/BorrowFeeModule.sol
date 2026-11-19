@@ -31,7 +31,7 @@ bytes32 constant BORROW_FEE = keccak256("borrow");
  *         the lending market's own price and paid from the base asset
  * @dev Plugged into the fee tracker as BORROW_FEE; the yearly rate comes from the wallet's plan in the tracker (a Plan,
  *      at most MAX_FEE_RATE_BPS).
- *      Lending adapters report every borrow, repay, collateral withdrawal and checkpoint per debt position (the
+ *      Borrow adapters report every borrow, repay, collateral withdrawal and checkpoint per debt position (the
  *      adapter's debtPosition(market): the spoke and debt reserve for Aave V4, the market's registry target otherwise)
  *      with the protocol's real debt and the market's price for it (FeeActions.DEBT_CHANGE). Each period between two reports
  *      is charged on the debt at the start of the period, so repaying directly on the protocol cannot erase the fee;
@@ -114,7 +114,7 @@ contract YieldSeekerBorrowFeeModule is IYieldSeekerFeeModule {
     }
 
     /// @notice The fee a debt position has accrued since its last report, in the debt token (charged at the next
-    ///         report); `position` is the lending adapter's debtPosition(market)
+    ///         report); `position` is the borrow adapter's debtPosition(market)
     function pendingFee(address wallet, address position) external view returns (uint256) {
         return _pendingFee(wallet, debtPositions[wallet][position]);
     }

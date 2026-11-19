@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
@@ -274,7 +274,7 @@ contract PowerUserHandler is Test {
         uint256 amount = withdrawAll ? type(uint256).max : heldBefore / 2;
         if (amount == 0) amount = heldBefore;
         address target = _marketTarget(marketIndex);
-        address adapter = _lendingAdapter(marketIndex);
+        address adapter = _borrowAdapter(marketIndex);
         _prepareExecution(wallet, adapter, target);
         bytes memory result = _executeLending(wallet, marketIndex, _withdrawCollateralCall(marketIndex, amount));
         uint256 assetsOut = abi.decode(abi.decode(result, (bytes)), (uint256));
@@ -542,12 +542,12 @@ contract PowerUserHandler is Test {
             }
         } else {
             bytes memory market = SYSTEM.aaveV3Market();
-            address target = SYSTEM.aaveV3LendingAdapter().marketTarget(market);
+            address target = SYSTEM.aaveV3BorrowAdapter().marketTarget(market);
             SYSTEM.borrowRegistry().removeTarget(target);
             for (uint256 i; i < 2; i++) {
                 borrowWallets[i].syncFromFactory();
             }
-            SYSTEM.borrowRegistry().setTargetAdapter(target, address(SYSTEM.aaveV3LendingAdapter()));
+            SYSTEM.borrowRegistry().setTargetAdapter(target, address(SYSTEM.aaveV3BorrowAdapter()));
             for (uint256 i; i < 2; i++) {
                 borrowWallets[i].syncFromFactory();
             }
@@ -906,7 +906,7 @@ contract PowerUserHandler is Test {
 
     function _supplyCollateral(AgentWallet wallet, uint8 marketIndex, uint256 amount) private {
         _ensureWalletBase(wallet, amount + wallet.feeTracker().feesOwedInBaseAsset(address(wallet)));
-        address adapter = _lendingAdapter(marketIndex);
+        address adapter = _borrowAdapter(marketIndex);
         address target = _marketTarget(marketIndex);
         _prepareExecution(wallet, adapter, target);
         bytes memory supplyData = _supplyCall(marketIndex, amount);
@@ -944,7 +944,7 @@ contract PowerUserHandler is Test {
         if (reportPrice == 0) reportPrice = lastPrice;
         uint256 expectedBaseFee = feeInDebtToken == 0 ? 0 : Math.mulDiv(feeInDebtToken, reportPrice, 1e36, Math.Rounding.Ceil);
         uint256 chargedBefore = borrowFeeCharged[address(wallet)];
-        address adapter = _lendingAdapter(marketIndex);
+        address adapter = _borrowAdapter(marketIndex);
         address target = _marketTarget(marketIndex);
         _prepareExecution(wallet, adapter, target);
         vm.recordLogs();
@@ -1136,28 +1136,28 @@ contract PowerUserHandler is Test {
         return SYSTEM.compoundV3Market().balanceOf(address(wallet));
     }
 
-    function _lendingAdapter(uint8 index) private view returns (address) {
-        if (index == 0) return address(SYSTEM.aaveV3LendingAdapter());
-        if (index == 1) return address(SYSTEM.aaveV4LendingAdapter());
-        return address(SYSTEM.morphoBlueLendingAdapter());
+    function _borrowAdapter(uint8 index) private view returns (address) {
+        if (index == 0) return address(SYSTEM.aaveV3BorrowAdapter());
+        if (index == 1) return address(SYSTEM.aaveV4BorrowAdapter());
+        return address(SYSTEM.morphoBlueBorrowAdapter());
     }
 
     function _marketTarget(uint8 index) private view returns (address) {
-        if (index == 0) return SYSTEM.aaveV3LendingAdapter().marketTarget(SYSTEM.aaveV3Market());
-        if (index == 1) return SYSTEM.aaveV4LendingAdapter().marketTarget(SYSTEM.aaveV4Market());
-        return SYSTEM.morphoBlueLendingAdapter().marketTarget(SYSTEM.morphoMarket());
+        if (index == 0) return SYSTEM.aaveV3BorrowAdapter().marketTarget(SYSTEM.aaveV3Market());
+        if (index == 1) return SYSTEM.aaveV4BorrowAdapter().marketTarget(SYSTEM.aaveV4Market());
+        return SYSTEM.morphoBlueBorrowAdapter().marketTarget(SYSTEM.morphoMarket());
     }
 
     function _collateralPosition(uint8 index) private view returns (address) {
-        if (index == 0) return SYSTEM.aaveV3LendingAdapter().collateralPosition(SYSTEM.aaveV3Market());
-        if (index == 1) return SYSTEM.aaveV4LendingAdapter().collateralPosition(SYSTEM.aaveV4Market());
-        return SYSTEM.morphoBlueLendingAdapter().collateralPosition(SYSTEM.morphoMarket());
+        if (index == 0) return SYSTEM.aaveV3BorrowAdapter().collateralPosition(SYSTEM.aaveV3Market());
+        if (index == 1) return SYSTEM.aaveV4BorrowAdapter().collateralPosition(SYSTEM.aaveV4Market());
+        return SYSTEM.morphoBlueBorrowAdapter().collateralPosition(SYSTEM.morphoMarket());
     }
 
     function _debtPosition(uint8 index) private view returns (address) {
-        if (index == 0) return SYSTEM.aaveV3LendingAdapter().debtPosition(SYSTEM.aaveV3Market());
-        if (index == 1) return SYSTEM.aaveV4LendingAdapter().debtPosition(SYSTEM.aaveV4Market());
-        return SYSTEM.morphoBlueLendingAdapter().debtPosition(SYSTEM.morphoMarket());
+        if (index == 0) return SYSTEM.aaveV3BorrowAdapter().debtPosition(SYSTEM.aaveV3Market());
+        if (index == 1) return SYSTEM.aaveV4BorrowAdapter().debtPosition(SYSTEM.aaveV4Market());
+        return SYSTEM.morphoBlueBorrowAdapter().debtPosition(SYSTEM.morphoMarket());
     }
 
     function _lendingCollateral(AgentWallet wallet, uint8 index) private view returns (uint256) {
@@ -1214,33 +1214,33 @@ contract PowerUserHandler is Test {
     }
 
     function _supplyCall(uint8 index, uint256 amount) private view returns (bytes memory) {
-        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3LendingAdapter().supplyCollateral, (SYSTEM.aaveV3Market(), amount));
-        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4LendingAdapter().supplyCollateral, (SYSTEM.aaveV4Market(), amount));
-        return abi.encodeCall(SYSTEM.morphoBlueLendingAdapter().supplyCollateral, (SYSTEM.morphoMarket(), amount));
+        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3BorrowAdapter().supplyCollateral, (SYSTEM.aaveV3Market(), amount));
+        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4BorrowAdapter().supplyCollateral, (SYSTEM.aaveV4Market(), amount));
+        return abi.encodeCall(SYSTEM.morphoBlueBorrowAdapter().supplyCollateral, (SYSTEM.morphoMarket(), amount));
     }
 
     function _borrowCall(uint8 index, uint256 amount) private view returns (bytes memory) {
-        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3LendingAdapter().borrow, (SYSTEM.aaveV3Market(), amount));
-        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4LendingAdapter().borrow, (SYSTEM.aaveV4Market(), amount));
-        return abi.encodeCall(SYSTEM.morphoBlueLendingAdapter().borrow, (SYSTEM.morphoMarket(), amount));
+        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3BorrowAdapter().borrow, (SYSTEM.aaveV3Market(), amount));
+        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4BorrowAdapter().borrow, (SYSTEM.aaveV4Market(), amount));
+        return abi.encodeCall(SYSTEM.morphoBlueBorrowAdapter().borrow, (SYSTEM.morphoMarket(), amount));
     }
 
     function _repayCall(uint8 index, uint256 amount) private view returns (bytes memory) {
-        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3LendingAdapter().repay, (SYSTEM.aaveV3Market(), amount));
-        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4LendingAdapter().repay, (SYSTEM.aaveV4Market(), amount));
-        return abi.encodeCall(SYSTEM.morphoBlueLendingAdapter().repay, (SYSTEM.morphoMarket(), amount));
+        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3BorrowAdapter().repay, (SYSTEM.aaveV3Market(), amount));
+        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4BorrowAdapter().repay, (SYSTEM.aaveV4Market(), amount));
+        return abi.encodeCall(SYSTEM.morphoBlueBorrowAdapter().repay, (SYSTEM.morphoMarket(), amount));
     }
 
     function _withdrawCollateralCall(uint8 index, uint256 amount) private view returns (bytes memory) {
-        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3LendingAdapter().withdrawCollateral, (SYSTEM.aaveV3Market(), amount));
-        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4LendingAdapter().withdrawCollateral, (SYSTEM.aaveV4Market(), amount));
-        return abi.encodeCall(SYSTEM.morphoBlueLendingAdapter().withdrawCollateral, (SYSTEM.morphoMarket(), amount));
+        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3BorrowAdapter().withdrawCollateral, (SYSTEM.aaveV3Market(), amount));
+        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4BorrowAdapter().withdrawCollateral, (SYSTEM.aaveV4Market(), amount));
+        return abi.encodeCall(SYSTEM.morphoBlueBorrowAdapter().withdrawCollateral, (SYSTEM.morphoMarket(), amount));
     }
 
     function _checkpointCall(uint8 index) private view returns (bytes memory) {
-        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3LendingAdapter().checkpoint, (SYSTEM.aaveV3Market()));
-        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4LendingAdapter().checkpoint, (SYSTEM.aaveV4Market()));
-        return abi.encodeCall(SYSTEM.morphoBlueLendingAdapter().checkpoint, (SYSTEM.morphoMarket()));
+        if (index == 0) return abi.encodeCall(SYSTEM.aaveV3BorrowAdapter().checkpoint, (SYSTEM.aaveV3Market()));
+        if (index == 1) return abi.encodeCall(SYSTEM.aaveV4BorrowAdapter().checkpoint, (SYSTEM.aaveV4Market()));
+        return abi.encodeCall(SYSTEM.morphoBlueBorrowAdapter().checkpoint, (SYSTEM.morphoMarket()));
     }
 
     function _swapAdapter(uint8 dex) private view returns (address) {
@@ -1540,12 +1540,12 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         vm.prank(borrowOwner);
         usdc.transfer(address(wallet), collateralTotal);
 
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralEach)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.supplyCollateral, (aaveV4Market, collateralEach)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.supplyCollateral, (morphoMarket, collateralEach)));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, debtAmount)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.borrow, (aaveV4Market, debtAmount)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.borrow, (morphoMarket, debtAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralEach)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.supplyCollateral, (aaveV4Market, collateralEach)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.supplyCollateral, (morphoMarket, collateralEach)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, debtAmount)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.borrow, (aaveV4Market, debtAmount)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.borrow, (morphoMarket, debtAmount)));
 
         uint256 start = vm.getBlockTimestamp();
         uint256 firstPeriod = bound(timeSeed, 30 days, 180 days);
@@ -1558,9 +1558,9 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         aaveV3LendingPool.setAssetPrice(address(weth), nextPrice);
         aaveV4Spoke.setReservePrice(2, nextPrice);
         morphoOracle.setPrice(1e56 / nextPrice);
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.checkpoint, (aaveV4Market)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.checkpoint, (morphoMarket)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.checkpoint, (aaveV4Market)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.checkpoint, (morphoMarket)));
 
         vm.warp(vm.getBlockTimestamp() + secondPeriod);
         uint256 secondNow = vm.getBlockTimestamp();
@@ -1568,17 +1568,17 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
         wethPriceFeed.setPrice(int256(nextPrice), secondNow);
         uint256 expectedFee = _expectedBorrowFee(debtAmount, BORROW_FEE_BPS, firstPeriod, nextPrice) * 3;
         expectedFee += _expectedBorrowFee(debtAmount, BORROW_FEE_BPS, secondPeriod, nextPrice) * 3;
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.checkpoint, (aaveV4Market)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.checkpoint, (morphoMarket)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.checkpoint, (aaveV4Market)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.checkpoint, (morphoMarket)));
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedFee);
 
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.repay, (aaveV4Market, type(uint256).max)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.repay, (morphoMarket, type(uint256).max)));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3LendingAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max)));
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4LendingAdapter.withdrawCollateral, (aaveV4Market, type(uint256).max)));
-        _execute(wallet, address(morphoBlueLendingAdapter), morphoBlueLendingAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueLendingAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.repay, (aaveV4Market, type(uint256).max)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.repay, (morphoMarket, type(uint256).max)));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeCall(aaveV3BorrowAdapter.withdrawCollateral, (aaveV3Market, type(uint256).max)));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeCall(aaveV4BorrowAdapter.withdrawCollateral, (aaveV4Market, type(uint256).max)));
+        _execute(wallet, address(morphoBlueBorrowAdapter), morphoBlueBorrowAdapter.marketTarget(morphoMarket), abi.encodeCall(morphoBlueBorrowAdapter.withdrawCollateral, (morphoMarket, type(uint256).max)));
         vm.prank(borrowOwner);
         wallet.withdrawAllAssetToUser(borrowOwner, address(usdc));
         assertEq(usdc.balanceOf(borrowOwner), collateralTotal - expectedFee);

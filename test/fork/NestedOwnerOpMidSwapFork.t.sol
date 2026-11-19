@@ -143,9 +143,9 @@ contract NestedOwnerOpMidSwapForkTest is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateralAmount, uint256 borrowedAmount) private {
         _fundWallet(wallet, address(usdc), collateralAmount);
-        address target = aaveV3LendingAdapter.marketTarget(aaveV3Market);
-        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(wallet, address(aaveV3LendingAdapter), target, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowedAmount)));
+        address target = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
+        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(wallet, address(aaveV3BorrowAdapter), target, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowedAmount)));
     }
 
     function _floor(uint256 amountIn) private view returns (uint256) {

@@ -17,7 +17,7 @@
 pragma solidity 0.8.38;
 
 import {AWKErrors} from "../agentwalletkit/AWKErrors.sol";
-import {AWKLendingAdapter} from "../agentwalletkit/adapters/AWKLendingAdapter.sol";
+import {AWKBorrowAdapter} from "../agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {FeeActions} from "../fees/FeeActions.sol";
 import {AssetNotAllowed, YieldSeekerAdapter} from "./Adapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -26,8 +26,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 error UnusableDebtPrice();
 
 /**
- * @title YieldSeekerLendingAdapter
- * @notice YieldSeeker rules on top of an AWK lending adapter
+ * @title YieldSeekerBorrowAdapter
+ * @notice YieldSeeker rules on top of an AWK borrow adapter
  * @dev Collateral must be the wallet's base asset and the debt asset must differ from it; which markets can be
  *      used at all is decided by the registry. Collateral is a yield fee position like a vault: supplying it reports a
  *      deposit and withdrawing it a withdrawal (target = collateralPosition(market)), so interest it earned is charged
@@ -39,7 +39,7 @@ error UnusableDebtPrice();
  *      including collateral just withdrawn. The operator checkpoints a market after its debt changed outside the
  *      adapter (e.g. a liquidation), so the borrow fee stops accruing on the old debt.
  */
-abstract contract YieldSeekerLendingAdapter is AWKLendingAdapter, YieldSeekerAdapter {
+abstract contract YieldSeekerBorrowAdapter is AWKBorrowAdapter, YieldSeekerAdapter {
     function _checkedMarketAssets(bytes memory market) internal view returns (address collateralAsset, address debtAsset) {
         (collateralAsset, debtAsset) = _marketAssets(market);
         _requireBaseAsset(collateralAsset);

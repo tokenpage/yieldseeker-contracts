@@ -16,7 +16,7 @@ import {InvalidRegistry, InvalidState} from "../../../src/agentwalletkit/AWKAgen
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
 import {IAWKAdapter} from "../../../src/agentwalletkit/IAWKAdapter.sol";
 import {InvalidPercentage} from "../../../src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol";
-import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
+import {MarketTargetMismatch} from "../../../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
@@ -352,15 +352,15 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
         agentTransferAdapter.transfer(address(usdc), address(wallet), 1);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        aaveV3LendingAdapter.supplyCollateral(aaveV3Market, 1);
+        aaveV3BorrowAdapter.supplyCollateral(aaveV3Market, 1);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        aaveV3LendingAdapter.withdrawCollateral(aaveV3Market, 1);
+        aaveV3BorrowAdapter.withdrawCollateral(aaveV3Market, 1);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        aaveV3LendingAdapter.borrow(aaveV3Market, 1);
+        aaveV3BorrowAdapter.borrow(aaveV3Market, 1);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        aaveV3LendingAdapter.repay(aaveV3Market, 1);
+        aaveV3BorrowAdapter.repay(aaveV3Market, 1);
         vm.expectRevert(AWKErrors.DirectCallForbidden.selector);
-        aaveV3LendingAdapter.checkpoint(aaveV3Market);
+        aaveV3BorrowAdapter.checkpoint(aaveV3Market);
 
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.depositPercentage, (0)), abi.encodeWithSelector(InvalidPercentage.selector, uint256(0)));
@@ -382,17 +382,17 @@ contract WalletPropertiesTest is IntegrationBase {
             wallet, address(agentTransferAdapter), address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(emptyReceiver), 1)), abi.encodeWithSelector(AWKErrors.InsufficientBalance.selector)
         );
 
-        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         bytes memory sameAssetMarket = abi.encode(address(aaveV3LendingPool), address(usdc), address(usdc), uint8(0));
-        address sameAssetTarget = aaveV3LendingAdapter.marketTarget(sameAssetMarket);
-        borrowRegistry.setTargetAdapter(sameAssetTarget, address(aaveV3LendingAdapter));
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), sameAssetTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (sameAssetMarket, 1)), abi.encodeWithSelector(AssetNotAllowed.selector));
+        address sameAssetTarget = aaveV3BorrowAdapter.marketTarget(sameAssetMarket);
+        borrowRegistry.setTargetAdapter(sameAssetTarget, address(aaveV3BorrowAdapter));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), sameAssetTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (sameAssetMarket, 1)), abi.encodeWithSelector(AssetNotAllowed.selector));
 
         address wrongMarketTarget = address(uint160(marketTarget) ^ 1);
-        borrowRegistry.setTargetAdapter(wrongMarketTarget, address(aaveV3LendingAdapter));
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
-        _executeExpectRevert(wallet, address(aaveV3LendingAdapter), wrongMarketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)), abi.encodeWithSelector(MarketTargetMismatch.selector, wrongMarketTarget, marketTarget));
+        borrowRegistry.setTargetAdapter(wrongMarketTarget, address(aaveV3BorrowAdapter));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 0)), abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodePacked(bytes4(0xdeadbeef)), abi.encodeWithSelector(UnknownOperation.selector));
+        _executeExpectRevert(wallet, address(aaveV3BorrowAdapter), wrongMarketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)), abi.encodeWithSelector(MarketTargetMismatch.selector, wrongMarketTarget, marketTarget));
 
         address[] memory assets = new address[](1);
         uint256[] memory amounts = new uint256[](0);
@@ -597,12 +597,12 @@ contract WalletPropertiesTest is IntegrationBase {
     }
 
     function _accrueBorrowFees(AgentWallet wallet, uint256 collateral, uint256 borrowed) private returns (uint256 feeOwed) {
-        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(wallet, address(usdc), collateral);
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateral)));
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowed)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateral)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowed)));
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _execute(wallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        _execute(wallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         feeOwed = borrowFeeModule.feesOwed(address(wallet));
         assertGt(feeOwed, 0);
     }

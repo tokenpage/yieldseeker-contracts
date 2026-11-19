@@ -20,15 +20,15 @@ import {AWKErrors} from "../AWKErrors.sol";
 error MarketTargetMismatch(address target, address expected);
 
 /**
- * @title AWKLendingAdapter
- * @notice Base class for lending adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
+ * @title AWKBorrowAdapter
+ * @notice Base class for borrow adapters: supply and withdraw collateral, borrow and repay, and checkpoint a market
  * @dev Every market is its own registry target: target = marketTarget(market), where `market` is the
  *      protocol-specific encoding of the market (it includes the protocol contract). A market can only be
  *      used once the registry admin has mapped its target to this adapter.
  *      Pass type(uint256).max to withdraw all collateral or repay all debt. checkpoint moves no funds: it reads the
  *      market's current debt so the rules layer can record it (e.g. after a liquidation outside the adapter).
  */
-abstract contract AWKLendingAdapter is AWKAdapter {
+abstract contract AWKBorrowAdapter is AWKAdapter {
     event CollateralSupplied(address indexed wallet, address indexed market, uint256 amount);
     event CollateralWithdrawn(address indexed wallet, address indexed market, uint256 amount);
     event Borrowed(address indexed wallet, address indexed market, uint256 amount);
@@ -104,7 +104,7 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         return abi.encode(result);
     }
 
-    // ============ Operations (implemented by an operations layer: AWKLendingOperations or a wallet's rules) ============
+    // ============ Operations (implemented by an operations layer: AWKBorrowOperations or a wallet's rules) ============
 
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
@@ -144,7 +144,7 @@ abstract contract AWKLendingAdapter is AWKAdapter {
 }
 
 /// @notice The kit's default operations: the protocol calls with no further rules
-abstract contract AWKLendingOperations is AWKLendingAdapter {
+abstract contract AWKBorrowOperations is AWKBorrowAdapter {
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override returns (uint256) {
         return _supplyCollateral(market, amount);
     }
