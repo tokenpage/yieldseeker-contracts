@@ -45,7 +45,7 @@ contract DeployScript is Script {
     uint256 constant SALT = 0x711;
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     // The Safe in the factory's constructor: it fixes the factory's address, and so every wallet address, on every
-    // chain; recreate it on a new chain from its original setup (README, "The Safe's original setup")
+    // chain; recreate it on a new chain from its original setup (docs/deployment.md, "The Safe's original setup")
     address constant FACTORY_ROOT_SAFE = 0x403EE3392A40D017a009384D1bE1a2Ca921C2fEa;
     // krishan711.eth: a second emergency admin next to the deployer, so pausing and operator removal don't depend on
     // the hot deployer key alone
@@ -705,7 +705,7 @@ contract DeployScript is Script {
     }
 
     /// @dev Registries, fee trackers and fee modules hold per-wallet or per-target state, so replacing one is a migration:
-    ///      the replacement must import that state (see the README), and is set deliberately, not by re-running Deploy
+    ///      the replacement must import that state (see docs/fees.md), and is set deliberately, not by re-running Deploy
     function _requireNotReplaced(address current, address next, string memory name) internal pure {
         require(current == address(0) || current == next, string.concat("Refusing to replace ", name, ": it holds wallet or target state; deploy a replacement that imports it and set it deliberately"));
     }

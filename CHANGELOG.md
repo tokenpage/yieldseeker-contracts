@@ -75,6 +75,7 @@
 
 ### Documentation
 
+- README shortened to an overview: what the system is, how a call runs, the two code layers and the adapter pattern, contracts, agent types, roles and commands. The detail moved unchanged to `docs/fees.md`, `docs/security.md` (roles, signatures, execution constraints, compromised operator, known risks), `docs/incident-response.md` and `docs/deployment.md`. Stale Moonwell statements were removed.
 - README rewritten: shared machinery, agent profiles as peers, roles, security model with a Known risks list grouped by keys and operators, fees and accounting, and protocols and tokens; incident response runbooks in their own section; deployment and operations, upgrades and fee changes, with paths to code; and a command table with run times. Stale sections (the removed 0x adapter, an ERC-7201 claim, the cache rationale) were corrected.
 
 ## Agent wallet V2
