@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
-import {IMorphoBlue, IMorphoOracle} from "../../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IMorphoBlue, IMorphoOracle} from "../../../../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";

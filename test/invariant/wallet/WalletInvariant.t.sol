@@ -7,7 +7,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
@@ -129,7 +129,7 @@ contract WalletWorkflowHandler is Test {
         rewardToken.mint(address(ownerAgent), amount);
         router.setBuyAmount(1e6);
 
-        AWKUniswapV3SwapAdapter.SwapRoute memory route;
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route;
         route.path = new address[](2);
         route.path[0] = address(rewardToken);
         route.path[1] = address(usdc);

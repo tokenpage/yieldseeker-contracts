@@ -2,7 +2,7 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockLendingAaveV3Pool} from "../mocks/MockLendingMarkets.sol";
@@ -142,7 +142,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         routePath[1] = address(usdc);
         uint24[] memory routeFees = new uint24[](1);
         routeFees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: routePath, fees: routeFees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: routePath, fees: routeFees});
         IUniswapV3SwapRouter.ExactInputParams memory directParams =
             IUniswapV3SwapRouter.ExactInputParams({path: abi.encodePacked(address(wellToken), uint24(3_000), address(usdc)), recipient: directUser, amountIn: wellAmount, amountOutMinimum: buyAmount});
         moonwellComptroller.setRewardPerMarket(wellAmount);
@@ -195,14 +195,14 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         directPool.setReserve(address(usdc), address(directAToken), address(0));
         directPool.setReserve(address(debtAsset), address(0), address(directVariableDebtToken));
         bytes memory market = abi.encode(address(pool), address(usdc), address(debtAsset), uint8(0));
-        address marketTarget = aaveV3LendingAdapter.marketTarget(market);
-        borrowRegistry.setTargetAdapter(marketTarget, address(aaveV3LendingAdapter));
+        address marketTarget = aaveV3BorrowAdapter.marketTarget(market);
+        borrowRegistry.setTargetAdapter(marketTarget, address(aaveV3BorrowAdapter));
         address directUser = address(0xD1EC7);
         usdc.mint(directUser, COLLATERAL_AMOUNT);
         _fundWallet(wallet, address(usdc), COLLATERAL_AMOUNT);
 
         vm.prank(operator);
-        wallet.executeViaAdapter(address(aaveV3LendingAdapter), marketTarget, abi.encodeWithSelector(aaveV3LendingAdapter.supplyCollateral.selector, market, COLLATERAL_AMOUNT));
+        wallet.executeViaAdapter(address(aaveV3BorrowAdapter), marketTarget, abi.encodeWithSelector(aaveV3BorrowAdapter.supplyCollateral.selector, market, COLLATERAL_AMOUNT));
         vm.prank(directUser);
         usdc.approve(address(directPool), COLLATERAL_AMOUNT);
         vm.prank(directUser);
@@ -215,7 +215,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
 
         uint256 adapterBorrowStart = gasleft();
         vm.prank(operator);
-        wallet.executeViaAdapter(address(aaveV3LendingAdapter), marketTarget, abi.encodeWithSelector(aaveV3LendingAdapter.borrow.selector, market, BORROW_AMOUNT));
+        wallet.executeViaAdapter(address(aaveV3BorrowAdapter), marketTarget, abi.encodeWithSelector(aaveV3BorrowAdapter.borrow.selector, market, BORROW_AMOUNT));
         uint256 adapterBorrowGas = adapterBorrowStart - gasleft();
         _logGas("Aave V3 borrow $100", 124_276, 218_423, 0, directBorrowGas, adapterBorrowGas, false);
 
@@ -230,7 +230,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         uint256 collectorBeforeRepay = usdc.balanceOf(feeCollector);
         uint256 adapterRepayStart = gasleft();
         vm.prank(operator);
-        wallet.executeViaAdapter(address(aaveV3LendingAdapter), marketTarget, abi.encodeWithSelector(aaveV3LendingAdapter.repay.selector, market, type(uint256).max));
+        wallet.executeViaAdapter(address(aaveV3BorrowAdapter), marketTarget, abi.encodeWithSelector(aaveV3BorrowAdapter.repay.selector, market, type(uint256).max));
         uint256 adapterRepayGas = adapterRepayStart - gasleft();
         assertEq(usdc.balanceOf(feeCollector), collectorBeforeRepay);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), expectedFee);
@@ -243,7 +243,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
 
         uint256 adapterWithdrawStart = gasleft();
         vm.prank(operator);
-        wallet.executeViaAdapter(address(aaveV3LendingAdapter), marketTarget, abi.encodeWithSelector(aaveV3LendingAdapter.withdrawCollateral.selector, market, type(uint256).max));
+        wallet.executeViaAdapter(address(aaveV3BorrowAdapter), marketTarget, abi.encodeWithSelector(aaveV3BorrowAdapter.withdrawCollateral.selector, market, type(uint256).max));
         uint256 adapterWithdrawGas = adapterWithdrawStart - gasleft();
         assertEq(usdc.balanceOf(feeCollector) - collectorBeforeRepay, expectedFee);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 0);

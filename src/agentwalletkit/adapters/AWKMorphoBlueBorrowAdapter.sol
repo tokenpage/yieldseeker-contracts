@@ -14,7 +14,7 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
+import {AWKBorrowAdapter, AWKBorrowOperations} from "./AWKBorrowAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -43,11 +43,11 @@ interface IMorphoOracle {
 }
 
 /**
- * @title AWKMorphoBlueLendingAdapter
- * @notice Borrow against collateral on a Morpho Blue market
+ * @title AWKMorphoBlueBorrowAdapterCore
+ * @notice Borrow against collateral on a Morpho Blue market, without an operations layer
  * @dev market = abi.encode(address morpho, IMorphoBlue.MarketParams). Full repays go by shares so no interest dust is left.
  */
-contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
+abstract contract AWKMorphoBlueBorrowAdapterCore is AWKBorrowAdapter {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VIRTUAL_SHARES = 1e6;
@@ -73,6 +73,14 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
 
     function collateralReceiptToken(bytes memory) public pure virtual override returns (address) {
         return address(0);
+    }
+
+    function collateralPosition(bytes memory market) public pure virtual override returns (address) {
+        return marketTarget(market);
+    }
+
+    function debtPosition(bytes memory market) public pure virtual override returns (address) {
+        return marketTarget(market);
     }
 
     function _collateralOf(bytes memory market) internal view virtual override returns (uint256) {
@@ -124,3 +132,6 @@ contract AWKMorphoBlueLendingAdapter is AWKLendingAdapter {
         IERC20(marketParams.loanToken).forceApprove(address(morpho), 0);
     }
 }
+
+/// @notice Morpho Blue borrow adapter with the kit's default operations
+contract AWKMorphoBlueBorrowAdapter is AWKMorphoBlueBorrowAdapterCore, AWKBorrowOperations {}

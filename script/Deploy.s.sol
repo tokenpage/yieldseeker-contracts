@@ -7,8 +7,8 @@ import {YieldSeekerAgentWalletFactory as AgentWalletFactory} from "../src/AgentW
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../src/AgentWalletV3.sol";
 import {YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOracle.sol";
 import {YieldSeekerAaveV3Adapter as AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
-import {YieldSeekerAaveV3LendingAdapter as AaveV3LendingAdapter} from "../src/adapters/AaveV3LendingAdapter.sol";
-import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../src/adapters/AaveV4LendingAdapter.sol";
+import {YieldSeekerAaveV3BorrowAdapter as AaveV3BorrowAdapter} from "../src/adapters/AaveV3BorrowAdapter.sol";
+import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../src/adapters/AaveV4BorrowAdapter.sol";
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../src/adapters/AgentTransferAdapter.sol";
@@ -17,7 +17,7 @@ import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../src/adapters
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../src/adapters/MerklAdapter.sol";
 import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../src/adapters/MoonwellRewardAdapter.sol";
-import {YieldSeekerMorphoBlueLendingAdapter as MorphoBlueLendingAdapter} from "../src/adapters/MorphoBlueLendingAdapter.sol";
+import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../src/adapters/UniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule as BorrowFeeModule} from "../src/fees/BorrowFeeModule.sol";
@@ -97,9 +97,9 @@ contract DeployScript is Script {
         address aerodromeCl2SwapAdapter;
         address aerodromeCl3SwapAdapter;
         address aerodromeCl4SwapAdapter;
-        address aaveV3LendingAdapter;
-        address aaveV4LendingAdapter;
-        address morphoBlueLendingAdapter;
+        address aaveV3BorrowAdapter;
+        address aaveV4BorrowAdapter;
+        address morphoBlueBorrowAdapter;
         address agentTransferAdapter;
     }
 
@@ -315,9 +315,9 @@ contract DeployScript is Script {
             aerodromeCl2SwapAdapter: _readDeployed(deployJson, ".aerodromeCL2SwapAdapter"),
             aerodromeCl3SwapAdapter: _readDeployed(deployJson, ".aerodromeCL3SwapAdapter"),
             aerodromeCl4SwapAdapter: _readDeployed(deployJson, ".aerodromeCL4SwapAdapter"),
-            aaveV3LendingAdapter: _readDeployed(deployJson, ".aaveV3LendingAdapter"),
-            aaveV4LendingAdapter: _readDeployed(deployJson, ".aaveV4LendingAdapter"),
-            morphoBlueLendingAdapter: _readDeployed(deployJson, ".morphoBlueLendingAdapter"),
+            aaveV3BorrowAdapter: _readDeployed(deployJson, ".aaveV3BorrowAdapter"),
+            aaveV4BorrowAdapter: _readDeployed(deployJson, ".aaveV4BorrowAdapter"),
+            morphoBlueBorrowAdapter: _readDeployed(deployJson, ".morphoBlueBorrowAdapter"),
             agentTransferAdapter: _readDeployed(deployJson, ".agentTransferAdapter")
         });
 
@@ -534,26 +534,26 @@ contract DeployScript is Script {
             console2.log("-> Using existing aerodromeCL4SwapAdapter:", deployments.aerodromeCl4SwapAdapter);
         }
 
-        // Lending adapters
-        if (deployments.aaveV3LendingAdapter == address(0)) {
-            deployments.aaveV3LendingAdapter = deployCreate2(type(AaveV3LendingAdapter).creationCode);
-            console2.log("-> AaveV3LendingAdapter deployed at:", deployments.aaveV3LendingAdapter);
+        // Borrow adapters
+        if (deployments.aaveV3BorrowAdapter == address(0)) {
+            deployments.aaveV3BorrowAdapter = deployCreate2(type(AaveV3BorrowAdapter).creationCode);
+            console2.log("-> AaveV3BorrowAdapter deployed at:", deployments.aaveV3BorrowAdapter);
         } else {
-            console2.log("-> Using existing aaveV3LendingAdapter:", deployments.aaveV3LendingAdapter);
+            console2.log("-> Using existing aaveV3BorrowAdapter:", deployments.aaveV3BorrowAdapter);
         }
 
-        if (deployments.aaveV4LendingAdapter == address(0)) {
-            deployments.aaveV4LendingAdapter = deployCreate2(type(AaveV4LendingAdapter).creationCode);
-            console2.log("-> AaveV4LendingAdapter deployed at:", deployments.aaveV4LendingAdapter);
+        if (deployments.aaveV4BorrowAdapter == address(0)) {
+            deployments.aaveV4BorrowAdapter = deployCreate2(type(AaveV4BorrowAdapter).creationCode);
+            console2.log("-> AaveV4BorrowAdapter deployed at:", deployments.aaveV4BorrowAdapter);
         } else {
-            console2.log("-> Using existing aaveV4LendingAdapter:", deployments.aaveV4LendingAdapter);
+            console2.log("-> Using existing aaveV4BorrowAdapter:", deployments.aaveV4BorrowAdapter);
         }
 
-        if (deployments.morphoBlueLendingAdapter == address(0)) {
-            deployments.morphoBlueLendingAdapter = deployCreate2(type(MorphoBlueLendingAdapter).creationCode);
-            console2.log("-> MorphoBlueLendingAdapter deployed at:", deployments.morphoBlueLendingAdapter);
+        if (deployments.morphoBlueBorrowAdapter == address(0)) {
+            deployments.morphoBlueBorrowAdapter = deployCreate2(type(MorphoBlueBorrowAdapter).creationCode);
+            console2.log("-> MorphoBlueBorrowAdapter deployed at:", deployments.morphoBlueBorrowAdapter);
         } else {
-            console2.log("-> Using existing morphoBlueLendingAdapter:", deployments.morphoBlueLendingAdapter);
+            console2.log("-> Using existing morphoBlueBorrowAdapter:", deployments.morphoBlueBorrowAdapter);
         }
 
         if (deployments.agentTransferAdapter == address(0)) {
@@ -595,9 +595,9 @@ contract DeployScript is Script {
         vm.serializeAddress(json, "aerodromeCL2SwapAdapter", deployments.aerodromeCl2SwapAdapter);
         vm.serializeAddress(json, "aerodromeCL3SwapAdapter", deployments.aerodromeCl3SwapAdapter);
         vm.serializeAddress(json, "aerodromeCL4SwapAdapter", deployments.aerodromeCl4SwapAdapter);
-        vm.serializeAddress(json, "aaveV3LendingAdapter", deployments.aaveV3LendingAdapter);
-        vm.serializeAddress(json, "aaveV4LendingAdapter", deployments.aaveV4LendingAdapter);
-        vm.serializeAddress(json, "morphoBlueLendingAdapter", deployments.morphoBlueLendingAdapter);
+        vm.serializeAddress(json, "aaveV3BorrowAdapter", deployments.aaveV3BorrowAdapter);
+        vm.serializeAddress(json, "aaveV4BorrowAdapter", deployments.aaveV4BorrowAdapter);
+        vm.serializeAddress(json, "morphoBlueBorrowAdapter", deployments.morphoBlueBorrowAdapter);
         string memory finalJson = vm.serializeAddress(json, "agentTransferAdapter", deployments.agentTransferAdapter);
         vm.writeJson(finalJson, "./deployments.json");
         console2.log("-> Deployments saved to ./deployments.json");
@@ -668,9 +668,9 @@ contract DeployScript is Script {
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl3SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.aerodromeCl4SwapAdapter);
         _registerAdapter(vaultAdapterRegistry, deployments.agentTransferAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.aaveV3LendingAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.aaveV4LendingAdapter);
-        _registerAdapter(borrowAdapterRegistry, deployments.morphoBlueLendingAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aaveV3BorrowAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.aaveV4BorrowAdapter);
+        _registerAdapter(borrowAdapterRegistry, deployments.morphoBlueBorrowAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.merklAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.uniswapV3SwapAdapter);
         _registerAdapter(borrowAdapterRegistry, deployments.aerodromeV2SwapAdapter);

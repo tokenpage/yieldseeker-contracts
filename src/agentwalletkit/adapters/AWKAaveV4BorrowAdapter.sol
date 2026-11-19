@@ -14,7 +14,7 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
+import {AWKBorrowAdapter, AWKBorrowOperations} from "./AWKBorrowAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -47,11 +47,11 @@ interface IAaveV4Oracle {
 }
 
 /**
- * @title AWKAaveV4LendingAdapter
- * @notice Borrow against collateral on an Aave V4 spoke
+ * @title AWKAaveV4BorrowAdapterCore
+ * @notice Borrow against collateral on an Aave V4 spoke, without an operations layer
  * @dev market = abi.encode(address spoke, uint256 collateralReserveId, uint256 debtReserveId).
  */
-contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
+abstract contract AWKAaveV4BorrowAdapterCore is AWKBorrowAdapter {
     using SafeERC20 for IERC20;
 
     function _decodeMarket(bytes memory market) internal pure returns (IAaveV4Spoke spoke, uint256 collateralReserveId, uint256 debtReserveId) {
@@ -131,3 +131,6 @@ contract AWKAaveV4LendingAdapter is AWKLendingAdapter {
         IERC20(debtAsset).forceApprove(address(spoke), 0);
     }
 }
+
+/// @notice Aave V4 borrow adapter with the kit's default operations
+contract AWKAaveV4BorrowAdapter is AWKAaveV4BorrowAdapterCore, AWKBorrowOperations {}

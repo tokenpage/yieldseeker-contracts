@@ -5,9 +5,9 @@ import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../src/AdapterRegis
 import {YieldSeekerAdminTimelock as AdminTimelock} from "../src/AdminTimelock.sol";
 import {IPriceFeed, YieldSeekerPriceOracle as PriceOracle} from "../src/PriceOracle.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../src/adapters/SwapSellPolicy.sol";
-import {IAaveV4Spoke} from "../src/agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
-import {AWKLendingAdapter} from "../src/agentwalletkit/adapters/AWKLendingAdapter.sol";
-import {IMorphoBlue, IMorphoOracle} from "../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {IAaveV4Spoke} from "../src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol";
+import {AWKBorrowAdapter} from "../src/agentwalletkit/adapters/AWKBorrowAdapter.sol";
+import {IMorphoBlue, IMorphoOracle} from "../src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
@@ -184,7 +184,7 @@ contract ConfigureScript is Script {
             require(IAaveV3PoolConfiguration(AAVE_V3_POOL).getConfiguration(collateral) & 0xFFFF != 0, string.concat(label, ": Aave V3 collateral has LTV 0 outside eMode, so supplying it as collateral reverts"));
             require((IAaveV3PoolConfiguration(AAVE_V3_POOL).getConfiguration(debt) >> 58) & 1 == 1, string.concat(label, ": Aave V3 debt reserve has borrowing disabled"));
             _requireNewCollateralVenue(label, keccak256(abi.encode(AAVE_V3_POOL, collateral)));
-            _registerMarket(label, ".aaveV3LendingAdapter", abi.encode(AAVE_V3_POOL, collateral, debt, uint8(0)), collateral, debt);
+            _registerMarket(label, ".aaveV3BorrowAdapter", abi.encode(AAVE_V3_POOL, collateral, debt, uint8(0)), collateral, debt);
         }
     }
 
@@ -203,7 +203,7 @@ contract ConfigureScript is Script {
             // total-return feed (one token), never a per-share price
             require(_sourceFeeds[_requireSource(label, collateral)] == spokeOracle.getReserveSource(collateralReserveId), string.concat(label, ": collateral price source must be the Aave V4 spoke oracle's source for that reserve"));
             _requireNewCollateralVenue(label, keccak256(abi.encode(AAVE_V4_SPOKE, collateralReserveId)));
-            _registerMarket(label, ".aaveV4LendingAdapter", abi.encode(AAVE_V4_SPOKE, collateralReserveId, debtReserveId), collateral, debt);
+            _registerMarket(label, ".aaveV4BorrowAdapter", abi.encode(AAVE_V4_SPOKE, collateralReserveId, debtReserveId), collateral, debt);
         }
     }
 
@@ -222,11 +222,11 @@ contract ConfigureScript is Script {
             (,,,, uint128 lastUpdate,) = IMorphoBlue(MORPHO_BLUE).market(keccak256(abi.encode(params)));
             require(lastUpdate != 0, string.concat(label, ": Morpho market does not exist"));
             console2.log(label, "Morpho oracle price:", IMorphoOracle(params.oracle).price());
-            _registerMarket(label, ".morphoBlueLendingAdapter", abi.encode(MORPHO_BLUE, params), params.collateralToken, params.loanToken);
+            _registerMarket(label, ".morphoBlueBorrowAdapter", abi.encode(MORPHO_BLUE, params), params.collateralToken, params.loanToken);
         }
     }
 
-    /// @dev Maps the market and its collateral receipt token (so swap policies never sell it) to the lending adapter
+    /// @dev Maps the market and its collateral receipt token (so swap policies never sell it) to the borrow adapter
     function _registerMarket(string memory label, string memory adapterKey, bytes memory market, address collateral, address debt) internal {
         require(collateral != debt, string.concat(label, ": collateral and debt assets must differ"));
         _requireSource(label, collateral);
@@ -235,11 +235,11 @@ contract ConfigureScript is Script {
         _marketDebts.push(debt);
         AdapterRegistry borrowRegistry = AdapterRegistry(_deployments.readAddress(".borrowAdapterRegistry"));
         address adapter = _deployments.readAddress(adapterKey);
-        address target = AWKLendingAdapter(adapter).marketTarget(market);
+        address target = AWKBorrowAdapter(adapter).marketTarget(market);
         require(_indexOf(_borrowTargets, target) == type(uint256).max, string.concat(label, ": market listed twice"));
         _borrowTargets.push(target);
         _setTarget(borrowRegistry, target, adapter, label);
-        address receiptToken = AWKLendingAdapter(adapter).collateralReceiptToken(market);
+        address receiptToken = AWKBorrowAdapter(adapter).collateralReceiptToken(market);
         if (receiptToken == address(0)) return;
         require(_indexOf(_borrowTargets, receiptToken) == type(uint256).max, string.concat(label, ": collateral receipt token already belongs to another market"));
         _borrowTargets.push(receiptToken);
@@ -304,14 +304,14 @@ contract ConfigureScript is Script {
         deployManaged[3] = _deployments.readAddress(".agentTransferAdapter");
         _reportRegistryDrift(".agentWalletV2AdapterRegistry", _vaultTargets, new address[](0));
         _reportRegistryDrift(".vaultAdapterRegistry", _vaultTargets, deployManaged);
-        address[3] memory lendingAdapters = [_deployments.readAddress(".aaveV3LendingAdapter"), _deployments.readAddress(".aaveV4LendingAdapter"), _deployments.readAddress(".morphoBlueLendingAdapter")];
+        address[3] memory borrowAdapters = [_deployments.readAddress(".aaveV3BorrowAdapter"), _deployments.readAddress(".aaveV4BorrowAdapter"), _deployments.readAddress(".morphoBlueBorrowAdapter")];
         AdapterRegistry borrowRegistry = AdapterRegistry(_deployments.readAddress(".borrowAdapterRegistry"));
         address[] memory borrowTargets = borrowRegistry.getAllTargets();
         for (uint256 i = 0; i < borrowTargets.length; i++) {
-            bool isLendingTarget = _indexOf(_toArray(lendingAdapters), borrowRegistry.getTargetAdapter(borrowTargets[i])) != type(uint256).max;
+            bool isBorrowMarketTarget = _indexOf(_toArray(borrowAdapters), borrowRegistry.getTargetAdapter(borrowTargets[i])) != type(uint256).max;
             // A hard stop, not a warning: the one-market-per-venue and no-cycle checks only see markets in the config
             require(
-                !isLendingTarget || _indexOf(_borrowTargets, borrowTargets[i]) != type(uint256).max,
+                !isBorrowMarketTarget || _indexOf(_borrowTargets, borrowTargets[i]) != type(uint256).max,
                 string.concat("Borrow market target on-chain is not in the config: ", vm.toString(borrowTargets[i]), "; keep its market in the config, or remove it from the registry first")
             );
         }

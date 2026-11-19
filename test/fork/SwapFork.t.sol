@@ -7,9 +7,9 @@ import {YieldSeekerAerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLS
 import {YieldSeekerAerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AWKAerodromeCLSwapAdapter} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapter} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
 import {ForkBase} from "./ForkBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -64,34 +64,38 @@ contract SwapForkTest is ForkBase {
     function test_UniswapV3SingleAndTwoHopRewardSales() public {
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
-        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(false), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
+        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapterCore.SwapRoute({path: _path(false), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
 
         fees = new uint24[](2);
         fees[0] = 500;
         fees[1] = 500;
-        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapter.SwapRoute({path: _path(true), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
+        _assertRewardSale(address(uniswapAdapter), UNISWAP_V3_ROUTER, abi.encodeCall(uniswapAdapter.swap, (WETH, USDC, AWKUniswapV3SwapAdapterCore.SwapRoute({path: _path(true), fees: fees}), SELL_AMOUNT, 1, block.timestamp)));
     }
 
     function test_AerodromeV2SingleAndTwoHopRewardSales() public {
         bool[] memory stables = new bool[](1);
-        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(false), stables: stables}), SELL_AMOUNT, 1, block.timestamp)));
+        _assertRewardSale(
+            address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapterCore.SwapRoute({path: _path(false), stables: stables}), SELL_AMOUNT, 1, block.timestamp))
+        );
 
         stables = new bool[](2);
-        _assertRewardSale(address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapter.SwapRoute({path: _path(true), stables: stables}), SELL_AMOUNT, 1, block.timestamp)));
+        _assertRewardSale(
+            address(aerodromeV2Adapter), AERODROME_V2_ROUTER, abi.encodeCall(aerodromeV2Adapter.swap, (WETH, USDC, AWKAerodromeV2SwapAdapterCore.SwapRoute({path: _path(true), stables: stables}), SELL_AMOUNT, 1, block.timestamp))
+        );
     }
 
     function test_AerodromeCLSingleAndTwoHopRewardSales() public {
         int24[] memory tickSpacings = new int24[](1);
         tickSpacings[0] = 100;
         _assertRewardSale(
-            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
         );
 
         tickSpacings = new int24[](2);
         tickSpacings[0] = 100;
         tickSpacings[1] = 100;
         _assertRewardSale(
-            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(true), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+            address(aerodromeCLAdapter), AERODROME_CL_ROUTER, abi.encodeCall(aerodromeCLAdapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(true), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
         );
     }
 
@@ -108,7 +112,7 @@ contract SwapForkTest is ForkBase {
                     wallet,
                     address(aerodromeCL3Adapter),
                     AERODROME_CL_3_ROUTER,
-                    abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+                    abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
                 ),
                 (bytes)
             ),
@@ -129,7 +133,9 @@ contract SwapForkTest is ForkBase {
         int24[] memory tickSpacings = new int24[](1);
         tickSpacings[0] = 50;
         _assertRewardSale(
-            address(aerodromeCL4Adapter), AERODROME_CL_4_ROUTER, abi.encodeCall(aerodromeCL4Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapter.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
+            address(aerodromeCL4Adapter),
+            AERODROME_CL_4_ROUTER,
+            abi.encodeCall(aerodromeCL4Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
         );
     }
 

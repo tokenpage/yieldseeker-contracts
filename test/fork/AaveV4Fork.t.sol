@@ -2,8 +2,8 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAdapterRegistry as AdapterRegistry} from "../../src/AdapterRegistry.sol";
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerAaveV4LendingAdapter as AaveV4LendingAdapter} from "../../src/adapters/AaveV4LendingAdapter.sol";
-import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
+import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../../src/adapters/AaveV4BorrowAdapter.sol";
+import {IAaveV4Oracle, IAaveV4Spoke} from "../../src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -42,7 +42,7 @@ contract AaveV4ForkTest is ForkBase {
     FeeTracker internal borrowTracker;
     YieldSeekerBorrowFeeModule internal borrowFeeModule;
     YieldSeekerYieldFeeModule internal borrowYieldFeeModule;
-    AaveV4LendingAdapter internal adapter;
+    AaveV4BorrowAdapter internal adapter;
     AgentWallet internal wallet;
     bytes internal market;
 
@@ -63,7 +63,7 @@ contract AaveV4ForkTest is ForkBase {
         borrowRegistry = new AdapterRegistry(address(this), address(this));
         factory.setAdapterRegistry(BORROW_AGENT_PROFILE, borrowRegistry);
         factory.setFeeTracker(BORROW_AGENT_PROFILE, borrowTracker);
-        adapter = new AaveV4LendingAdapter();
+        adapter = new AaveV4BorrowAdapter();
         market = abi.encode(AAVE_V4_SPOKE, COLLATERAL_RESERVE_ID, DEBT_RESERVE_ID);
         _register(borrowRegistry, address(adapter), adapter.marketTarget(market));
         FeePlanChoice[] memory noFeePlans = new FeePlanChoice[](0);
@@ -196,8 +196,8 @@ contract AaveV4ForkTest is ForkBase {
         registry.setTargetAdapter(target, adapterAddress);
     }
 
-    function _execute(AaveV4LendingAdapter lendingAdapter, address target, bytes memory data) internal returns (bytes memory) {
+    function _execute(AaveV4BorrowAdapter borrowAdapter, address target, bytes memory data) internal returns (bytes memory) {
         vm.prank(operator);
-        return abi.decode(wallet.executeViaAdapter(address(lendingAdapter), target, data), (bytes));
+        return abi.decode(wallet.executeViaAdapter(address(borrowAdapter), target, data), (bytes));
     }
 }

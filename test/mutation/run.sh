@@ -38,12 +38,12 @@ FILES=(
   src/agentwalletkit/AWKAdapterRegistry.sol
   src/agentwalletkit/AWKAdapter.sol
   src/adapters/SwapSellPolicy.sol
-  src/adapters/LendingAdapter.sol
+  src/adapters/BorrowAdapter.sol
   src/adapters/VaultAdapter.sol
   src/adapters/SwapAdapter.sol
   src/adapters/Adapter.sol
   src/agentwalletkit/adapters/AWKSwapAdapter.sol
-  src/agentwalletkit/adapters/AWKLendingAdapter.sol
+  src/agentwalletkit/adapters/AWKBorrowAdapter.sol
   src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol
 )
 

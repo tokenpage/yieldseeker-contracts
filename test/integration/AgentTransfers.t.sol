@@ -83,8 +83,8 @@ contract AgentTransfersTest is IntegrationBase {
         uint256 expectedFee = (debtAmount * BORROW_FEE_BPS * elapsed) / (365 days * 10_000);
         expectedFee = (expectedFee * 2_000 * (10 ** uint256(usdc.decimals()))) / (10 ** uint256(weth.decimals()));
         vm.warp(vm.getBlockTimestamp() + elapsed);
-        bytes memory repayData = abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), repayData);
+        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), expectedFee);
 
         uint256 transferAmount = 30e6;
@@ -109,8 +109,8 @@ contract AgentTransfersTest is IntegrationBase {
         uint256 expectedFee = (debtAmount * BORROW_FEE_BPS * elapsed) / (365 days * 10_000);
         expectedFee = (expectedFee * 2_000 * (10 ** uint256(usdc.decimals()))) / (10 ** uint256(weth.decimals()));
         vm.warp(vm.getBlockTimestamp() + elapsed);
-        bytes memory repayData = abi.encodeCall(aaveV3LendingAdapter.repay, (aaveV3Market, type(uint256).max));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), repayData);
+        bytes memory repayData = abi.encodeCall(aaveV3BorrowAdapter.repay, (aaveV3Market, type(uint256).max));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), repayData);
         _fundWallet(borrowWallet, address(usdc), expectedFee);
 
         uint256 collectorBalanceBefore = _feesCollected(address(usdc));
@@ -181,10 +181,10 @@ contract AgentTransfersTest is IntegrationBase {
 
     function _borrowWeth(AgentWallet wallet, uint256 collateral, uint256 borrowed) private {
         _fundWallet(wallet, address(usdc), collateral);
-        bytes memory supplyData = abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateral));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), supplyData);
-        bytes memory borrowData = abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, borrowed));
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), borrowData);
+        bytes memory supplyData = abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateral));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), supplyData);
+        bytes memory borrowData = abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, borrowed));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), borrowData);
     }
 
     function _transfer(AgentWallet from, address token, address to, uint256 amount) private {

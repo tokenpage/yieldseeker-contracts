@@ -2,8 +2,8 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {YieldSeekerAaveV3LendingAdapter} from "../../src/adapters/AaveV3LendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {YieldSeekerAaveV3BorrowAdapter} from "../../src/adapters/AaveV3BorrowAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, InsufficientGasForModules} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
@@ -104,10 +104,10 @@ contract FeesIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(address(borrowWallet)), 80 * USDC);
 
         _fundWallet(borrowWallet, address(usdc), USDC);
-        _executeLending(borrowWallet, aaveV3LendingAdapter.supplyCollateral.selector, USDC);
-        _executeLending(borrowWallet, aaveV3LendingAdapter.borrow.selector, 1e18);
+        _executeLending(borrowWallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(borrowWallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(borrowWallet, aaveV3LendingAdapter.repay.selector, type(uint256).max);
+        _executeLending(borrowWallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
         assertEq(usdc.balanceOf(feeCollector) - collectorBefore, 55 * USDC);
         assertEq(borrowFeeModule.feesOwed(address(borrowWallet)), 0);
     }
@@ -274,7 +274,7 @@ contract FeesIntegrationTest is IntegrationBase {
         path[1] = address(usdc);
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(20 * USDC);
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, 100e18, 20 * USDC, block.timestamp));
 
@@ -333,10 +333,10 @@ contract FeesIntegrationTest is IntegrationBase {
     function testFeeModulesRunInOrderAndCapPaymentsToFundsAvailable() public {
         AgentWallet wallet = _createBorrowWallet(owner, 20);
         _fundWallet(wallet, address(usdc), USDC);
-        _executeLending(wallet, aaveV3LendingAdapter.supplyCollateral.selector, USDC);
-        _executeLending(wallet, aaveV3LendingAdapter.borrow.selector, 1e18);
+        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(wallet, aaveV3LendingAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
         assertEq(borrowFeeModule.feesOwed(address(wallet)), 10 * USDC);
 
         uint256 collectorBefore = usdc.balanceOf(feeCollector);
@@ -398,10 +398,10 @@ contract FeesIntegrationTest is IntegrationBase {
     function testFeeViewsIgnoreModulesThatRevert() public {
         AgentWallet wallet = _createBorrowWallet(owner, 50);
         _fundWallet(wallet, address(usdc), USDC);
-        _executeLending(wallet, aaveV3LendingAdapter.supplyCollateral.selector, USDC);
-        _executeLending(wallet, aaveV3LendingAdapter.borrow.selector, 1e18);
+        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, USDC);
+        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, 1e18);
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _executeLending(wallet, aaveV3LendingAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
         ViewFailingFeeModule failure = new ViewFailingFeeModule(address(borrowFeeTracker), VIEW_FAILURE_FEE);
         borrowFeeTracker.setFeeModule(VIEW_FAILURE_FEE, failure);
         _fundWallet(wallet, address(usdc), 20 * USDC);
@@ -419,9 +419,9 @@ contract FeesIntegrationTest is IntegrationBase {
     function testPlainBorrowCollateralTradeDoesNotAccrueYieldFees() public {
         AgentWallet wallet = _createBorrowWallet(owner, 60);
         _fundWallet(wallet, address(usdc), 1_000 * USDC);
-        _executeLending(wallet, aaveV3LendingAdapter.supplyCollateral.selector, 1_000 * USDC);
+        _executeLending(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, 1_000 * USDC);
         uint256 bought = 0.05e18;
-        _executeLending(wallet, aaveV3LendingAdapter.borrow.selector, bought);
+        _executeLending(wallet, aaveV3BorrowAdapter.borrow.selector, bought);
         vm.prank(owner);
         wallet.withdrawAllAssetToUser(owner, address(weth));
         _fundWallet(wallet, address(usdc), 100 * USDC);
@@ -430,7 +430,7 @@ contract FeesIntegrationTest is IntegrationBase {
         path[1] = address(weth);
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(bought);
 
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(usdc), address(weth), route, 100 * USDC, bought, block.timestamp));
@@ -439,7 +439,7 @@ contract FeesIntegrationTest is IntegrationBase {
         assertEq(usdc.balanceOf(feeCollector), 0);
         assertEq(weth.balanceOf(address(wallet)), bought);
 
-        _executeLending(wallet, aaveV3LendingAdapter.repay.selector, type(uint256).max);
+        _executeLending(wallet, aaveV3BorrowAdapter.repay.selector, type(uint256).max);
         assertEq(weth.balanceOf(address(wallet)), 0);
         assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), 0);
     }
@@ -455,6 +455,6 @@ contract FeesIntegrationTest is IntegrationBase {
     }
 
     function _executeLending(AgentWallet wallet, bytes4 selector, uint256 amount) private {
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeWithSelector(selector, aaveV3Market, amount));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeWithSelector(selector, aaveV3Market, amount));
     }
 }

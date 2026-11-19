@@ -2,8 +2,8 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
-import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {YieldSeekerAaveV3BorrowAdapter} from "../../../src/adapters/AaveV3BorrowAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
@@ -139,7 +139,7 @@ contract FeeAccountingHandler is IntegrationBase {
         path[1] = address(usdc);
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(USDC_UNIT);
         vm.recordLogs();
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, rewardBalance, USDC_UNIT, block.timestamp));
@@ -175,7 +175,7 @@ contract FeeAccountingHandler is IntegrationBase {
         if (repayV3 != 0) {
             uint256 amountV3 = bound(amountSeed, 1, repayV3);
             vm.recordLogs();
-            _executeAaveV3(wallet, aaveV3LendingAdapter.repay.selector, amountV3);
+            _executeAaveV3(wallet, aaveV3BorrowAdapter.repay.selector, amountV3);
             _captureFeeEvents();
             repayCalls++;
             tokenBalance -= amountV3;
@@ -185,7 +185,7 @@ contract FeeAccountingHandler is IntegrationBase {
         if (repayV4 != 0) {
             uint256 amountV4 = bound(amountSeed, 1, repayV4);
             vm.recordLogs();
-            _executeAaveV4(wallet, aaveV4LendingAdapter.repay.selector, amountV4);
+            _executeAaveV4(wallet, aaveV4BorrowAdapter.repay.selector, amountV4);
             _captureFeeEvents();
             repayCalls++;
         }
@@ -197,14 +197,14 @@ contract FeeAccountingHandler is IntegrationBase {
         uint256 collateralV3 = aaveV3CollateralAToken.balanceOf(address(wallet));
         uint256 amountV3 = bound(amountSeed, 1, collateralV3);
         vm.recordLogs();
-        _executeAaveV3(wallet, aaveV3LendingAdapter.withdrawCollateral.selector, amountV3);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.withdrawCollateral.selector, amountV3);
         _captureFeeEvents();
         collateralWithdrawalCalls++;
 
         uint256 collateralV4 = aaveV4Spoke.getUserSuppliedAssets(1, address(wallet));
         uint256 amountV4 = bound(amountSeed, 1, collateralV4);
         vm.recordLogs();
-        _executeAaveV4(wallet, aaveV4LendingAdapter.withdrawCollateral.selector, amountV4);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.withdrawCollateral.selector, amountV4);
         _captureFeeEvents();
         collateralWithdrawalCalls++;
     }
@@ -259,13 +259,13 @@ contract FeeAccountingHandler is IntegrationBase {
             _ensureCollateral(wallet);
             _borrowBothMarkets(wallet, 1e15);
         }
-        address targetV3 = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address targetV3 = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         vm.recordLogs();
-        _execute(wallet, address(aaveV3LendingAdapter), targetV3, abi.encodeWithSelector(aaveV3LendingAdapter.checkpoint.selector, aaveV3Market));
+        _execute(wallet, address(aaveV3BorrowAdapter), targetV3, abi.encodeWithSelector(aaveV3BorrowAdapter.checkpoint.selector, aaveV3Market));
         _captureFeeEvents();
-        address targetV4 = aaveV4LendingAdapter.marketTarget(aaveV4Market);
+        address targetV4 = aaveV4BorrowAdapter.marketTarget(aaveV4Market);
         vm.recordLogs();
-        _execute(wallet, address(aaveV4LendingAdapter), targetV4, abi.encodeWithSelector(aaveV4LendingAdapter.checkpoint.selector, aaveV4Market));
+        _execute(wallet, address(aaveV4BorrowAdapter), targetV4, abi.encodeWithSelector(aaveV4BorrowAdapter.checkpoint.selector, aaveV4Market));
         _captureFeeEvents();
         operatorCheckpointCalls++;
     }
@@ -300,8 +300,8 @@ contract FeeAccountingHandler is IntegrationBase {
     function assertTokenDebtMatchesPositions() external view {
         for (uint256 i; i < 2; i++) {
             AgentWallet wallet = borrowWallets[i];
-            address positionV3 = aaveV3LendingAdapter.debtPosition(aaveV3Market);
-            address positionV4 = aaveV4LendingAdapter.debtPosition(aaveV4Market);
+            address positionV3 = aaveV3BorrowAdapter.debtPosition(aaveV3Market);
+            address positionV4 = aaveV4BorrowAdapter.debtPosition(aaveV4Market);
             (uint128 debtV3,,) = borrowFeeModule.debtPositions(address(wallet), positionV3);
             (uint128 debtV4,,) = borrowFeeModule.debtPositions(address(wallet), positionV4);
             assertEq(borrowFeeModule.tokenDebt(address(wallet), address(weth)), uint256(debtV3) + debtV4);
@@ -358,7 +358,7 @@ contract FeeAccountingHandler is IntegrationBase {
     function _supplyAaveV3Collateral(AgentWallet wallet, uint256 amount) private {
         _fundForCollateralSupply(wallet, amount);
         vm.recordLogs();
-        _executeAaveV3(wallet, aaveV3LendingAdapter.supplyCollateral.selector, amount);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.supplyCollateral.selector, amount);
         _captureFeeEvents();
         collateralSupplyCalls++;
     }
@@ -366,7 +366,7 @@ contract FeeAccountingHandler is IntegrationBase {
     function _supplyAaveV4Collateral(AgentWallet wallet, uint256 amount) private {
         _fundForCollateralSupply(wallet, amount);
         vm.recordLogs();
-        _executeAaveV4(wallet, aaveV4LendingAdapter.supplyCollateral.selector, amount);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.supplyCollateral.selector, amount);
         _captureFeeEvents();
         collateralSupplyCalls++;
     }
@@ -384,20 +384,20 @@ contract FeeAccountingHandler is IntegrationBase {
 
     function _borrowBothMarkets(AgentWallet wallet, uint256 amount) private {
         vm.recordLogs();
-        _executeAaveV3(wallet, aaveV3LendingAdapter.borrow.selector, amount);
+        _executeAaveV3(wallet, aaveV3BorrowAdapter.borrow.selector, amount);
         _captureFeeEvents();
         vm.recordLogs();
-        _executeAaveV4(wallet, aaveV4LendingAdapter.borrow.selector, amount);
+        _executeAaveV4(wallet, aaveV4BorrowAdapter.borrow.selector, amount);
         _captureFeeEvents();
         borrowCalls++;
     }
 
     function _executeAaveV3(AgentWallet wallet, bytes4 selector, uint256 amount) private {
-        _execute(wallet, address(aaveV3LendingAdapter), aaveV3LendingAdapter.marketTarget(aaveV3Market), abi.encodeWithSelector(selector, aaveV3Market, amount));
+        _execute(wallet, address(aaveV3BorrowAdapter), aaveV3BorrowAdapter.marketTarget(aaveV3Market), abi.encodeWithSelector(selector, aaveV3Market, amount));
     }
 
     function _executeAaveV4(AgentWallet wallet, bytes4 selector, uint256 amount) private {
-        _execute(wallet, address(aaveV4LendingAdapter), aaveV4LendingAdapter.marketTarget(aaveV4Market), abi.encodeWithSelector(selector, aaveV4Market, amount));
+        _execute(wallet, address(aaveV4BorrowAdapter), aaveV4BorrowAdapter.marketTarget(aaveV4Market), abi.encodeWithSelector(selector, aaveV4Market, amount));
     }
 
     function _vaultWallet(uint256 seed) private view returns (AgentWallet) {

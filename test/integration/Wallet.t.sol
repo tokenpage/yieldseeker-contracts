@@ -893,12 +893,12 @@ contract WalletIntegrationTest is IntegrationBase {
     function _prepareBorrowWalletWithFees(uint256 index, uint256 baseFunding) private returns (AgentWallet borrowWallet, uint256 feeOwed) {
         borrowWallet = _createBorrowWallet(_walletOwner, index);
         uint256 collateralAmount = 100e6;
-        address marketTarget = aaveV3LendingAdapter.marketTarget(aaveV3Market);
+        address marketTarget = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
         _fundWallet(borrowWallet, address(usdc), collateralAmount);
-        _execute(borrowWallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
-        _execute(borrowWallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.borrow, (aaveV3Market, 1e18)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.supplyCollateral, (aaveV3Market, collateralAmount)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.borrow, (aaveV3Market, 1e18)));
         vm.warp(vm.getBlockTimestamp() + 365 days);
-        _execute(borrowWallet, address(aaveV3LendingAdapter), marketTarget, abi.encodeCall(aaveV3LendingAdapter.checkpoint, (aaveV3Market)));
+        _execute(borrowWallet, address(aaveV3BorrowAdapter), marketTarget, abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (aaveV3Market)));
         feeOwed = borrowFeeModule.feesOwed(address(borrowWallet));
         assertGt(feeOwed, 0);
         assertEq(usdc.balanceOf(address(borrowWallet)), 0);
