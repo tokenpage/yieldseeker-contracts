@@ -16,7 +16,6 @@ pragma solidity 0.8.38;
 
 import {AWKAdapterTarget} from "./AWKAdapterTarget.sol";
 import {AWKErrors} from "./AWKErrors.sol";
-import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 
 error UnknownOperation();
 
@@ -46,9 +45,5 @@ abstract contract AWKAdapter {
     /// @dev The target of the call in progress, which the wallet has checked against its registry
     function _target() internal view returns (address) {
         return AWKAdapterTarget.get();
-    }
-
-    function _agentWallet() internal view virtual returns (IAWKAgentWallet) {
-        return IAWKAgentWallet(address(this));
     }
 }

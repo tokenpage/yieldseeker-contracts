@@ -73,6 +73,11 @@ contract CallOtherWalletAdapter {
     }
 }
 
+struct EmptySwapRoute {
+    address[] path;
+    uint256[] hops;
+}
+
 contract WalletPropertiesTest is IntegrationBase {
     using MessageHashUtils for bytes32;
 
@@ -325,6 +330,41 @@ contract WalletPropertiesTest is IntegrationBase {
         vm.expectRevert(abi.encodeWithSelector(AgentAlreadyExists.selector, walletOwner, index));
         vm.prank(operator);
         factory.createAgentWallet(walletOwner, index, address(usdc), BORROW_AGENT_PROFILE, noPlans);
+    }
+
+    function test_everyAdapterOperationRejectsADirectCall() public {
+        bytes memory amount = abi.encode(uint256(1));
+        address[3] memory vaultAdapters = [address(erc4626Adapter), address(aaveV3Adapter), address(compoundV3Adapter)];
+        bytes4[3] memory vaultOperations = [erc4626Adapter.deposit.selector, erc4626Adapter.depositPercentage.selector, erc4626Adapter.withdraw.selector];
+        for (uint256 i; i < 3; i++) {
+            for (uint256 j; j < 3; j++) {
+                _assertDirectCallForbidden(vaultAdapters[i], abi.encodePacked(vaultOperations[j], amount));
+            }
+        }
+
+        address[3] memory borrowAdapters = [address(aaveV3BorrowAdapter), address(aaveV4BorrowAdapter), address(morphoBlueBorrowAdapter)];
+        bytes[3] memory markets = [aaveV3Market, aaveV4Market, morphoMarket];
+        bytes4[4] memory borrowOperations = [aaveV3BorrowAdapter.supplyCollateral.selector, aaveV3BorrowAdapter.withdrawCollateral.selector, aaveV3BorrowAdapter.borrow.selector, aaveV3BorrowAdapter.repay.selector];
+        for (uint256 i; i < 3; i++) {
+            for (uint256 j; j < 4; j++) {
+                _assertDirectCallForbidden(borrowAdapters[i], abi.encodePacked(borrowOperations[j], abi.encode(markets[i], uint256(1))));
+            }
+            _assertDirectCallForbidden(borrowAdapters[i], abi.encodeCall(aaveV3BorrowAdapter.checkpoint, (markets[i])));
+        }
+
+        EmptySwapRoute memory route;
+        bytes memory swap = abi.encode(address(rewardToken), address(usdc), route, uint256(1), uint256(1), block.timestamp);
+        _assertDirectCallForbidden(address(uniswapV3SwapAdapter), abi.encodePacked(uniswapV3SwapAdapter.swap.selector, swap));
+        _assertDirectCallForbidden(address(aerodromeV2SwapAdapter), abi.encodePacked(aerodromeV2SwapAdapter.swap.selector, swap));
+        _assertDirectCallForbidden(address(aerodromeCLSwapAdapter), abi.encodePacked(aerodromeCLSwapAdapter.swap.selector, swap));
+        _assertDirectCallForbidden(address(merklAdapter), abi.encodeCall(merklAdapter.claim, (new address[](0), new uint256[](0), new bytes32[][](0))));
+        _assertDirectCallForbidden(address(agentTransferAdapter), abi.encodeCall(agentTransferAdapter.transfer, (address(usdc), address(this), 1)));
+    }
+
+    function _assertDirectCallForbidden(address adapter, bytes memory data) private {
+        (bool success, bytes memory result) = adapter.call(data);
+        assertFalse(success);
+        assertEq(bytes4(result), AWKErrors.DirectCallForbidden.selector);
     }
 
     function test_ownerAndOperatorRejectInvalidWalletAndAdapterInputs() public {
