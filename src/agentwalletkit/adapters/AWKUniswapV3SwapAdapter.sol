@@ -16,7 +16,7 @@ pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -36,12 +36,12 @@ interface IUniswapV3SwapRouter {
 }
 
 /**
- * @title AWKUniswapV3SwapAdapter
- * @notice Generic adapter for Uniswap V3 swaps using structured route parameters
+ * @title AWKUniswapV3SwapAdapterCore
+ * @notice Uniswap V3 swaps using structured route parameters, without an operations layer
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Accepts multi-hop routes through path+fee arrays with strict validation.
  */
-abstract contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
+abstract contract AWKUniswapV3SwapAdapterCore is AWKSwapAdapter {
     using SafeERC20 for IERC20;
 
     struct SwapRoute {
@@ -101,4 +101,9 @@ abstract contract AWKUniswapV3SwapAdapter is AWKSwapAdapter {
         }
         return IUniswapV3SwapRouter(router).exactInput(IUniswapV3SwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
+}
+
+/// @notice Uniswap V3 swap adapter with the kit's default operations
+contract AWKUniswapV3SwapAdapter is AWKUniswapV3SwapAdapterCore, AWKSwapOperations {
+    constructor(address uniswapV3Router) AWKUniswapV3SwapAdapterCore(uniswapV3Router) {}
 }

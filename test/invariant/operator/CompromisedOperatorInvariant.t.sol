@@ -17,10 +17,10 @@ import {YieldSeekerMerklAdapter as MerklAdapter} from "../../../src/adapters/Mer
 import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../../../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerMorphoBlueLendingAdapter as MorphoBlueLendingAdapter} from "../../../src/adapters/MorphoBlueLendingAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
-import {AWKAerodromeCLSwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {IMorphoBlue, IMorphoOracle} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE} from "../../../src/fees/YieldFeeModule.sol";
@@ -855,20 +855,20 @@ contract CompromisedOperatorHandler is Test {
         if (dex == 0) {
             uint24[] memory fees = new uint24[](1);
             fees[0] = 3_000;
-            AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+            AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
             adapter = address(uniswapV3SwapAdapter);
             target = address(uniswapV3Router);
             callData = abi.encodeCall(uniswapV3SwapAdapter.swap, (sellToken, buyToken, route, amount, minimum, block.timestamp));
         } else if (dex == 1) {
             bool[] memory stables = new bool[](1);
-            AWKAerodromeV2SwapAdapter.SwapRoute memory route = AWKAerodromeV2SwapAdapter.SwapRoute({path: path, stables: stables});
+            AWKAerodromeV2SwapAdapterCore.SwapRoute memory route = AWKAerodromeV2SwapAdapterCore.SwapRoute({path: path, stables: stables});
             adapter = address(aerodromeV2SwapAdapter);
             target = address(aerodromeV2Router);
             callData = abi.encodeCall(aerodromeV2SwapAdapter.swap, (sellToken, buyToken, route, amount, minimum, block.timestamp));
         } else {
             int24[] memory tickSpacings = new int24[](1);
             tickSpacings[0] = 100;
-            AWKAerodromeCLSwapAdapter.SwapRoute memory route = AWKAerodromeCLSwapAdapter.SwapRoute({path: path, tickSpacings: tickSpacings});
+            AWKAerodromeCLSwapAdapterCore.SwapRoute memory route = AWKAerodromeCLSwapAdapterCore.SwapRoute({path: path, tickSpacings: tickSpacings});
             adapter = address(aerodromeCLSwapAdapter);
             target = address(aerodromeCLRouter);
             callData = abi.encodeCall(aerodromeCLSwapAdapter.swap, (sellToken, buyToken, route, amount, minimum, block.timestamp));
@@ -897,7 +897,7 @@ contract CompromisedOperatorHandler is Test {
         uint256 quote = priceOracleQuote(address(usdc), address(weth), amount);
         uint256 minimum = Math.mulDiv(quote, 9_900, 10_000, Math.Rounding.Ceil);
         _setDexBuyAmount(0, minimum);
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amount, minimum, block.timestamp));
         swapWorkflowAttempts++;
         uint256 feesBefore = _feeCollectorValue();
@@ -925,7 +925,7 @@ contract CompromisedOperatorHandler is Test {
         uint256 amountOut = maxBalance - held + 1;
         uniswapV3Router.setBuyAmount(amountOut);
 
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amountIn, 0, block.timestamp));
         swapWorkflowAttempts++;
         (bool success,) = _operatorExecute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), data);
@@ -1804,13 +1804,13 @@ contract CompromisedOperatorHandler is Test {
         }
     }
 
-    function _uniswapRoute(address sellToken, address buyToken) private pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
+    function _uniswapRoute(address sellToken, address buyToken) private pure returns (AWKUniswapV3SwapAdapterCore.SwapRoute memory route) {
         address[] memory path = new address[](2);
         path[0] = sellToken;
         path[1] = buyToken;
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
-        route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
     }
 
     function _exitAssets(AgentWallet wallet) private view returns (address[] memory assets) {

@@ -2,10 +2,10 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
-import {AWKAerodromeCLSwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
-import {AWKAerodromeV2SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeV2SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol";
 import {IMorphoBlue} from "../../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
@@ -1272,7 +1272,7 @@ contract PowerUserHandler is Test {
 
     function _rewardRoute(uint8 dex, address sellToken, address buyToken) private pure returns (bytes memory) {
         if (dex == 0) {
-            AWKUniswapV3SwapAdapter.SwapRoute memory route;
+            AWKUniswapV3SwapAdapterCore.SwapRoute memory route;
             route.path = new address[](2);
             route.path[0] = sellToken;
             route.path[1] = buyToken;
@@ -1281,7 +1281,7 @@ contract PowerUserHandler is Test {
             return abi.encode(route);
         }
         if (dex == 1) {
-            AWKAerodromeV2SwapAdapter.SwapRoute memory route;
+            AWKAerodromeV2SwapAdapterCore.SwapRoute memory route;
             route.path = new address[](2);
             route.path[0] = sellToken;
             route.path[1] = buyToken;
@@ -1289,7 +1289,7 @@ contract PowerUserHandler is Test {
             route.stables[0] = false;
             return abi.encode(route);
         }
-        AWKAerodromeCLSwapAdapter.SwapRoute memory clRoute;
+        AWKAerodromeCLSwapAdapterCore.SwapRoute memory clRoute;
         clRoute.path = new address[](2);
         clRoute.path[0] = sellToken;
         clRoute.path[1] = buyToken;
@@ -1303,15 +1303,15 @@ contract PowerUserHandler is Test {
     }
 
     function _rewardSwapCall(uint8 dex, bytes memory route, address sellToken, uint256 amount, uint256 deadline) private view returns (bytes memory) {
-        if (dex == 0) return abi.encodeCall(SYSTEM.uniswapV3SwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKUniswapV3SwapAdapter.SwapRoute)), amount, 1, deadline));
-        if (dex == 1) return abi.encodeCall(SYSTEM.aerodromeV2SwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKAerodromeV2SwapAdapter.SwapRoute)), amount, 1, deadline));
-        return abi.encodeCall(SYSTEM.aerodromeCLSwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKAerodromeCLSwapAdapter.SwapRoute)), amount, 1, deadline));
+        if (dex == 0) return abi.encodeCall(SYSTEM.uniswapV3SwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKUniswapV3SwapAdapterCore.SwapRoute)), amount, 1, deadline));
+        if (dex == 1) return abi.encodeCall(SYSTEM.aerodromeV2SwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKAerodromeV2SwapAdapterCore.SwapRoute)), amount, 1, deadline));
+        return abi.encodeCall(SYSTEM.aerodromeCLSwapAdapter().swap, (sellToken, address(SYSTEM.usdc()), abi.decode(route, (AWKAerodromeCLSwapAdapterCore.SwapRoute)), amount, 1, deadline));
     }
 
     function _borrowSwapCall(uint8 dex, bytes memory route, uint256 amount) private view returns (bytes memory) {
-        if (dex == 0) return abi.encodeCall(SYSTEM.uniswapV3SwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKUniswapV3SwapAdapter.SwapRoute)), amount, 1, block.timestamp));
-        if (dex == 1) return abi.encodeCall(SYSTEM.aerodromeV2SwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKAerodromeV2SwapAdapter.SwapRoute)), amount, 1, block.timestamp));
-        return abi.encodeCall(SYSTEM.aerodromeCLSwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKAerodromeCLSwapAdapter.SwapRoute)), amount, 1, block.timestamp));
+        if (dex == 0) return abi.encodeCall(SYSTEM.uniswapV3SwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKUniswapV3SwapAdapterCore.SwapRoute)), amount, 1, block.timestamp));
+        if (dex == 1) return abi.encodeCall(SYSTEM.aerodromeV2SwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKAerodromeV2SwapAdapterCore.SwapRoute)), amount, 1, block.timestamp));
+        return abi.encodeCall(SYSTEM.aerodromeCLSwapAdapter().swap, (address(SYSTEM.usdc()), address(SYSTEM.weth()), abi.decode(route, (AWKAerodromeCLSwapAdapterCore.SwapRoute)), amount, 1, block.timestamp));
     }
 
     function _wallet(uint8 seed) private view returns (AgentWallet) {

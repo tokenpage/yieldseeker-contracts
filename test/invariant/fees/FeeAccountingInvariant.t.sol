@@ -3,7 +3,7 @@ pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV3.sol";
 import {YieldSeekerAaveV3LendingAdapter} from "../../../src/adapters/AaveV3LendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerBorrowFeeModule} from "../../../src/fees/BorrowFeeModule.sol";
 import {YieldSeekerYieldFeeModule} from "../../../src/fees/YieldFeeModule.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
@@ -139,7 +139,7 @@ contract FeeAccountingHandler is IntegrationBase {
         path[1] = address(usdc);
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         uniswapV3Router.setBuyAmount(USDC_UNIT);
         vm.recordLogs();
         _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeWithSelector(uniswapV3SwapAdapter.swap.selector, address(rewardToken), address(usdc), route, rewardBalance, USDC_UNIT, block.timestamp));

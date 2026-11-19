@@ -5,7 +5,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../../src/AgentWalletV
 import {IYieldSeekerPriceOracle} from "../../../src/PriceOracle.sol";
 import {IYieldSeekerSwapSellPolicy, SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../../src/adapters/SwapSellPolicy.sol";
 import {AWKErrors} from "../../../src/agentwalletkit/AWKErrors.sol";
-import {AWKUniswapV3SwapAdapter} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {FeeActions} from "../../../src/fees/FeeActions.sol";
 import {InvalidSlippage, SwapAboveDebt, SwapBelowOraclePrice, YieldSeekerBorrowSwapPolicy} from "../../../src/swaps/BorrowSwapPolicy.sol";
 import {SwapNotAllowed} from "../../../src/swaps/IYieldSeekerSwapPolicy.sol";
@@ -171,7 +171,7 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
             assertEq(usdc.balanceOf(address(wallet)), sellAmount, "swap input did not come from withdrawn collateral");
             uniswapV3Router.setBuyAmount(buyAmount);
 
-            AWKUniswapV3SwapAdapter.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
+            AWKUniswapV3SwapAdapterCore.SwapRoute memory route = _uniswapRoute(address(usdc), address(weth));
             _execute(wallet, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, sellAmount, uint256(1), block.timestamp)));
 
             assertEq(weth.balanceOf(address(wallet)), buyAmount);
@@ -215,7 +215,7 @@ contract BorrowSwapPolicyProperties is IntegrationBase {
         }
     }
 
-    function _uniswapRoute(address from, address to) private pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
+    function _uniswapRoute(address from, address to) private pure returns (AWKUniswapV3SwapAdapterCore.SwapRoute memory route) {
         route.path = new address[](2);
         route.path[0] = from;
         route.path[1] = to;

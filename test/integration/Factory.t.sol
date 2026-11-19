@@ -6,7 +6,7 @@ import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.s
 import {SellTokenNotAllowed, YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {AgentAlreadyExists, InvalidImplementationFactory, NoAgentWalletImplementationSet, TooManyOperators, UnknownAgentProfile} from "../../src/agentwalletkit/AWKAgentWalletFactory.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, UnknownPlan, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -195,7 +195,7 @@ contract FactoryTest is IntegrationBase {
         vaultWallet.withdrawAllAssetToUser(owner, address(usdc));
         assertEq(usdc.balanceOf(owner), depositAmount + yieldAmount - expectedYieldFee);
 
-        AWKUniswapV3SwapAdapter.SwapRoute memory wellToUsdc;
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory wellToUsdc;
         wellToUsdc.path = new address[](2);
         wellToUsdc.path[0] = address(wellToken);
         wellToUsdc.path[1] = address(usdc);

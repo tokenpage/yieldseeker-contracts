@@ -16,7 +16,7 @@ pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -36,12 +36,12 @@ interface IAerodromeCLSwapRouter {
 }
 
 /**
- * @title AWKAerodromeCLSwapAdapter
- * @notice Generic adapter for Aerodrome CL swaps using structured route parameters
+ * @title AWKAerodromeCLSwapAdapterCore
+ * @notice Aerodrome CL swaps using structured route parameters, without an operations layer
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Accepts multi-hop routes through path+tickSpacing arrays with strict validation.
  */
-abstract contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
+abstract contract AWKAerodromeCLSwapAdapterCore is AWKSwapAdapter {
     using SafeERC20 for IERC20;
 
     struct SwapRoute {
@@ -97,4 +97,9 @@ abstract contract AWKAerodromeCLSwapAdapter is AWKSwapAdapter {
         }
         return IAerodromeCLSwapRouter(router).exactInput(IAerodromeCLSwapRouter.ExactInputParams({path: encodedPath, recipient: address(this), deadline: deadline, amountIn: sellAmount, amountOutMinimum: minBuyAmount}));
     }
+}
+
+/// @notice Aerodrome CL swap adapter with the kit's default operations
+contract AWKAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapterCore, AWKSwapOperations {
+    constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapterCore(aerodromeClRouter) {}
 }

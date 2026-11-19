@@ -16,11 +16,11 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKAaveV4LendingAdapter} from "../agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
+import {AWKAaveV4LendingAdapterCore} from "../agentwalletkit/adapters/AWKAaveV4LendingAdapter.sol";
 import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
 
 /**
  * @title YieldSeekerAaveV4LendingAdapter
  * @notice Borrow against the wallet's base asset on registered Aave V4 spokes, with the borrow fee
  */
-contract YieldSeekerAaveV4LendingAdapter is AWKAaveV4LendingAdapter, YieldSeekerLendingAdapter {}
+contract YieldSeekerAaveV4LendingAdapter is AWKAaveV4LendingAdapterCore, YieldSeekerLendingAdapter {}

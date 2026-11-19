@@ -16,9 +16,9 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKUniswapV3SwapAdapter} from "../agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 
-contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapter, YieldSeekerSwapAdapter {
-    constructor(address uniswapV3Router) AWKUniswapV3SwapAdapter(uniswapV3Router) {}
+contract YieldSeekerUniswapV3SwapAdapter is AWKUniswapV3SwapAdapterCore, YieldSeekerSwapAdapter {
+    constructor(address uniswapV3Router) AWKUniswapV3SwapAdapterCore(uniswapV3Router) {}
 }

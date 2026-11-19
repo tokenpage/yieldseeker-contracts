@@ -4,7 +4,7 @@ pragma solidity 0.8.38;
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {SwapInputMismatch} from "../../src/agentwalletkit/adapters/AWKSwapAdapter.sol";
-import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {IntegrationBase} from "../integration/IntegrationBase.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -152,7 +152,7 @@ contract NestedOwnerOpMidSwapForkTest is IntegrationBase {
         return Math.mulDiv(priceOracle.quote(address(usdc), address(weth), amountIn), 1e4 - BORROW_SWAP_MAX_SLIPPAGE_BPS, 1e4, Math.Rounding.Ceil);
     }
 
-    function _route(address from, address to) private pure returns (AWKUniswapV3SwapAdapter.SwapRoute memory route) {
+    function _route(address from, address to) private pure returns (AWKUniswapV3SwapAdapterCore.SwapRoute memory route) {
         route.path = new address[](2);
         route.path[0] = from;
         route.path[1] = to;

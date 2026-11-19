@@ -16,7 +16,7 @@ pragma solidity 0.8.38;
 
 import {UnknownOperation} from "../AWKAdapter.sol";
 import {AWKErrors} from "../AWKErrors.sol";
-import {AWKSwapAdapter} from "./AWKSwapAdapter.sol";
+import {AWKSwapAdapter, AWKSwapOperations} from "./AWKSwapAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -34,12 +34,12 @@ interface IAerodromeV2Router {
 }
 
 /**
- * @title AWKAerodromeV2SwapAdapter
- * @notice Generic adapter for Aerodrome V2 swaps using structured route parameters
+ * @title AWKAerodromeV2SwapAdapterCore
+ * @notice Aerodrome V2 swaps using structured route parameters, without an operations layer
  * @dev Swap execution runs via delegatecall from AgentWallet.
  *      Accepts multi-hop routes through path+stable arrays with strict validation.
  */
-abstract contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
+abstract contract AWKAerodromeV2SwapAdapterCore is AWKSwapAdapter {
     using SafeERC20 for IERC20;
 
     struct SwapRoute {
@@ -95,4 +95,9 @@ abstract contract AWKAerodromeV2SwapAdapter is AWKSwapAdapter {
         uint256[] memory amounts = IAerodromeV2Router(router).swapExactTokensForTokens(sellAmount, minBuyAmount, routes, address(this), deadline);
         return amounts[amounts.length - 1];
     }
+}
+
+/// @notice Aerodrome V2 swap adapter with the kit's default operations
+contract AWKAerodromeV2SwapAdapter is AWKAerodromeV2SwapAdapterCore, AWKSwapOperations {
+    constructor(address aerodromeV2Router, address aerodromeV2Factory) AWKAerodromeV2SwapAdapterCore(aerodromeV2Router, aerodromeV2Factory) {}
 }

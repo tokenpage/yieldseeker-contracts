@@ -104,7 +104,7 @@ abstract contract AWKLendingAdapter is AWKAdapter {
         return abi.encode(result);
     }
 
-    // ============ Operations (implemented by the rules layer) ============
+    // ============ Operations (implemented by an operations layer: AWKLendingOperations or a wallet's rules) ============
 
     function _supplyCollateralOperation(bytes memory market, uint256 amount) internal virtual returns (uint256);
 
@@ -141,4 +141,27 @@ abstract contract AWKLendingAdapter is AWKAdapter {
 
     /// @dev Any amount at or above the debt repays all of it
     function _repay(bytes memory market, uint256 amount) internal virtual returns (uint256 repaid);
+}
+
+/// @notice The kit's default operations: the protocol calls with no further rules
+abstract contract AWKLendingOperations is AWKLendingAdapter {
+    function _supplyCollateralOperation(bytes memory market, uint256 amount) internal override returns (uint256) {
+        return _supplyCollateral(market, amount);
+    }
+
+    function _withdrawCollateralOperation(bytes memory market, uint256 amount) internal override returns (uint256) {
+        return _withdrawCollateral(market, amount);
+    }
+
+    function _borrowOperation(bytes memory market, uint256 amount) internal override returns (uint256) {
+        return _borrow(market, amount);
+    }
+
+    function _repayOperation(bytes memory market, uint256 amount) internal override returns (uint256) {
+        return _repay(market, amount);
+    }
+
+    function _checkpointOperation(bytes memory market) internal override returns (uint256) {
+        return _debtOf(market);
+    }
 }

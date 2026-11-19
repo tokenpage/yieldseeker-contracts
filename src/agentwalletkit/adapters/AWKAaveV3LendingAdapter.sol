@@ -14,7 +14,7 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKLendingAdapter} from "./AWKLendingAdapter.sol";
+import {AWKLendingAdapter, AWKLendingOperations} from "./AWKLendingAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -43,13 +43,13 @@ interface IAaveV3Oracle {
 }
 
 /**
- * @title AWKAaveV3LendingAdapter
- * @notice Borrow against collateral on an Aave V3 pool (variable rate)
+ * @title AWKAaveV3LendingAdapterCore
+ * @notice Borrow against collateral on an Aave V3 pool (variable rate), without an operations layer
  * @dev market = abi.encode(address pool, address collateralAsset, address debtAsset, uint8 eModeCategory).
  *      Supplying collateral puts the account in the market's e-mode category (0 = none). Needs an Aave V3.3+ pool
  *      (getReserveAToken / getReserveVariableDebtToken, about 20k gas cheaper than getReserveData).
  */
-abstract contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
+abstract contract AWKAaveV3LendingAdapterCore is AWKLendingAdapter {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VARIABLE_RATE_MODE = 2;
@@ -132,3 +132,6 @@ abstract contract AWKAaveV3LendingAdapter is AWKLendingAdapter {
         IERC20(debtAsset).forceApprove(address(pool), 0);
     }
 }
+
+/// @notice Aave V3 lending adapter with the kit's default operations
+contract AWKAaveV3LendingAdapter is AWKAaveV3LendingAdapterCore, AWKLendingOperations {}

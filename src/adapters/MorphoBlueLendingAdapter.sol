@@ -16,11 +16,11 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKMorphoBlueLendingAdapter} from "../agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
+import {AWKMorphoBlueLendingAdapterCore} from "../agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
 import {YieldSeekerLendingAdapter} from "./LendingAdapter.sol";
 
 /**
  * @title YieldSeekerMorphoBlueLendingAdapter
  * @notice Borrow against the wallet's base asset on registered Morpho Blue markets, with the borrow fee
  */
-contract YieldSeekerMorphoBlueLendingAdapter is AWKMorphoBlueLendingAdapter, YieldSeekerLendingAdapter {}
+contract YieldSeekerMorphoBlueLendingAdapter is AWKMorphoBlueLendingAdapterCore, YieldSeekerLendingAdapter {}

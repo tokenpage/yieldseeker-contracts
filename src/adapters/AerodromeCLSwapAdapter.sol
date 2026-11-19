@@ -16,9 +16,9 @@
 //
 pragma solidity 0.8.38;
 
-import {AWKAerodromeCLSwapAdapter} from "../agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
+import {AWKAerodromeCLSwapAdapterCore} from "../agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
 import {YieldSeekerSwapAdapter} from "./SwapAdapter.sol";
 
-contract YieldSeekerAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapter, YieldSeekerSwapAdapter {
-    constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapter(aerodromeClRouter) {}
+contract YieldSeekerAerodromeCLSwapAdapter is AWKAerodromeCLSwapAdapterCore, YieldSeekerSwapAdapter {
+    constructor(address aerodromeClRouter) AWKAerodromeCLSwapAdapterCore(aerodromeClRouter) {}
 }

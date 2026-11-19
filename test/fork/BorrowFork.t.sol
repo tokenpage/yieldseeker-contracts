@@ -11,7 +11,7 @@ import {YieldSeekerSwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
 import {IAaveV3LendingPool, IAaveV3Oracle} from "../../src/agentwalletkit/adapters/AWKAaveV3LendingAdapter.sol";
 import {IMorphoBlue, IMorphoOracle} from "../../src/agentwalletkit/adapters/AWKMorphoBlueLendingAdapter.sol";
-import {AWKUniswapV3SwapAdapter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {BORROW_FEE, YieldSeekerBorrowFeeModule} from "../../src/fees/BorrowFeeModule.sol";
 import {FeePlanChoice, YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModule.sol";
@@ -298,7 +298,7 @@ contract BorrowForkTest is ForkBase {
         path[1] = USDC;
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: path, fees: fees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: path, fees: fees});
         bytes memory result = _execute(address(swapAdapter), UNISWAP_V3_ROUTER, abi.encodeWithSelector(swapAdapter.swap.selector, WETH, USDC, route, swapAmount, 1, block.timestamp));
         uint256 bought = abi.decode(result, (uint256));
         assertGe(bought, (oracle.quote(WETH, USDC, swapAmount) * 99) / 100, "swap output within the oracle bound");

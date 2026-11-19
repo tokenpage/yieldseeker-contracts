@@ -2,7 +2,7 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
-import {AWKUniswapV3SwapAdapter, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
+import {AWKUniswapV3SwapAdapterCore, IUniswapV3SwapRouter} from "../../src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockLendingAaveV3Pool} from "../mocks/MockLendingMarkets.sol";
@@ -142,7 +142,7 @@ contract FeeGasBenchmarkIntegrationTest is IntegrationBase {
         routePath[1] = address(usdc);
         uint24[] memory routeFees = new uint24[](1);
         routeFees[0] = 3_000;
-        AWKUniswapV3SwapAdapter.SwapRoute memory route = AWKUniswapV3SwapAdapter.SwapRoute({path: routePath, fees: routeFees});
+        AWKUniswapV3SwapAdapterCore.SwapRoute memory route = AWKUniswapV3SwapAdapterCore.SwapRoute({path: routePath, fees: routeFees});
         IUniswapV3SwapRouter.ExactInputParams memory directParams =
             IUniswapV3SwapRouter.ExactInputParams({path: abi.encodePacked(address(wellToken), uint24(3_000), address(usdc)), recipient: directUser, amountIn: wellAmount, amountOutMinimum: buyAmount});
         moonwellComptroller.setRewardPerMarket(wellAmount);
