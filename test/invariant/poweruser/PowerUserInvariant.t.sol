@@ -117,7 +117,7 @@ contract PowerUserHandler is Test {
             vm.prank(operator);
             bytes memory result = wallet.executeViaAdapter(adapter, target, abi.encodeWithSignature("depositPercentage(uint256)", 5_000));
             _captureFees();
-            (, uint256 assetsIn) = abi.decode(abi.decode(result, (bytes)), (uint256, uint256));
+            (, uint256 assetsIn) = abi.decode(result, (uint256, uint256));
             basisGhost[address(wallet)][target] += assetsIn;
         } else {
             _ensureWalletBase(wallet, amount);
@@ -125,7 +125,7 @@ contract PowerUserHandler is Test {
             vm.prank(operator);
             bytes memory result = wallet.executeViaAdapter(adapter, target, abi.encodeWithSignature("deposit(uint256)", amount));
             _captureFees();
-            (, uint256 assetsIn) = abi.decode(abi.decode(result, (bytes)), (uint256, uint256));
+            (, uint256 assetsIn) = abi.decode(result, (uint256, uint256));
             basisGhost[address(wallet)][target] += assetsIn;
         }
         vaultDepositCalls[adapterIndex]++;
@@ -147,7 +147,7 @@ contract PowerUserHandler is Test {
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, target, abi.encodeWithSignature("withdraw(uint256)", amount));
         _captureFees();
-        uint256 assetsOut = abi.decode(abi.decode(result, (bytes)), (uint256));
+        uint256 assetsOut = abi.decode(result, (uint256));
         uint256 spent = heldBefore - _vaultPosition(wallet, adapterIndex);
         _updateBasisAfterWithdrawal(wallet, target, heldBefore, spent, assetsOut);
         vaultWithdrawalCalls[adapterIndex]++;
@@ -246,7 +246,7 @@ contract PowerUserHandler is Test {
         address adapter = _borrowAdapter(marketIndex);
         _prepareExecution(wallet, adapter, target);
         bytes memory result = _executeLending(wallet, marketIndex, _withdrawCollateralCall(marketIndex, amount));
-        uint256 assetsOut = abi.decode(abi.decode(result, (bytes)), (uint256));
+        uint256 assetsOut = abi.decode(result, (uint256));
         uint256 spent = heldBefore - _lendingCollateral(wallet, marketIndex);
         _updateBasisAfterWithdrawal(wallet, _collateralPosition(marketIndex), heldBefore, spent, assetsOut);
         lendingWithdrawalCalls[marketIndex]++;
@@ -337,7 +337,7 @@ contract PowerUserHandler is Test {
             if (collateral > 0) {
                 uint256 heldBefore = collateral;
                 bytes memory result = _executeLending(wallet, marketIndex, _withdrawCollateralCall(marketIndex, type(uint256).max));
-                uint256 out = abi.decode(abi.decode(result, (bytes)), (uint256));
+                uint256 out = abi.decode(result, (uint256));
                 _updateBasisAfterWithdrawal(wallet, _collateralPosition(marketIndex), heldBefore, heldBefore, out);
                 lendingWithdrawalCalls[marketIndex]++;
             }
@@ -602,7 +602,7 @@ contract PowerUserHandler is Test {
                 uint256 collateral = _lendingCollateral(borrowWallet, marketIndex);
                 if (collateral > 0) {
                     bytes memory result = _executeLending(borrowWallet, marketIndex, _withdrawCollateralCall(marketIndex, type(uint256).max));
-                    uint256 assetsOut = abi.decode(abi.decode(result, (bytes)), (uint256));
+                    uint256 assetsOut = abi.decode(result, (uint256));
                     _updateBasisAfterWithdrawal(borrowWallet, _collateralPosition(marketIndex), collateral, collateral, assetsOut);
                     lendingWithdrawalCalls[marketIndex]++;
                 }
@@ -804,7 +804,7 @@ contract PowerUserHandler is Test {
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, target, abi.encodeWithSignature("withdraw(uint256)", held));
         _captureFees();
-        uint256 out = abi.decode(abi.decode(result, (bytes)), (uint256));
+        uint256 out = abi.decode(result, (uint256));
         _updateBasisAfterWithdrawal(wallet, target, held, held, out);
         vaultWithdrawalCalls[index]++;
     }
@@ -838,7 +838,7 @@ contract PowerUserHandler is Test {
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, router, data);
         _captureFees();
-        received = abi.decode(abi.decode(result, (bytes)), (uint256));
+        received = abi.decode(result, (uint256));
         rewardSaleCalls[dex]++;
     }
 
@@ -852,7 +852,7 @@ contract PowerUserHandler is Test {
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, target, supplyData);
         _captureFees();
-        uint256 supplied = abi.decode(abi.decode(result, (bytes)), (uint256));
+        uint256 supplied = abi.decode(result, (uint256));
         basisGhost[address(wallet)][_collateralPosition(marketIndex)] += supplied;
         lendingSupplyCalls[marketIndex]++;
         roundingAllowance++;
@@ -1423,7 +1423,7 @@ contract PowerUserLifecycleFuzzTest is IntegrationBase {
             if (output > principal[i]) totalFee += Math.mulDiv(output - principal[i], YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
             expectedGross += output;
             bytes memory result = _execute(wallet, _vaultAdapter(i), _vaultTarget(i), abi.encodeWithSignature("withdraw(uint256)", IERC20(_vaultTarget(i)).balanceOf(address(wallet))));
-            uint256 actualOutput = abi.decode(abi.decode(result, (bytes)), (uint256));
+            uint256 actualOutput = abi.decode(result, (uint256));
             assertEq(actualOutput, output);
         }
         vm.prank(vaultOwner);

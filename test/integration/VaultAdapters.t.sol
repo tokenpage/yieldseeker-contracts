@@ -15,7 +15,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract VaultAdaptersTest is IntegrationBase {
     function _decodeUint(bytes memory result) private pure returns (uint256) {
-        return abi.decode(abi.decode(result, (bytes)), (uint256));
+        return abi.decode(result, (uint256));
     }
 
     function _createWalletForAsset(address walletOwner, uint256 index, address asset) private returns (AgentWallet wallet) {
@@ -34,7 +34,7 @@ contract VaultAdaptersTest is IntegrationBase {
         _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (firstDeposit)));
         _fund(address(usdc), address(erc4626Vault), donatedAssets);
         bytes memory secondDepositResult = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (secondDeposit)));
-        (uint256 secondShares, uint256 assetsDeposited) = abi.decode(abi.decode(secondDepositResult, (bytes)), (uint256, uint256));
+        (uint256 secondShares, uint256 assetsDeposited) = abi.decode(secondDepositResult, (uint256, uint256));
         assertEq(secondShares, 250e6);
         assertEq(assetsDeposited, secondDeposit);
         assertEq(erc4626Vault.balanceOf(address(wallet)), 1_250e6);
@@ -66,7 +66,7 @@ contract VaultAdaptersTest is IntegrationBase {
             uint256 balanceBefore = usdc.balanceOf(address(wallet));
             uint256 expectedDeposit = balanceBefore / 4;
             bytes memory result = _execute(wallet, adapters[i], targets[i], abi.encodeWithSelector(bytes4(keccak256("depositPercentage(uint256)")), 2_500));
-            (, uint256 assetsDeposited) = abi.decode(abi.decode(result, (bytes)), (uint256, uint256));
+            (, uint256 assetsDeposited) = abi.decode(result, (uint256, uint256));
             assertEq(assetsDeposited, expectedDeposit);
             assertEq(usdc.balanceOf(address(wallet)), balanceBefore - expectedDeposit);
         }
@@ -118,7 +118,7 @@ contract VaultAdaptersTest is IntegrationBase {
 
         bytes memory result = _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (shares)));
 
-        assertEq(abi.decode(abi.decode(result, (bytes)), (uint256)), received);
+        assertEq(abi.decode(result, (uint256)), received);
         assertEq(_feesCollected(address(usdc)), expectedFee);
         assertEq(usdc.balanceOf(address(wallet)), received - expectedFee);
     }

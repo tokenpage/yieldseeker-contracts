@@ -107,18 +107,8 @@ contract SwapForkTest is ForkBase {
         uint256 collectorUsdcBefore = IERC20(USDC).balanceOf(feeCollector);
         deal(WETH, address(wallet), SELL_AMOUNT);
 
-        uint256 bought = abi.decode(
-            abi.decode(
-                _execute(
-                    wallet,
-                    address(aerodromeCL3Adapter),
-                    AERODROME_CL_3_ROUTER,
-                    abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp))
-                ),
-                (bytes)
-            ),
-            (uint256)
-        );
+        bytes memory swapData = abi.encodeCall(aerodromeCL3Adapter.swap, (WETH, USDC, AWKAerodromeCLSwapAdapterCore.SwapRoute({path: _path(false), tickSpacings: tickSpacings}), SELL_AMOUNT, 1, block.timestamp));
+        uint256 bought = abi.decode(_execute(wallet, address(aerodromeCL3Adapter), AERODROME_CL_3_ROUTER, swapData), (uint256));
         uint256 fee = Math.mulDiv(bought, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
 
         assertGt(bought, 1, "the router swapped through the real spacing-10 pool");
@@ -146,7 +136,7 @@ contract SwapForkTest is ForkBase {
         uint256 collectorUsdcBefore = IERC20(USDC).balanceOf(feeCollector);
         deal(WETH, address(wallet), SELL_AMOUNT);
 
-        uint256 bought = abi.decode(abi.decode(_execute(wallet, adapter, router, data), (bytes)), (uint256));
+        uint256 bought = abi.decode(_execute(wallet, adapter, router, data), (uint256));
 
         uint256 fee = Math.mulDiv(bought, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
         assertGe(bought, minimum, "the route ran through real pools at the market price");

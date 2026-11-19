@@ -15,8 +15,8 @@
 pragma solidity 0.8.38;
 
 import {AWKAdapterRegistry as AdapterRegistry} from "./AWKAdapterRegistry.sol";
+import {AWKAdapterTarget} from "./AWKAdapterTarget.sol";
 import {AWKErrors} from "./AWKErrors.sol";
-import {IAWKAdapter} from "./IAWKAdapter.sol";
 import {IAWKAgentWallet} from "./IAWKAgentWallet.sol";
 import {IAWKAgentWalletFactory} from "./IAWKAgentWalletFactory.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
@@ -345,8 +345,8 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
 
     /**
      * @notice Internal helper to validate and execute adapter call
-     * @dev Enforces the standard IAWKAdapter interface.
-     *      Checks user blocklists first, then global registry validation.
+     * @dev Checks user blocklists first, then global registry validation. `data` is a call to one of the adapter's
+     *      operations; the adapter reads the target from AWKAdapterTarget, set only for the length of the call.
      */
     function _executeAdapterCall(address adapter, address target, bytes calldata data) private returns (bytes memory result) {
         AgentWalletStorageV3.Layout storage $ = AgentWalletStorageV3.getLayout();
@@ -359,10 +359,11 @@ abstract contract AWKAgentWalletV3 is IAWKAgentWallet, BaseAccount, Initializabl
         address registeredAdapter = adapterRegistry().getTargetAdapter(target);
         if (registeredAdapter == address(0) || registeredAdapter != adapter) revert AWKErrors.AdapterNotRegistered(adapter);
 
-        bytes memory callData = abi.encodeWithSelector(IAWKAdapter.execute.selector, target, data);
+        AWKAdapterTarget.set(target);
         bool success;
-        (success, result) = adapter.delegatecall(callData);
+        (success, result) = adapter.delegatecall(data);
         if (!success) revert AdapterExecutionFailed(result);
+        AWKAdapterTarget.set(address(0));
     }
 
     /**

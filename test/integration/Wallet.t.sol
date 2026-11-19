@@ -1,9 +1,9 @@
 pragma solidity 0.8.38;
 
 import {InvalidAsset, YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
+import {AWKAdapterTarget} from "../../src/agentwalletkit/AWKAdapterTarget.sol";
 import {AdapterExecutionFailed, AdapterIsBlocked, InvalidState, NotAllowed, NotApprovedImplementation, TargetIsBlocked, TransferFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {YieldSeekerFeeTracker as FeeTracker} from "../../src/fees/FeeTracker.sol";
 import {IYieldSeekerFeeModule} from "../../src/fees/IYieldSeekerFeeModule.sol";
 import {MockAgentWalletV3} from "../mocks/MockAgentWalletV3.sol";
@@ -115,8 +115,8 @@ contract FeeActionFailureModule is IYieldSeekerFeeModule {
     }
 }
 
-contract NestedDelegatecallAdapter is IAWKAdapter {
-    function execute(address, bytes calldata data) external payable override returns (bytes memory result) {
+contract NestedDelegatecallAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory result) {
         (bool success, bytes memory returndata) = address(this).delegatecall(data);
         if (!success) {
             assembly {

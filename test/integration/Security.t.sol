@@ -1,9 +1,9 @@
 pragma solidity 0.8.38;
 
 import {YieldSeekerAgentWalletV3 as AgentWallet} from "../../src/AgentWalletV3.sol";
+import {AWKAdapterTarget} from "../../src/agentwalletkit/AWKAdapterTarget.sol";
 import {AdapterExecutionFailed} from "../../src/agentwalletkit/AWKAgentWalletV3.sol";
 import {AWKErrors} from "../../src/agentwalletkit/AWKErrors.sol";
-import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -12,9 +12,9 @@ interface ISecurityWallet {
     function executeViaAdapter(address adapter, address target, bytes calldata data) external returns (bytes memory);
 }
 
-contract ReenterExecuteAdapter is IAWKAdapter {
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory result) {
-        bytes memory nestedCall = abi.encodeCall(ISecurityWallet.executeViaAdapter, (address(this), target, data));
+contract ReenterExecuteAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory result) {
+        bytes memory nestedCall = abi.encodeCall(ISecurityWallet.executeViaAdapter, (address(this), AWKAdapterTarget.get(), data));
         (bool success, bytes memory returndata) = address(this).delegatecall(nestedCall);
         if (!success) {
             assembly {

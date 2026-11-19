@@ -91,7 +91,7 @@ contract BorrowForkTest is ForkBase {
 
     function _execute(address adapter, address target, bytes memory data) internal returns (bytes memory) {
         vm.prank(operator);
-        return abi.decode(wallet.executeViaAdapter(adapter, target, data), (bytes));
+        return wallet.executeViaAdapter(adapter, target, data);
     }
 
     function _aaveMarket() internal pure returns (bytes memory) {

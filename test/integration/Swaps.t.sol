@@ -918,7 +918,7 @@ contract SwapsTest is IntegrationBase {
     }
 
     function _decodeUint(bytes memory data) private pure returns (uint256) {
-        return abi.decode(abi.decode(data, (bytes)), (uint256));
+        return abi.decode(data, (uint256));
     }
 
     function _uniswapRoute(address from, address to) private pure returns (AWKUniswapV3SwapAdapterCore.SwapRoute memory route) {

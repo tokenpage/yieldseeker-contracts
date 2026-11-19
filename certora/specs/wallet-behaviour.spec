@@ -6,7 +6,12 @@ methods {
         AgentWalletHarness.getTargetAdapter(address)
     ] default NONDET;
     // Adapter code runs after the checks these rules are about; it may change anything.
-    function _.execute(address, bytes) external => HAVOC_ALL;
+    unresolved external in AgentWalletHarness.executeViaAdapter(address, address, bytes) => DISPATCH [
+        AgentWalletHarness.getTargetAdapter(address)
+    ] default HAVOC_ALL;
+    unresolved external in AgentWalletHarness.executeViaAdapterBatch(address[], address[], bytes[]) => DISPATCH [
+        AgentWalletHarness.getTargetAdapter(address)
+    ] default HAVOC_ALL;
     function _.getTargetAdapter(address) external => DISPATCHER(true);
 }
 

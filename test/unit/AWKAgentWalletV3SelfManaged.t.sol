@@ -39,7 +39,7 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         bytes memory opData = hex"12345678";
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(address(adapter), target, opData);
-        (address returnedTarget, bytes memory returnedData) = abi.decode(abi.decode(result, (bytes)), (address, bytes));
+        (address returnedTarget, bytes memory returnedData) = abi.decode(result, (address, bytes));
         assertEq(returnedTarget, target);
         assertEq(returnedData, opData);
 
@@ -56,7 +56,7 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
 
         vm.prank(replacement);
         result = wallet.executeViaAdapter(address(adapter), target, opData);
-        (returnedTarget, returnedData) = abi.decode(abi.decode(result, (bytes)), (address, bytes));
+        (returnedTarget, returnedData) = abi.decode(result, (address, bytes));
         assertEq(returnedTarget, target);
         assertEq(returnedData, opData);
         assertEq(address(wallet.adapterRegistry()), address(registry));

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.38;
 
+import {AWKAdapterTarget} from "../../src/agentwalletkit/AWKAdapterTarget.sol";
 import {AWKSelfManagedAgentWalletV3} from "../../src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol";
-import {IAWKAdapter} from "../../src/agentwalletkit/IAWKAdapter.sol";
 
 contract MockV3SelfManagedWallet is AWKSelfManagedAgentWalletV3 {}
 
@@ -12,9 +12,9 @@ contract MockV3SelfManagedWalletV2 is MockV3SelfManagedWallet {
     }
 }
 
-contract MockV3EchoAdapter is IAWKAdapter {
-    function execute(address target, bytes calldata data) external payable override returns (bytes memory) {
-        return abi.encode(target, data);
+contract MockV3EchoAdapter {
+    fallback(bytes calldata data) external payable returns (bytes memory) {
+        return abi.encode(AWKAdapterTarget.get(), data);
     }
 }
 

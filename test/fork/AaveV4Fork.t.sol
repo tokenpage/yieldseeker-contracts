@@ -198,6 +198,6 @@ contract AaveV4ForkTest is ForkBase {
 
     function _execute(AaveV4BorrowAdapter borrowAdapter, address target, bytes memory data) internal returns (bytes memory) {
         vm.prank(operator);
-        return abi.decode(wallet.executeViaAdapter(address(borrowAdapter), target, data), (bytes));
+        return wallet.executeViaAdapter(address(borrowAdapter), target, data);
     }
 }
