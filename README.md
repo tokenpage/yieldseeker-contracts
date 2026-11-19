@@ -202,6 +202,7 @@ What it can still do within those rules:
 - If a lending market's own oracle reverts while a debt report needs its price, the affected adapter action fails; the Base AaveOracle reverts on a non-positive source answer. A zero market price (from a Morpho oracle, or an Aave oracle that returns zero) is reported as zero, and a degenerate price too large for the borrow fee module to store is ignored by it. A borrow at either reverts with `UnusableDebtPrice`; other actions go ahead with the borrow fee module valuing the debt at its last price. Owners can repay directly on Aave V3 and Morpho. Aave V4 lets only the wallet or its position managers repay, so a reverting Aave V4 oracle also blocks repaying and collateral withdrawal until it recovers. Owners should add collateral only through the wallet (send base asset to it and have it supply): collateral supplied directly on Aave V3 or Morpho on the wallet's behalf has no cost basis, so it is charged the yield fee when withdrawn, like gifted shares.
 - Anyone can supply a dust amount of another Aave V3 asset on a borrow wallet's behalf, and Aave enables it as the wallet's collateral; the wallet has no way to turn it off. If Aave later sets that asset's LTV to 0, or its price source starts reverting, Aave refuses the wallet's collateral withdrawals and borrows while any debt is open. Nothing is lost: once the debt is repaid in full, through the wallet or directly on Aave V3, the collateral can be withdrawn.
 - The MAG7 tokens and SPCXc are Coinbase B20 tokenized stocks: Base precompiles whose issuer can pause them, block addresses through transfer policies and change their multiplier at once, with no onchain timelock. Balances never change; dividends and splits change the multiplier (shares per token) instead, and the "Coinbase" Chainlink feeds already include it, so the oracle values a token, not a share, through corporate actions. During a corporate action the feed freezes, so after the 12-hour staleness limit base-asset sales in tokenized-stock borrow wallets stop until it resumes. Dividends raise a token's value without changing balances, so they are not charged as yield. Coinbase lists about 300 such tokens, but in November 2026 only these eight, plus SNDKc, MSTRc, INTCc and CRCLc, had a Chainlink feed, and only these eight were Aave V4 collateral; Morpho's tokenized-stock markets on Base held under $20k each.
+- cbZEC and cbHYPE are B20 precompiles too, so their issuer can pause them or block addresses in the same way. A pause or block on a wallet's base asset stops its withdrawals and the swaps that sell it until lifted.
 
 ## Incident response
 
@@ -386,16 +387,17 @@ Price source settings:
 
 | Asset | Staleness limit |
 | --- | --- |
-| WETH, cbBTC | `3600` seconds |
-| USDC | `90000` seconds |
+| WETH, cbBTC, cbETH | `3600` seconds |
+| USDC, cbXRP, cbZEC, SOL, cbHYPE | `90000` seconds |
 | Tokenized stocks (MAG7 and SPCXc) | `43200` seconds |
 
 - Tokenized-stock feeds follow 24/5 trading and update on price moves; on Base (November 2026) weekday gaps reached about 7.6 hours and the weekend gap about 53 hours. The 12-hour limit keeps base-asset swaps working on weekdays and stops them over the weekend, when the price is unknown.
+- The cbXRP, cbZEC, SOL and cbHYPE feeds have a 24-hour heartbeat and a 0.5% deviation threshold, like USDC's, so the borrow swap floor can lag the market by up to that threshold. Each uses the proxy that reads the same aggregator as its Morpho market's oracle, so the floor and the market's liquidation price move together.
 - These values are deployment settings, not contract constants; recheck feed behaviour before changing them.
 - Every feed should be USD-denominated: `quote` divides one asset's USD price by the other's. Use the raw aggregator feed rather than a protocol wrapper that can cap an answer or rewrite its timestamp.
 - The tokenized-stock feeds are the "Coinbase <TICKER>" total-return feeds the Aave V4 spoke oracle uses: they price one token (share price × the token's multiplier), not one share, so never use a plain per-share equity feed for them.
 
-The launch config borrows USDC against WETH and cbBTC on Aave V3 and Morpho Blue (LLTV 0.86), and against the MAG7 (Aave V4 reserves 0-6) and SPCXc (reserve 8) on Aave V4. SPCXc was listed in October 2026 on harsher terms than the MAG7: 55% collateral factor, 6.5% liquidation bonus and a 10% collateral risk premium on the debt it backs.
+The launch config borrows USDC against WETH and cbBTC on Aave V3 and Morpho Blue (LLTV 0.86), against cbETH on Aave V3 and Morpho Blue (LLTV 0.77), against cbXRP, cbZEC, SOL and cbHYPE on Morpho Blue (LLTV 0.625), and against the MAG7 (Aave V4 reserves 0-6) and SPCXc (reserve 8) on Aave V4. SPCXc was listed in October 2026 on harsher terms than the MAG7: 55% collateral factor, 6.5% liquidation bonus and a 10% collateral risk premium on the debt it backs. In November 2026 the cbHYPE market had about $74k of USDC free to borrow and its deepest pool held about $193k, so keep cbHYPE positions small.
 
 Apply these configuration rules; `Configure.s.sol` enforces the first, second and fourth, and does not detect breaches of the third:
 
