@@ -26,6 +26,13 @@ remappings = [
     "lib/aerodrome-slipstream/:contracts/=lib/aerodrome-slipstream/contracts/",
     "aerodrome/=lib/aerodrome-contracts/contracts/",
     "@chainlink/contracts/=lib/chainlink/contracts/",
+    "aave-v4/=lib/aave-v4/src/",
+    "src/interfaces/=lib/aave-v4/src/interfaces/",
+    "src/hub/=lib/aave-v4/src/hub/",
+    "src/spoke/=lib/aave-v4/src/spoke/",
+    "src/dependencies/=lib/aave-v4/src/dependencies/",
+    "vendored-interfaces/=lib/vendored-interfaces/",
+    "morpho-bundler3/=lib/morpho-bundler3/src/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./" }]

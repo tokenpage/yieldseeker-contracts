@@ -42,7 +42,7 @@ contract MockMorphoOracle {
     }
 }
 
-contract MockAaveV4Oracle is IAaveV4Oracle {
+contract MockAaveV4Oracle {
     uint256 public defaultReservePrice = 1e8;
     mapping(uint256 reserveId => uint256 price) private _reservePrices;
     mapping(uint256 reserveId => bool configured) private _reservePriceConfigured;
@@ -52,7 +52,7 @@ contract MockAaveV4Oracle is IAaveV4Oracle {
         _reservePriceConfigured[reserveId] = true;
     }
 
-    function getReservePrice(uint256 reserveId) external view override returns (uint256) {
+    function getReservePrice(uint256 reserveId) external view returns (uint256) {
         return _reservePriceConfigured[reserveId] ? _reservePrices[reserveId] : defaultReservePrice;
     }
 }
@@ -249,7 +249,17 @@ contract MockLendingMorpho {
     }
 }
 
-contract MockLendingAaveV4Spoke is IAaveV4Spoke {
+contract MockLendingAaveV4Spoke {
+    struct Reserve {
+        address underlying;
+        address hub;
+        uint16 assetId;
+        uint8 decimals;
+        uint24 collateralRisk;
+        uint8 flags;
+        uint32 dynamicConfigKey;
+    }
+
     MockAaveV4Oracle private immutable _oracle;
     mapping(uint256 reserveId => Reserve reserve_) private _reserves;
     mapping(uint256 reserveId => mapping(address user => uint256 amount)) private _supplied;
@@ -260,8 +270,8 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         _oracle = new MockAaveV4Oracle();
     }
 
-    function ORACLE() external view override returns (IAaveV4Oracle) {
-        return _oracle;
+    function ORACLE() external view returns (address) {
+        return address(_oracle);
     }
 
     function setReservePrice(uint256 reserveId, uint256 price) external {
@@ -277,25 +287,25 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         MockERC20(_reserves[reserveId].underlying).mint(address(this), amount);
     }
 
-    function getReserve(uint256 reserveId) external view override returns (Reserve memory) {
+    function getReserve(uint256 reserveId) external view returns (Reserve memory) {
         return _reserves[reserveId];
     }
 
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view override returns (uint256) {
+    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256) {
         return _supplied[reserveId][user];
     }
 
-    function getUserTotalDebt(uint256 reserveId, address user) external view override returns (uint256) {
+    function getUserTotalDebt(uint256 reserveId, address user) external view returns (uint256) {
         return _debt[reserveId][user];
     }
 
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         IERC20(_reserves[reserveId].underlying).transferFrom(msg.sender, address(this), amount);
         _supplied[reserveId][onBehalfOf] += amount;
         return (amount, amount);
     }
 
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         uint256 supplied = _supplied[reserveId][onBehalfOf];
         uint256 withdrawn = amount > supplied ? supplied : amount;
         _supplied[reserveId][onBehalfOf] = supplied - withdrawn;
@@ -303,13 +313,13 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         return (withdrawn, withdrawn);
     }
 
-    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function borrow(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         _debt[reserveId][onBehalfOf] += amount;
         MockERC20(_reserves[reserveId].underlying).mint(onBehalfOf, amount);
         return (amount, amount);
     }
 
-    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external override returns (uint256, uint256) {
+    function repay(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256) {
         uint256 debt = _debt[reserveId][onBehalfOf];
         uint256 repaid = amount > debt ? debt : amount;
         if (repaid != 0) IERC20(_reserves[reserveId].underlying).transferFrom(onBehalfOf, address(this), repaid);
@@ -317,7 +327,7 @@ contract MockLendingAaveV4Spoke is IAaveV4Spoke {
         return (repaid, repaid);
     }
 
-    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral_, address onBehalfOf) external override {
+    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral_, address onBehalfOf) external {
         usingAsCollateral[reserveId][onBehalfOf] = usingAsCollateral_;
     }
 }

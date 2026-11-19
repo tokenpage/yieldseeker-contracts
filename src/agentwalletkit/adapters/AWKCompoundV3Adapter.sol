@@ -18,17 +18,7 @@ import {AWKErrors} from "../AWKErrors.sol";
 import {AWKBaseVaultAdapter} from "./AWKBaseVaultAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-/**
- * @title ICompoundV3Comet
- * @notice Minimal Compound V3 Comet interface
- */
-interface ICompoundV3Comet {
-    function baseToken() external view returns (address);
-    function supply(address asset, uint256 amount) external;
-    function withdraw(address asset, uint256 amount) external;
-    function balanceOf(address account) external view returns (uint256);
-}
+import {ICompoundV3 as ICompoundV3Comet} from "morpho-bundler3/interfaces/ICompoundV3.sol";
 
 /**
  * @title AWKCompoundV3Adapter

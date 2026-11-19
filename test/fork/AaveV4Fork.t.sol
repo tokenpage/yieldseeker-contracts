@@ -87,7 +87,7 @@ contract AaveV4ForkTest is ForkBase {
         for (uint256 reserveId; reserveId < expectedAssets.length; ++reserveId) {
             IAaveV4Spoke.Reserve memory reserve = spoke.getReserve(reserveId);
             assertEq(reserve.underlying, expectedAssets[reserveId]);
-            assertEq(reserve.hub, 0xa4d5947Eb727A052bae69C593FfC84247EC9864E);
+            assertEq(address(reserve.hub), 0xa4d5947Eb727A052bae69C593FfC84247EC9864E);
             assertEq(reserve.assetId, reserveId);
             assertEq(reserve.decimals, reserveId == DEBT_RESERVE_ID ? 6 : 8);
             assertEq(reserve.dynamicConfigKey, 0);
@@ -185,7 +185,7 @@ contract AaveV4ForkTest is ForkBase {
     }
 
     function _debtPriceInCollateral() internal view returns (uint256) {
-        IAaveV4Oracle oracle = spoke.ORACLE();
+        IAaveV4Oracle oracle = IAaveV4Oracle(spoke.ORACLE());
         uint256 debtValue = oracle.getReservePrice(DEBT_RESERVE_ID) * 10 ** spoke.getReserve(COLLATERAL_RESERVE_ID).decimals;
         uint256 collateralValue = oracle.getReservePrice(COLLATERAL_RESERVE_ID) * 10 ** spoke.getReserve(DEBT_RESERVE_ID).decimals;
         return Math.mulDiv(debtValue, 1e36, collateralValue);

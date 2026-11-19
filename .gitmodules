@@ -34,3 +34,9 @@
 [submodule "lib/chainlink"]
 	path = lib/chainlink
 	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
+[submodule "lib/aave-v4"]
+	path = lib/aave-v4
+	url = https://github.com/aave/aave-v4
+[submodule "lib/morpho-bundler3"]
+	path = lib/morpho-bundler3
+	url = https://github.com/morpho-org/bundler3
