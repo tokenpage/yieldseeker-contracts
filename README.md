@@ -28,9 +28,9 @@ flowchart TD
     Oracle[Price oracle] --> Policy
 ```
 
-1. The owner or an operator calls `executeViaAdapter(adapter, target, data)`, directly or through an ERC-4337 EntryPoint.
+1. The owner or an operator calls `executeViaAdapter(adapter, target, data)`, directly or through an ERC-4337 EntryPoint. `data` is a call to one of the adapter's operations, for example `deposit(amount)`.
 2. The wallet checks its own blocklists, then asks its registry whether `target` is mapped to `adapter`.
-3. The wallet runs the adapter with `DELEGATECALL`, so the adapter acts as the wallet.
+3. The wallet records the target and runs `data` on the adapter with `DELEGATECALL`, so the adapter acts as the wallet. The adapter reads the target the wallet recorded.
 4. The adapter validates the inputs, applies the YieldSeeker rules (base asset, swap policy) and calls the protocol.
 5. The adapter reports the action to the fee tracker, and pays any fee due to the fee collector.
 
@@ -49,7 +49,7 @@ Every protocol adapter is built the same way:
 
 | Piece | Example | Role |
 |---|---|---|
-| Kit base | `AWKBorrowAdapter` | Decodes and validates a call, then calls an operation hook. |
+| Kit base | `AWKBorrowAdapter` | The operations a wallet can run (`supplyCollateral`, `borrow`, `repay`…): each validates its input, then calls an operation hook. |
 | Venue core | `AWKMorphoBlueBorrowAdapterCore` | The protocol calls for one venue. Abstract. |
 | Kit operations | `AWKBorrowOperations` | Implements the hooks as the plain protocol call. Core + this = the standalone kit adapter `AWKMorphoBlueBorrowAdapter`. |
 | YieldSeeker rules | `YieldSeekerBorrowAdapter` | Implements the hooks with base-asset checks and fee reports. Core + this = the deployed `YieldSeekerMorphoBlueBorrowAdapter`. |
