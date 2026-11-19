@@ -10,11 +10,9 @@ import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../../src/a
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../src/adapters/AgentTransferAdapter.sol";
-import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../src/adapters/MerklAdapter.sol";
-import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerSwapSellPolicy as SwapSellPolicy} from "../../src/adapters/SwapSellPolicy.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../src/adapters/UniswapV3SwapAdapter.sol";
@@ -26,12 +24,11 @@ import {YIELD_FEE, YieldSeekerYieldFeeModule} from "../../src/fees/YieldFeeModul
 import {YieldSeekerBorrowSwapPolicy} from "../../src/swaps/BorrowSwapPolicy.sol";
 import {YieldSeekerVaultSwapPolicy} from "../../src/swaps/VaultSwapPolicy.sol";
 import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
-import {MockCToken} from "../mocks/MockCompoundV2.sol";
 import {MockCompoundV3Comet} from "../mocks/MockCompoundV3.sol";
 import {MockERC20, MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
 import {MockFeePriceFeed} from "../mocks/MockFeePriceFeed.sol";
-import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, MockMoonwellComptroller, MockUniswapV3Router} from "../mocks/MockIntegrationMocks.sol";
+import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, MockUniswapV3Router} from "../mocks/MockIntegrationMocks.sol";
 import {MockAaveV3AddressesProvider, MockAaveV3Oracle, MockAaveV4Oracle, MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockLendingMorpho, MockMorphoOracle} from "../mocks/MockLendingMarkets.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
@@ -69,8 +66,6 @@ abstract contract IntegrationBase is Test {
     ERC4626Adapter public erc4626Adapter;
     AaveV3Adapter public aaveV3Adapter;
     CompoundV3Adapter public compoundV3Adapter;
-    CompoundV2Adapter public compoundV2Adapter;
-    MoonwellRewardAdapter public moonwellRewardAdapter;
     MerklAdapter public merklAdapter;
     UniswapV3SwapAdapter public uniswapV3SwapAdapter;
     AerodromeV2SwapAdapter public aerodromeV2SwapAdapter;
@@ -87,7 +82,6 @@ abstract contract IntegrationBase is Test {
     MockERC4626 public erc4626Vault;
     MockAaveV3Pool public aaveV3VaultPool;
     MockAToken public aaveV3Vault;
-    MockCToken public compoundV2Vault;
     MockCompoundV3Comet public compoundV3Market;
     MockLendingAaveV3Pool public aaveV3LendingPool;
     MockAaveV3AddressesProvider public aaveV3AddressesProvider;
@@ -99,7 +93,6 @@ abstract contract IntegrationBase is Test {
     MockLendingMorpho public morpho;
     MockMorphoOracle public morphoOracle;
     MockMerklDistributor public merklDistributor;
-    MockMoonwellComptroller public moonwellComptroller;
     MockUniswapV3Router public uniswapV3Router;
     MockAerodromeV2Router public aerodromeV2Router;
     MockAerodromeCLRouter public aerodromeCLRouter;
@@ -126,7 +119,6 @@ abstract contract IntegrationBase is Test {
         erc4626Vault = new MockERC4626(address(usdc), "Mock USDC Vault", "mvUSDC");
         aaveV3VaultPool = new MockAaveV3Pool(address(usdc));
         aaveV3Vault = MockAToken(aaveV3VaultPool.aToken());
-        compoundV2Vault = new MockCToken(address(usdc), "Mock Compound USDC", "mcUSDC");
         compoundV3Market = new MockCompoundV3Comet(address(usdc));
         aaveV3LendingPool = new MockLendingAaveV3Pool();
         aaveV3CollateralAToken = new MockERC20("Aave USDC", "aUSDC");
@@ -147,8 +139,6 @@ abstract contract IntegrationBase is Test {
         morphoOracle = new MockMorphoOracle();
         morphoOracle.setPrice(5e44);
         merklDistributor = new MockMerklDistributor();
-        moonwellComptroller = new MockMoonwellComptroller(wellToken);
-        moonwellComptroller.setRewardPerMarket(100e18);
         uniswapV3Router = new MockUniswapV3Router();
         aerodromeV2Router = new MockAerodromeV2Router();
         aerodromeCLRouter = new MockAerodromeCLRouter();
@@ -202,8 +192,6 @@ abstract contract IntegrationBase is Test {
         erc4626Adapter = new ERC4626Adapter();
         aaveV3Adapter = new AaveV3Adapter();
         compoundV3Adapter = new CompoundV3Adapter();
-        compoundV2Adapter = new CompoundV2Adapter();
-        moonwellRewardAdapter = new MoonwellRewardAdapter(address(wellToken));
         merklAdapter = new MerklAdapter();
         uniswapV3SwapAdapter = new UniswapV3SwapAdapter(address(uniswapV3Router));
         aerodromeV2SwapAdapter = new AerodromeV2SwapAdapter(address(aerodromeV2Router), address(0xFACADE));
@@ -216,8 +204,6 @@ abstract contract IntegrationBase is Test {
         _registerTarget(vaultRegistry, address(erc4626Vault), address(erc4626Adapter));
         _registerTarget(vaultRegistry, address(aaveV3Vault), address(aaveV3Adapter));
         _registerTarget(vaultRegistry, address(compoundV3Market), address(compoundV3Adapter));
-        _registerTarget(vaultRegistry, address(compoundV2Vault), address(compoundV2Adapter));
-        _registerTarget(vaultRegistry, address(moonwellComptroller), address(moonwellRewardAdapter));
         _registerTarget(vaultRegistry, address(merklDistributor), address(merklAdapter));
         _registerTarget(vaultRegistry, address(uniswapV3Router), address(uniswapV3SwapAdapter));
         _registerTarget(vaultRegistry, address(aerodromeV2Router), address(aerodromeV2SwapAdapter));
@@ -240,7 +226,6 @@ abstract contract IntegrationBase is Test {
 
         _fund(address(usdc), address(merklDistributor), 1_000_000e6);
         _fund(address(rewardToken), address(merklDistributor), 1_000_000e18);
-        _fund(address(wellToken), address(moonwellComptroller), 1_000_000e18);
         _fund(address(usdc), address(uniswapV3Router), 1_000_000e6);
         _fund(address(weth), address(uniswapV3Router), 1_000_000e18);
         _fund(address(rewardToken), address(uniswapV3Router), 1_000_000e18);

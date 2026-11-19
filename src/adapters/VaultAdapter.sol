@@ -26,7 +26,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice Rules and fee reporting shared by every YieldSeeker vault adapter
  * @dev Only vaults of the wallet's base asset. Deposits and withdrawals are reported to the fee modules
  *      (FeeActions.DEPOSIT / WITHDRAW, target = the vault). A withdrawal's share of the position is measured on the
- *      wallet's vault token balance (shares, cTokens, or the rebasing aToken / Comet balance), before and after.
+ *      wallet's vault token balance (shares, or the rebasing aToken / Comet balance), before and after.
  */
 abstract contract YieldSeekerVaultAdapter is AWKBaseVaultAdapter, YieldSeekerAdapter {
     function _depositOperation(address vault, uint256 amount) internal override returns (uint256 shares, uint256 assetsDeposited) {

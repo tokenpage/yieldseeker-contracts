@@ -10,11 +10,9 @@ import {YieldSeekerAaveV4BorrowAdapter as AaveV4BorrowAdapter} from "../../../sr
 import {YieldSeekerAerodromeCLSwapAdapter as AerodromeCLSwapAdapter} from "../../../src/adapters/AerodromeCLSwapAdapter.sol";
 import {YieldSeekerAerodromeV2SwapAdapter as AerodromeV2SwapAdapter} from "../../../src/adapters/AerodromeV2SwapAdapter.sol";
 import {YieldSeekerAgentTransferAdapter as AgentTransferAdapter} from "../../../src/adapters/AgentTransferAdapter.sol";
-import {YieldSeekerCompoundV2Adapter as CompoundV2Adapter} from "../../../src/adapters/CompoundV2Adapter.sol";
 import {YieldSeekerCompoundV3Adapter as CompoundV3Adapter} from "../../../src/adapters/CompoundV3Adapter.sol";
 import {YieldSeekerERC4626Adapter as ERC4626Adapter} from "../../../src/adapters/ERC4626Adapter.sol";
 import {YieldSeekerMerklAdapter as MerklAdapter} from "../../../src/adapters/MerklAdapter.sol";
-import {YieldSeekerMoonwellRewardAdapter as MoonwellRewardAdapter} from "../../../src/adapters/MoonwellRewardAdapter.sol";
 import {YieldSeekerMorphoBlueBorrowAdapter as MorphoBlueBorrowAdapter} from "../../../src/adapters/MorphoBlueBorrowAdapter.sol";
 import {YieldSeekerUniswapV3SwapAdapter as UniswapV3SwapAdapter} from "../../../src/adapters/UniswapV3SwapAdapter.sol";
 import {AWKAerodromeCLSwapAdapterCore} from "../../../src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol";
@@ -26,12 +24,11 @@ import {FeePlanChoice} from "../../../src/fees/FeeTracker.sol";
 import {YIELD_FEE} from "../../../src/fees/YieldFeeModule.sol";
 import {IntegrationBase} from "../../integration/IntegrationBase.t.sol";
 import {MockAToken} from "../../mocks/MockAaveV3.sol";
-import {MockCToken} from "../../mocks/MockCompoundV2.sol";
 import {MockCompoundV3Comet} from "../../mocks/MockCompoundV3.sol";
 import {MockERC20, MockERC20WithDecimals} from "../../mocks/MockERC20.sol";
 import {MockERC4626} from "../../mocks/MockERC4626.sol";
 import {MockFeePriceFeed} from "../../mocks/MockFeePriceFeed.sol";
-import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, MockMoonwellComptroller, MockUniswapV3Router} from "../../mocks/MockIntegrationMocks.sol";
+import {MockAerodromeCLRouter, MockAerodromeV2Router, MockMerklDistributor, MockUniswapV3Router} from "../../mocks/MockIntegrationMocks.sol";
 import {MockLendingAaveV3Pool, MockLendingAaveV4Spoke, MockMorphoOracle} from "../../mocks/MockLendingMarkets.sol";
 import {OperatorHostileRouter, OperatorHostileToken, OperatorHostileVault, OperatorMockEntryPoint, OperatorMorphoBlueMarket, OperatorThiefReceiver} from "./mocks/CompromisedOperatorMocks.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
@@ -79,16 +76,13 @@ struct CompromisedOperatorSetup {
     MockERC20WithDecimals wellToken;
     MockERC4626 erc4626Vault;
     MockAToken aaveV3Vault;
-    MockCToken compoundV2Vault;
     MockCompoundV3Comet compoundV3Market;
     MockERC20 aaveV3CollateralAToken;
     MockERC20 aaveV3VariableDebtToken;
     AaveV3Adapter aaveV3Adapter;
-    CompoundV2Adapter compoundV2Adapter;
     CompoundV3Adapter compoundV3Adapter;
     ERC4626Adapter erc4626Adapter;
     MerklAdapter merklAdapter;
-    MoonwellRewardAdapter moonwellRewardAdapter;
     UniswapV3SwapAdapter uniswapV3SwapAdapter;
     AerodromeV2SwapAdapter aerodromeV2SwapAdapter;
     AerodromeCLSwapAdapter aerodromeCLSwapAdapter;
@@ -101,7 +95,6 @@ struct CompromisedOperatorSetup {
     OperatorMorphoBlueMarket morpho;
     MockMorphoOracle morphoOracle;
     MockMerklDistributor merklDistributor;
-    MockMoonwellComptroller moonwellComptroller;
     MockUniswapV3Router uniswapV3Router;
     MockAerodromeV2Router aerodromeV2Router;
     MockAerodromeCLRouter aerodromeCLRouter;
@@ -161,16 +154,13 @@ contract CompromisedOperatorHandler is Test {
     MockERC20WithDecimals public immutable wellToken;
     MockERC4626 public immutable erc4626Vault;
     MockAToken public immutable aaveV3Vault;
-    MockCToken public immutable compoundV2Vault;
     MockCompoundV3Comet public immutable compoundV3Market;
     MockERC20 public immutable aaveV3CollateralAToken;
     MockERC20 public immutable aaveV3VariableDebtToken;
     AaveV3Adapter public immutable aaveV3Adapter;
-    CompoundV2Adapter public immutable compoundV2Adapter;
     CompoundV3Adapter public immutable compoundV3Adapter;
     ERC4626Adapter public immutable erc4626Adapter;
     MerklAdapter public immutable merklAdapter;
-    MoonwellRewardAdapter public immutable moonwellRewardAdapter;
     UniswapV3SwapAdapter public immutable uniswapV3SwapAdapter;
     AerodromeV2SwapAdapter public immutable aerodromeV2SwapAdapter;
     AerodromeCLSwapAdapter public immutable aerodromeCLSwapAdapter;
@@ -183,7 +173,6 @@ contract CompromisedOperatorHandler is Test {
     OperatorMorphoBlueMarket public immutable morpho;
     MockMorphoOracle public immutable morphoOracle;
     MockMerklDistributor public immutable merklDistributor;
-    MockMoonwellComptroller public immutable moonwellComptroller;
     MockUniswapV3Router public immutable uniswapV3Router;
     MockAerodromeV2Router public immutable aerodromeV2Router;
     MockAerodromeCLRouter public immutable aerodromeCLRouter;
@@ -280,16 +269,13 @@ contract CompromisedOperatorHandler is Test {
         wellToken = setup.wellToken;
         erc4626Vault = setup.erc4626Vault;
         aaveV3Vault = setup.aaveV3Vault;
-        compoundV2Vault = setup.compoundV2Vault;
         compoundV3Market = setup.compoundV3Market;
         aaveV3CollateralAToken = setup.aaveV3CollateralAToken;
         aaveV3VariableDebtToken = setup.aaveV3VariableDebtToken;
         aaveV3Adapter = setup.aaveV3Adapter;
-        compoundV2Adapter = setup.compoundV2Adapter;
         compoundV3Adapter = setup.compoundV3Adapter;
         erc4626Adapter = setup.erc4626Adapter;
         merklAdapter = setup.merklAdapter;
-        moonwellRewardAdapter = setup.moonwellRewardAdapter;
         uniswapV3SwapAdapter = setup.uniswapV3SwapAdapter;
         aerodromeV2SwapAdapter = setup.aerodromeV2SwapAdapter;
         aerodromeCLSwapAdapter = setup.aerodromeCLSwapAdapter;
@@ -302,7 +288,6 @@ contract CompromisedOperatorHandler is Test {
         morpho = setup.morpho;
         morphoOracle = setup.morphoOracle;
         merklDistributor = setup.merklDistributor;
-        moonwellComptroller = setup.moonwellComptroller;
         uniswapV3Router = setup.uniswapV3Router;
         aerodromeV2Router = setup.aerodromeV2Router;
         aerodromeCLRouter = setup.aerodromeCLRouter;
@@ -367,7 +352,6 @@ contract CompromisedOperatorHandler is Test {
         AgentWallet wallet = _ownerAWallets[0];
         _vaultRoundTrip(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (uint256(0))), amountSeed);
         _vaultRoundTrip(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (uint256(0))), amountSeed);
-        _vaultRoundTrip(wallet, address(compoundV2Adapter), address(compoundV2Vault), abi.encodeCall(compoundV2Adapter.deposit, (uint256(0))), amountSeed);
         _vaultRoundTrip(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (uint256(0))), amountSeed);
         _operatorVaultBatch(wallet, amountSeed);
         transferWorkflowAttempts++;
@@ -382,8 +366,6 @@ contract CompromisedOperatorHandler is Test {
         uint256 rewardIncrement = bound(amountSeed, 1e18, 5e18);
         _claimMerkl(vaultWallet, rewardIncrement);
         _claimMerkl(borrowWallet, rewardIncrement);
-        _claimMoonwell(vaultWallet);
-        _claimMoonwellWithThiefHolder(vaultWallet);
         _sellRewardOnAllDexes(vaultWallet, address(rewardToken), amountSeed);
         _sellRewardOnAllDexes(borrowWallet, address(rewardToken), amountSeed);
         _sellRewardOnOneDex(vaultWallet, address(wellToken), 0, amountSeed);
@@ -548,11 +530,8 @@ contract CompromisedOperatorHandler is Test {
     function _runWorstCaseRewardDumps(AgentWallet vaultWallet, uint8 routeSeed) private {
         uint256 rewardAmount = 10e18;
         uint8 rewardDex = routeSeed % 3;
-        uint8 wellDex = uint8((uint256(rewardDex) + 1) % 3);
         _claimMerkl(vaultWallet, rewardAmount);
-        _claimMoonwell(vaultWallet);
         _dumpAllReward(vaultWallet, address(rewardToken), rewardDex);
-        _dumpAllReward(vaultWallet, address(wellToken), wellDex);
     }
 
     function assertOwnerConservation() external view {
@@ -622,10 +601,8 @@ contract CompromisedOperatorHandler is Test {
         assertGt(liquidationBlocks, 0);
         _assertAdapterAttempts(address(erc4626Adapter));
         _assertAdapterAttempts(address(aaveV3Adapter));
-        _assertAdapterAttempts(address(compoundV2Adapter));
         _assertAdapterAttempts(address(compoundV3Adapter));
         _assertAdapterAttempts(address(merklAdapter));
-        _assertAdapterAttempts(address(moonwellRewardAdapter));
         _assertAdapterAttempts(address(uniswapV3SwapAdapter));
         _assertAdapterAttempts(address(aerodromeV2SwapAdapter));
         _assertAdapterAttempts(address(aerodromeCLSwapAdapter));
@@ -635,10 +612,8 @@ contract CompromisedOperatorHandler is Test {
         _assertAdapterAttempts(address(morphoBlueBorrowAdapter));
         _assertAdapterBlocked(address(erc4626Adapter));
         _assertAdapterBlocked(address(aaveV3Adapter));
-        _assertAdapterBlocked(address(compoundV2Adapter));
         _assertAdapterBlocked(address(compoundV3Adapter));
         _assertAdapterBlocked(address(merklAdapter));
-        _assertAdapterBlocked(address(moonwellRewardAdapter));
         _assertAdapterBlocked(address(uniswapV3SwapAdapter));
         _assertAdapterBlocked(address(aerodromeV2SwapAdapter));
         _assertAdapterBlocked(address(aerodromeCLSwapAdapter));
@@ -731,7 +706,6 @@ contract CompromisedOperatorHandler is Test {
     function _vaultDepositData(address adapter, uint256 amount) private view returns (bytes memory) {
         if (adapter == address(erc4626Adapter)) return abi.encodeCall(erc4626Adapter.deposit, (amount));
         if (adapter == address(aaveV3Adapter)) return abi.encodeCall(aaveV3Adapter.deposit, (amount));
-        if (adapter == address(compoundV2Adapter)) return abi.encodeCall(compoundV2Adapter.deposit, (amount));
         return abi.encodeCall(compoundV3Adapter.deposit, (amount));
     }
 
@@ -775,21 +749,6 @@ contract CompromisedOperatorHandler is Test {
         } else {
             rewardWorkflowBlocks++;
         }
-    }
-
-    function _claimMoonwell(AgentWallet wallet) private {
-        address[] memory markets = new address[](1);
-        markets[0] = address(compoundV2Vault);
-        (bool success,) = _operatorExecute(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (address(wallet), markets)));
-        if (!success) rewardWorkflowBlocks++;
-    }
-
-    function _claimMoonwellWithThiefHolder(AgentWallet wallet) private {
-        address[] memory markets = new address[](1);
-        markets[0] = address(compoundV2Vault);
-        (bool success,) = _operatorExecute(wallet, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (thief, markets)));
-        assertFalse(success);
-        rewardWorkflowBlocks++;
     }
 
     function _tryUnregisteredRewardClaim(AgentWallet wallet) private {
@@ -1145,32 +1104,30 @@ contract CompromisedOperatorHandler is Test {
         unregisteredTargetBlocks++;
         vaultWorkflowBlocks++;
 
-        address[] memory adapters = new address[](13);
+        address[] memory adapters = new address[](11);
         adapters[0] = address(erc4626Adapter);
         adapters[1] = address(aaveV3Adapter);
-        adapters[2] = address(compoundV2Adapter);
-        adapters[3] = address(compoundV3Adapter);
-        adapters[4] = address(merklAdapter);
-        adapters[5] = address(moonwellRewardAdapter);
-        adapters[6] = address(uniswapV3SwapAdapter);
-        adapters[7] = address(aerodromeV2SwapAdapter);
-        adapters[8] = address(aerodromeCLSwapAdapter);
-        adapters[9] = address(agentTransferAdapter);
-        adapters[10] = address(aaveV3BorrowAdapter);
-        adapters[11] = address(aaveV4BorrowAdapter);
-        adapters[12] = address(morphoBlueBorrowAdapter);
+        adapters[2] = address(compoundV3Adapter);
+        adapters[3] = address(merklAdapter);
+        adapters[4] = address(uniswapV3SwapAdapter);
+        adapters[5] = address(aerodromeV2SwapAdapter);
+        adapters[6] = address(aerodromeCLSwapAdapter);
+        adapters[7] = address(agentTransferAdapter);
+        adapters[8] = address(aaveV3BorrowAdapter);
+        adapters[9] = address(aaveV4BorrowAdapter);
+        adapters[10] = address(morphoBlueBorrowAdapter);
         for (uint256 i; i < adapters.length; i++) {
             unregisteredTargetAttempts++;
             (success,) = _operatorExecute(wallet, adapters[i], address(hostileRouter), bytes(""));
             assertFalse(success);
             unregisteredTargetBlocks++;
-            if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV2Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowBlocks++;
-            else if (adapters[i] == address(merklAdapter) || adapters[i] == address(moonwellRewardAdapter)) rewardWorkflowBlocks++;
+            if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowBlocks++;
+            else if (adapters[i] == address(merklAdapter)) rewardWorkflowBlocks++;
             else if (adapters[i] == address(uniswapV3SwapAdapter) || adapters[i] == address(aerodromeV2SwapAdapter) || adapters[i] == address(aerodromeCLSwapAdapter)) swapWorkflowBlocks++;
             else if (adapters[i] == address(agentTransferAdapter)) transferWorkflowBlocks++;
             else lendingWorkflowBlocks++;
-            if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV2Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowAttempts++;
-            else if (adapters[i] == address(merklAdapter) || adapters[i] == address(moonwellRewardAdapter)) rewardWorkflowAttempts++;
+            if (adapters[i] == address(erc4626Adapter) || adapters[i] == address(aaveV3Adapter) || adapters[i] == address(compoundV3Adapter)) vaultWorkflowAttempts++;
+            else if (adapters[i] == address(merklAdapter)) rewardWorkflowAttempts++;
             else if (adapters[i] == address(uniswapV3SwapAdapter) || adapters[i] == address(aerodromeV2SwapAdapter) || adapters[i] == address(aerodromeCLSwapAdapter)) swapWorkflowAttempts++;
             else if (adapters[i] == address(agentTransferAdapter)) transferWorkflowAttempts++;
             else lendingWorkflowAttempts++;
@@ -1421,11 +1378,9 @@ contract CompromisedOperatorHandler is Test {
         if (wallet.agentProfile() == VAULT_AGENT_PROFILE) {
             _ownerCloseVault(wallet, walletOwner, address(erc4626Adapter), address(erc4626Vault), erc4626Vault.balanceOf(address(wallet)));
             _ownerCloseVault(wallet, walletOwner, address(aaveV3Adapter), address(aaveV3Vault), aaveV3Vault.balanceOf(address(wallet)));
-            _ownerCloseVault(wallet, walletOwner, address(compoundV2Adapter), address(compoundV2Vault), compoundV2Vault.balanceOf(address(wallet)));
             _ownerCloseVault(wallet, walletOwner, address(compoundV3Adapter), address(compoundV3Market), compoundV3Market.balanceOf(address(wallet)));
             assertEq(erc4626Vault.balanceOf(address(wallet)), 0);
             assertEq(aaveV3Vault.balanceOf(address(wallet)), 0);
-            assertEq(compoundV2Vault.balanceOf(address(wallet)), 0);
             assertEq(compoundV3Market.balanceOf(address(wallet)), 0);
         } else {
             _ownerCloseBorrow(wallet, walletOwner);
@@ -1467,7 +1422,6 @@ contract CompromisedOperatorHandler is Test {
         bytes memory data;
         if (adapter == address(erc4626Adapter)) data = abi.encodeCall(erc4626Adapter.withdraw, (shares));
         else if (adapter == address(aaveV3Adapter)) data = abi.encodeCall(aaveV3Adapter.withdraw, (shares));
-        else if (adapter == address(compoundV2Adapter)) data = abi.encodeCall(compoundV2Adapter.withdraw, (shares));
         else data = abi.encodeCall(compoundV3Adapter.withdraw, (shares));
         _ownerExecute(wallet, walletOwner, adapter, target, data);
     }
@@ -1523,11 +1477,6 @@ contract CompromisedOperatorHandler is Test {
     }
 
     function _ownerClaimAndSellRewards(AgentWallet wallet, address walletOwner) private {
-        if (wallet.agentProfile() == VAULT_AGENT_PROFILE && wellToken.balanceOf(address(moonwellComptroller)) >= moonwellComptroller.rewardPerMarket()) {
-            address[] memory markets = new address[](1);
-            markets[0] = address(compoundV2Vault);
-            _ownerExecute(wallet, walletOwner, address(moonwellRewardAdapter), address(moonwellComptroller), abi.encodeCall(moonwellRewardAdapter.claimReward, (address(wallet), markets)));
-        }
         if (rewardToken.balanceOf(address(merklDistributor)) >= 1e18) {
             address[] memory tokens = new address[](1);
             tokens[0] = address(rewardToken);
@@ -1556,40 +1505,36 @@ contract CompromisedOperatorHandler is Test {
     }
 
     function _clearOwnerBlocks(AgentWallet wallet, address walletOwner) private {
-        address[] memory adapters = new address[](13);
+        address[] memory adapters = new address[](11);
         adapters[0] = address(erc4626Adapter);
         adapters[1] = address(aaveV3Adapter);
-        adapters[2] = address(compoundV2Adapter);
-        adapters[3] = address(compoundV3Adapter);
-        adapters[4] = address(merklAdapter);
-        adapters[5] = address(moonwellRewardAdapter);
-        adapters[6] = address(uniswapV3SwapAdapter);
-        adapters[7] = address(aerodromeV2SwapAdapter);
-        adapters[8] = address(aerodromeCLSwapAdapter);
-        adapters[9] = address(agentTransferAdapter);
-        adapters[10] = address(aaveV3BorrowAdapter);
-        adapters[11] = address(aaveV4BorrowAdapter);
-        adapters[12] = address(morphoBlueBorrowAdapter);
+        adapters[2] = address(compoundV3Adapter);
+        adapters[3] = address(merklAdapter);
+        adapters[4] = address(uniswapV3SwapAdapter);
+        adapters[5] = address(aerodromeV2SwapAdapter);
+        adapters[6] = address(aerodromeCLSwapAdapter);
+        adapters[7] = address(agentTransferAdapter);
+        adapters[8] = address(aaveV3BorrowAdapter);
+        adapters[9] = address(aaveV4BorrowAdapter);
+        adapters[10] = address(morphoBlueBorrowAdapter);
         for (uint256 i; i < adapters.length; i++) {
             if (wallet.isAdapterBlocked(adapters[i])) {
                 vm.prank(walletOwner);
                 wallet.unblockAdapter(adapters[i]);
             }
         }
-        address[] memory targets = new address[](13);
+        address[] memory targets = new address[](11);
         targets[0] = address(erc4626Vault);
         targets[1] = address(aaveV3Vault);
-        targets[2] = address(compoundV2Vault);
-        targets[3] = address(compoundV3Market);
-        targets[4] = address(merklDistributor);
-        targets[5] = address(moonwellComptroller);
-        targets[6] = address(uniswapV3Router);
-        targets[7] = address(aerodromeV2Router);
-        targets[8] = address(aerodromeCLRouter);
-        targets[9] = address(agentTransferAdapter);
-        targets[10] = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
-        targets[11] = aaveV4BorrowAdapter.marketTarget(aaveV4Market);
-        targets[12] = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
+        targets[2] = address(compoundV3Market);
+        targets[3] = address(merklDistributor);
+        targets[4] = address(uniswapV3Router);
+        targets[5] = address(aerodromeV2Router);
+        targets[6] = address(aerodromeCLRouter);
+        targets[7] = address(agentTransferAdapter);
+        targets[8] = aaveV3BorrowAdapter.marketTarget(aaveV3Market);
+        targets[9] = aaveV4BorrowAdapter.marketTarget(aaveV4Market);
+        targets[10] = morphoBlueBorrowAdapter.marketTarget(morphoMarket);
         for (uint256 i; i < targets.length; i++) {
             if (wallet.isTargetBlocked(targets[i])) {
                 vm.prank(walletOwner);
@@ -1633,7 +1578,6 @@ contract CompromisedOperatorHandler is Test {
         value += _tokenValue(address(wellToken), wellToken.balanceOf(account));
         value += erc4626Vault.convertToAssets(erc4626Vault.balanceOf(account));
         value += aaveV3Vault.balanceOf(account);
-        value += compoundV2Vault.balanceOfUnderlying(account);
         value += compoundV3Market.balanceOf(account);
         value += aaveV3CollateralBalance(account);
         value += aaveV4Spoke.getUserSuppliedAssets(1, account);
@@ -1779,7 +1723,6 @@ contract CompromisedOperatorHandler is Test {
                 wellToken.balanceOf(account),
                 erc4626Vault.balanceOf(account),
                 aaveV3Vault.balanceOf(account),
-                compoundV2Vault.balanceOf(account),
                 compoundV3Market.balanceOf(account),
                 aaveV3CollateralBalance(account),
                 aaveV3VariableDebtTokenBalance(account),
@@ -1861,7 +1804,6 @@ contract CompromisedOperatorHandler is Test {
     function _assertNoPositions(address account) private view {
         assertEq(erc4626Vault.balanceOf(account), 0);
         assertEq(aaveV3Vault.balanceOf(account), 0);
-        assertEq(compoundV2Vault.balanceOf(account), 0);
         assertEq(compoundV3Market.balanceOf(account), 0);
         assertEq(aaveV3CollateralBalance(account), 0);
         assertEq(aaveV3VariableDebtTokenBalance(account), 0);
@@ -1971,16 +1913,13 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
                 wellToken: wellToken,
                 erc4626Vault: erc4626Vault,
                 aaveV3Vault: aaveV3Vault,
-                compoundV2Vault: compoundV2Vault,
                 compoundV3Market: compoundV3Market,
                 aaveV3CollateralAToken: aaveV3CollateralAToken,
                 aaveV3VariableDebtToken: aaveV3VariableDebtToken,
                 aaveV3Adapter: aaveV3Adapter,
-                compoundV2Adapter: compoundV2Adapter,
                 compoundV3Adapter: compoundV3Adapter,
                 erc4626Adapter: erc4626Adapter,
                 merklAdapter: merklAdapter,
-                moonwellRewardAdapter: moonwellRewardAdapter,
                 uniswapV3SwapAdapter: uniswapV3SwapAdapter,
                 aerodromeV2SwapAdapter: aerodromeV2SwapAdapter,
                 aerodromeCLSwapAdapter: aerodromeCLSwapAdapter,
@@ -1993,7 +1932,6 @@ contract CompromisedOperatorInvariantTest is IntegrationBase {
                 morpho: operatorMorpho,
                 morphoOracle: morphoOracle,
                 merklDistributor: merklDistributor,
-                moonwellComptroller: moonwellComptroller,
                 uniswapV3Router: uniswapV3Router,
                 aerodromeV2Router: aerodromeV2Router,
                 aerodromeCLRouter: aerodromeCLRouter,
