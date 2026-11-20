@@ -45,6 +45,18 @@ FILES=(
   src/agentwalletkit/adapters/AWKSwapAdapter.sol
   src/agentwalletkit/adapters/AWKBorrowAdapter.sol
   src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol
+  src/agentwalletkit/AWKAdapterTarget.sol
+  src/adapters/MerklAdapter.sol
+  src/agentwalletkit/adapters/AWKMerklAdapter.sol
+  src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol
+  src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol
+  src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol
+  src/agentwalletkit/adapters/AWKERC4626Adapter.sol
+  src/agentwalletkit/adapters/AWKAaveV3Adapter.sol
+  src/agentwalletkit/adapters/AWKCompoundV3Adapter.sol
+  src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol
+  src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol
+  src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol
 )
 
 if [[ "$MODE" == "--worker" ]]; then

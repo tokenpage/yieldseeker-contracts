@@ -722,8 +722,10 @@ contract CompromisedOperatorHandler is Test {
         calls[0] = abi.encodeCall(erc4626Adapter.deposit, (amount));
         calls[1] = abi.encodeCall(aaveV3Adapter.deposit, (amount));
         uint256 feesBefore = _feeCollectorValue();
+        vm.record();
         vm.prank(operator);
         (bool success,) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapterBatch, (adapters, targets, calls)));
+        _assertNoWalletStorageWrites(wallet);
         adapterAttempts[address(erc4626Adapter)]++;
         adapterAttempts[address(aaveV3Adapter)]++;
         if (success) {
@@ -860,8 +862,10 @@ contract CompromisedOperatorHandler is Test {
         bytes memory data = abi.encodeCall(uniswapV3SwapAdapter.swap, (address(usdc), address(weth), route, amount, minimum, block.timestamp));
         swapWorkflowAttempts++;
         uint256 feesBefore = _feeCollectorValue();
+        vm.record();
         vm.prank(operator);
         (success,) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapter, (address(uniswapV3SwapAdapter), address(uniswapV3Router), data)));
+        _assertNoWalletStorageWrites(wallet);
         adapterAttempts[address(uniswapV3SwapAdapter)]++;
         if (success) {
             feesPaidByOwner[wallet.owner()] += _feeCollectorValue() - feesBefore;
@@ -1498,10 +1502,17 @@ contract CompromisedOperatorHandler is Test {
         _ownerExecute(wallet, walletOwner, address(uniswapV3SwapAdapter), address(uniswapV3Router), abi.encodeCall(uniswapV3SwapAdapter.swap, (token, baseAsset, _uniswapRoute(token, baseAsset), amount, 1, block.timestamp)));
     }
 
+    function _assertNoWalletStorageWrites(AgentWallet wallet) private {
+        (, bytes32[] memory walletStorageWrites) = vm.accesses(address(wallet));
+        assertEq(walletStorageWrites.length, 0, "an adapter call wrote to the wallet's own storage");
+    }
+
     function _ownerExecute(AgentWallet wallet, address walletOwner, address adapter, address target, bytes memory data) private {
+        vm.record();
         vm.prank(walletOwner);
         (bool success,) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapter, (adapter, target, data)));
         assertTrue(success);
+        _assertNoWalletStorageWrites(wallet);
     }
 
     function _clearOwnerBlocks(AgentWallet wallet, address walletOwner) private {
@@ -1736,8 +1747,10 @@ contract CompromisedOperatorHandler is Test {
 
     function _operatorExecute(AgentWallet wallet, address adapter, address target, bytes memory data) private returns (bool success, bytes memory result) {
         uint256 feesBefore = _feeCollectorValue();
+        vm.record();
         vm.prank(operator);
         (success, result) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapter, (adapter, target, data)));
+        _assertNoWalletStorageWrites(wallet);
         adapterAttempts[adapter]++;
         if (success) {
             feesPaidByOwner[wallet.owner()] += _feeCollectorValue() - feesBefore;

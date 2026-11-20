@@ -244,8 +244,11 @@ contract WalletWorkflowHandler is Test {
     }
 
     function _operatorExecute(AgentWallet wallet, address adapter, address target, bytes memory data) private returns (bool success) {
+        vm.record();
         vm.prank(operator);
         (success,) = address(wallet).call(abi.encodeCall(wallet.executeViaAdapter, (adapter, target, data)));
+        (, bytes32[] memory walletStorageWrites) = vm.accesses(address(wallet));
+        assertEq(walletStorageWrites.length, 0, "an adapter call wrote to the wallet's own storage");
     }
 
     function _walletFor(uint8 choice) private view returns (AgentWallet) {
