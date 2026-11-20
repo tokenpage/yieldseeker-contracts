@@ -251,6 +251,8 @@ fi
 export RESULTS_DIR TIMEOUT_SECONDS
 mkdir -p "$RESULTS_DIR/scratch-$LABEL" "$RESULTS_DIR/logs-$LABEL"
 printf 'Running %s unscored mutants (%s mode, %s parallel, %s-second timeout). Results: %s\n' "${#MUTANT_IDS[@]}" "$MODE" "$JOBS" "$TIMEOUT_SECONDS" "$STATUS_FILE"
-# NOTE(krishan711): background QoS keeps these compiles on the efficiency cores so a run doesn't drain the battery.
-printf '%s\0' "${MUTANT_IDS[@]}" | taskpolicy -b xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
+# NOTE(krishan711): on battery, background QoS keeps these compiles on the efficiency cores so a run doesn't drain it; on mains power they use every core.
+QOS="taskpolicy -b"
+if pmset -g batt | grep -q "AC Power"; then QOS=""; fi
+printf '%s\0' "${MUTANT_IDS[@]}" | $QOS xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
 printf 'Completed %s mutant runs (%s mode). Elapsed: %s seconds.\n' "${#MUTANT_IDS[@]}" "$MODE" "$((SECONDS - STARTED_AT))"
