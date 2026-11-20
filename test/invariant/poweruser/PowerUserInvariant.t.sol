@@ -308,8 +308,10 @@ contract PowerUserHandler is Test {
         _prepareExecution(wallet, adapter, target);
         bytes memory claimData = abi.encodeCall(SYSTEM.merklAdapter().claim, (tokens, amounts, proofs));
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         wallet.executeViaAdapter(adapter, target, claimData);
+        _assertNoWalletStorageWrites(wallet);
         _captureFees();
         _recordYield(wallet, baseIncrease);
         authorizedGains += baseIncrease;
@@ -372,8 +374,10 @@ contract PowerUserHandler is Test {
         bytes memory route = _borrowRoute(dex, address(SYSTEM.usdc()), address(SYSTEM.weth()));
         bytes memory swapData = _borrowSwapCall(dex, route, sellAmount);
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         wallet.executeViaAdapter(adapter, router, swapData);
+        _assertNoWalletStorageWrites(wallet);
         _captureFees();
         uint256 maxSlippage = Math.mulDiv(sellAmount, SYSTEM.BORROW_SWAP_MAX_SLIPPAGE_BPS(), 10_000, Math.Rounding.Ceil);
         allowedLosses += maxSlippage + 2;
@@ -394,8 +398,10 @@ contract PowerUserHandler is Test {
         _prepareExecution(sender, adapter, adapter);
         bytes memory data = abi.encodeWithSignature("transfer(address,address,uint256)", token, address(receiver), amount);
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         sender.executeViaAdapter(adapter, adapter, data);
+        _assertNoWalletStorageWrites(sender);
         _captureFees();
         transferCalls++;
     }
@@ -824,6 +830,11 @@ contract PowerUserHandler is Test {
         _recordYield(wallet, received);
     }
 
+    function _assertNoWalletStorageWrites(AgentWallet wallet) private {
+        (, bytes32[] memory walletStorageWrites) = vm.accesses(address(wallet));
+        assertEq(walletStorageWrites.length, 0, "an adapter call wrote to the wallet's own storage");
+    }
+
     function _swapReward(AgentWallet wallet, address token, uint8 dex, uint256 amount) private returns (uint256 received) {
         address adapter = _swapAdapter(dex);
         address router = _swapRouter(dex);
@@ -835,8 +846,10 @@ contract PowerUserHandler is Test {
         bytes memory route = _rewardRoute(dex, token, address(SYSTEM.usdc()));
         bytes memory data = _rewardSwapCall(dex, route, token, amount, block.timestamp);
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, router, data);
+        _assertNoWalletStorageWrites(wallet);
         _captureFees();
         received = abi.decode(result, (uint256));
         rewardSaleCalls[dex]++;
@@ -849,8 +862,10 @@ contract PowerUserHandler is Test {
         _prepareExecution(wallet, adapter, target);
         bytes memory supplyData = _supplyCall(marketIndex, amount);
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         bytes memory result = wallet.executeViaAdapter(adapter, target, supplyData);
+        _assertNoWalletStorageWrites(wallet);
         _captureFees();
         uint256 supplied = abi.decode(result, (uint256));
         basisGhost[address(wallet)][_collateralPosition(marketIndex)] += supplied;
@@ -886,8 +901,10 @@ contract PowerUserHandler is Test {
         address target = _marketTarget(marketIndex);
         _prepareExecution(wallet, adapter, target);
         vm.recordLogs();
+        vm.record();
         vm.prank(operator);
         result = wallet.executeViaAdapter(adapter, target, data);
+        _assertNoWalletStorageWrites(wallet);
         _captureFees();
         uint256 charged = borrowFeeCharged[address(wallet)] - chargedBefore;
         assertEq(charged, expectedBaseFee);

@@ -39,6 +39,17 @@ contract AdapterRegistryTest is Test {
         assertTrue(registry.isRegisteredAdapter(adapter));
     }
 
+    function test_SetTargetAdapter_FirstMappingEmitsOnlyTargetRegistered() public {
+        address adapter = address(new MockAdapter());
+        vm.startPrank(admin);
+        registry.registerAdapter(adapter);
+        vm.recordLogs();
+        registry.setTargetAdapter(makeAddr("target"), adapter);
+        vm.stopPrank();
+
+        assertEq(vm.getRecordedLogs().length, 1);
+    }
+
     function test_RegisterAdapter_OnlyAdmin() public {
         address adapter = address(new MockAdapter());
         bytes memory unauthorizedError = abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonAdmin, registry.DEFAULT_ADMIN_ROLE());

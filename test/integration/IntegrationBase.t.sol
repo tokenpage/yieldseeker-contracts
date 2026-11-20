@@ -262,8 +262,11 @@ abstract contract IntegrationBase is Test {
     }
 
     function _execute(AgentWallet wallet, address adapter, address target, bytes memory data) internal returns (bytes memory result) {
+        vm.record();
         vm.prank(operator);
         result = wallet.executeViaAdapter(adapter, target, data);
+        (, bytes32[] memory walletStorageWrites) = vm.accesses(address(wallet));
+        assertEq(walletStorageWrites.length, 0, "an adapter call wrote to the wallet's own storage");
     }
 
     function _executeExpectRevert(AgentWallet wallet, address adapter, address target, bytes memory data, bytes memory innerError) internal {

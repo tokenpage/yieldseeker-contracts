@@ -11,12 +11,12 @@ while (($#)); do
     shift 2
     continue
   fi
-  case "$ARG" in
-    '@openzeppelin/contracts='*) ARG='@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/' ;;
-    '@openzeppelin/contracts-upgradeable='*) ARG='@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/' ;;
-    'account-abstraction='*) ARG='account-abstraction/=lib/account-abstraction/contracts/' ;;
-    'forge-std='*) ARG='forge-std/=lib/forge-std/src/' ;;
-  esac
+  if [[ "$ARG" != --* && "$ARG" == *=*/lib/* ]]; then
+    REMAP_KEY="${ARG%%=*}"
+    REMAP_PATH="${ARG#*=}"
+    ARG="${REMAP_KEY%/}/=lib/${REMAP_PATH#*/lib/}"
+    ARG="${ARG%/}/"
+  fi
   ARGS+=("$ARG")
   shift
 done

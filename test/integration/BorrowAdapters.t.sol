@@ -644,6 +644,23 @@ contract BorrowAdaptersIntegrationTest is IntegrationBase {
         _executeExpectRevert(wallet, address(morphoBlueBorrowAdapter), morphoTarget, abi.encodeCall(morphoBlueBorrowAdapter.borrow, (substitutedMorphoMarket, BORROWED_WETH)), morphoMismatch);
     }
 
+    function test_EveryBorrowAdapterRejectsAZeroAmountOnEveryOperation() public {
+        AgentWallet wallet = _createBorrowWallet(owner, 40);
+        _fundWallet(wallet, address(usdc), COLLATERAL);
+        bytes memory zeroAmount = abi.encodeWithSelector(AWKErrors.ZeroAmount.selector);
+        address[3] memory adapters = [address(aaveV3BorrowAdapter), address(aaveV4BorrowAdapter), address(morphoBlueBorrowAdapter)];
+        bytes[3] memory markets = [aaveV3Market, aaveV4Market, morphoMarket];
+        bytes4[4] memory operations = [aaveV3BorrowAdapter.supplyCollateral.selector, aaveV3BorrowAdapter.withdrawCollateral.selector, aaveV3BorrowAdapter.borrow.selector, aaveV3BorrowAdapter.repay.selector];
+        for (uint256 i; i < 3; i++) {
+            address target = YieldSeekerAaveV3BorrowAdapter(adapters[i]).marketTarget(markets[i]);
+            _execute(wallet, adapters[i], target, abi.encodeWithSelector(operations[0], markets[i], 100e6));
+            _execute(wallet, adapters[i], target, abi.encodeWithSelector(operations[2], markets[i], 1e15));
+            for (uint256 j; j < 4; j++) {
+                _executeExpectRevert(wallet, adapters[i], target, abi.encodeWithSelector(operations[j], markets[i], 0), zeroAmount);
+            }
+        }
+    }
+
     function test_UnregisteredMarketAndNonBaseCollateralAreRejected() public {
         AgentWallet wallet = _createBorrowWallet(owner, 17);
         bytes memory unregisteredMarket = abi.encode(address(aaveV3LendingPool), address(usdc), address(weth), uint8(2));
