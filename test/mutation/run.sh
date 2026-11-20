@@ -90,9 +90,9 @@ if [[ "$MODE" == "--worker" ]]; then
   cp -cR "$SOURCE_ROOT/src" "$SOURCE_ROOT/test" "$SOURCE_ROOT/lib" "$SOURCE_ROOT/foundry.toml" "$SCRATCH/"
   cp "$MUTANT_DIR/$MUTATED_FILE" "$SCRATCH/$MUTATED_FILE"
   WORKER_STARTED=$SECONDS
-  # NOTE(krishan711): these six files kill 92% of killed mutants and compile in a fraction of the full suite's time,
+  # NOTE(krishan711): these files kill most mutants and compile in a fraction of the full suite's time,
   # so they run first; only mutants that survive them pay for the full suite.
-  FIRST_TESTS="test/{integration/Fees,integration/Wallet,fuzz/swaps/BorrowSwapPolicyProperties,fuzz/wallet/WalletProperties,fuzz/fees/FeeAccountingFuzz,fuzz/swaps/PriceOracleProperties}.t.sol"
+  FIRST_TESTS="test/{integration/Fees,integration/Wallet,integration/VaultAdapters,integration/BorrowAdapters,integration/RewardAdapters,integration/Swaps,fuzz/swaps/SwapAdapterProperties,fuzz/swaps/BorrowSwapPolicyProperties,fuzz/wallet/WalletProperties,fuzz/fees/FeeAccountingFuzz,fuzz/swaps/PriceOracleProperties}.t.sol"
   set +e
   (
     cd "$SCRATCH"
