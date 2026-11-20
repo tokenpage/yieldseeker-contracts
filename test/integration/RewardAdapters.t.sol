@@ -186,6 +186,39 @@ contract RewardAdaptersTest is IntegrationBase {
         assertEq(_feesCollected(address(usdc)), 0);
     }
 
+    function testMerklUnderDeliveryRevertsEvenWhenTheWalletAlreadyHoldsTheToken() public {
+        AgentWallet wallet = _createVaultWallet(owner, 1);
+        address holder = makeAddr("campaignHolder");
+        BurnOnReceiptWrapper wrapper = new BurnOnReceiptWrapper(IERC20(address(usdc)), holder, address(merklDistributor));
+        wrapper.mint(address(merklDistributor), 1_000e6);
+        wrapper.mint(address(wallet), 5_000e6);
+        _fund(address(usdc), holder, 1_000e6);
+        vm.prank(holder);
+        usdc.approve(address(wrapper), 1_000e6);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(wrapper);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 1_000e6;
+        bytes memory expectedError = abi.encodeWithSelector(ClaimDeliveryMismatch.selector, address(wrapper), 1_000e6, 0);
+        _executeExpectRevert(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts), expectedError);
+        assertEq(wrapper.balanceOf(address(wallet)), 5_000e6);
+    }
+
+    function testMerklClaimWithNothingNewToCollectReportsNoFeeAction() public {
+        AgentWallet wallet = _createVaultWallet(owner, 1);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(usdc);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 500e6;
+        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts));
+        uint256 feesBefore = _feesCollected(address(usdc));
+
+        vm.expectCall(address(vaultFeeTracker), abi.encodeWithSelector(vaultFeeTracker.reportAction.selector), 0);
+        _execute(wallet, address(merklAdapter), address(merklDistributor), _merklCall(tokens, amounts));
+
+        assertEq(_feesCollected(address(usdc)), feesBefore);
+    }
+
     function testMerklClaimOfATokenThatDeliversLessThanRecordedReverts() public {
         AgentWallet wallet = _createVaultWallet(owner, 1);
         address holder = makeAddr("campaignHolder");

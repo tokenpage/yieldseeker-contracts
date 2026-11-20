@@ -21,6 +21,7 @@ contract MockNoReturnToken {
     }
 
     function transfer(address to, uint256 amount) external {
+        require(amount > 0, "zero transfer");
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
     }

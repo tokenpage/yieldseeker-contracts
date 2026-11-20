@@ -57,6 +57,9 @@ FILES=(
   src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol
   src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol
   src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol
+  src/AgentWalletFactory.sol
+  src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol
+  src/adapters/AaveV3BorrowAdapter.sol
 )
 
 if [[ "$MODE" == "--worker" ]]; then

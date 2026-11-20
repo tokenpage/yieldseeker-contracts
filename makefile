@@ -48,10 +48,9 @@ test-fork:
 test-deep:
 	@ FOUNDRY_PROFILE=deep forge test --match-path "test/{fuzz,invariant}/**" -vv
 
-# NOTE(krishan711): halmos can't run the deployCode cheatcode that forge's dynamic test linking puts in place of `new`
 prove-halmos:
 	@ for suite in FeeAccountingHalmos BorrowSwapHalmos UserOpSignatureHalmos PriceOracleHalmos AdapterRegistryHalmos AdapterDirectCallHalmos; do \
-		FOUNDRY_DYNAMIC_TEST_LINKING=false halmos --root . --function check_ --match-contract "^$$suite$$" --loop 2 --solver-timeout-branching 5s --solver-timeout-assertion 60s --storage-layout solidity || exit 1; \
+		halmos --root . --function check_ --match-contract "^$$suite$$" --loop 2 --solver-timeout-branching 5s --solver-timeout-assertion 60s --storage-layout solidity || exit 1; \
 	done
 
 prove-certora:
