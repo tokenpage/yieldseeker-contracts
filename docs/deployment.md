@@ -134,16 +134,16 @@ Price source settings:
 | Asset | Staleness limit |
 | --- | --- |
 | WETH, cbBTC, cbETH | `3600` seconds |
-| USDC, cbXRP, cbZEC, SOL, cbHYPE | `90000` seconds |
+| USDC, cbXRP, cbZEC, SOL, cbHYPE, cbDOGE, cbADA | `90000` seconds |
 | Tokenized stocks (MAG7 and SPCXc) | `43200` seconds |
 
 - Tokenized-stock feeds follow 24/5 trading and update on price moves; on Base (November 2026) weekday gaps reached about 7.6 hours and the weekend gap about 53 hours. The 12-hour limit keeps base-asset swaps working on weekdays and stops them over the weekend, when the price is unknown.
-- The cbXRP, cbZEC, SOL and cbHYPE feeds have a 24-hour heartbeat and a 0.5% deviation threshold, like USDC's, so the borrow swap floor can lag the market by up to that threshold. Each uses the proxy that reads the same aggregator as its Morpho market's oracle, so the floor and the market's liquidation price move together.
+- The cbXRP, cbZEC, SOL, cbHYPE, cbDOGE and cbADA feeds have a 24-hour heartbeat and a 0.5% deviation threshold, like USDC's, so the borrow swap floor can lag the market by up to that threshold. Each uses the proxy that reads the same aggregator as its Morpho market's oracle, so the floor and the market's liquidation price move together.
 - These values are deployment settings, not contract constants; recheck feed behaviour before changing them.
 - Every feed should be USD-denominated: `quote` divides one asset's USD price by the other's. Use the raw aggregator feed rather than a protocol wrapper that can cap an answer or rewrite its timestamp.
 - The tokenized-stock feeds are the "Coinbase <TICKER>" total-return feeds the Aave V4 spoke oracle uses: they price one token (share price × the token's multiplier), not one share, so never use a plain per-share equity feed for them.
 
-The launch config borrows USDC against WETH and cbBTC on Aave V3 and Morpho Blue (LLTV 0.86), against cbETH on Aave V3 and Morpho Blue (LLTV 0.77), against cbXRP, cbZEC, SOL and cbHYPE on Morpho Blue (LLTV 0.625), and against the MAG7 (Aave V4 reserves 0-6) and SPCXc (reserve 8) on Aave V4. SPCXc was listed in October 2026 on harsher terms than the MAG7: 55% collateral factor, 6.5% liquidation bonus and a 10% collateral risk premium on the debt it backs. In November 2026 the cbHYPE market had about $74k of USDC free to borrow and its deepest pool held about $193k, so keep cbHYPE positions small.
+The launch config borrows USDC against WETH and cbBTC on Aave V3 and Morpho Blue (LLTV 0.86), against cbETH on Aave V3 and Morpho Blue (LLTV 0.77), against cbXRP, cbZEC, SOL, cbHYPE, cbDOGE and cbADA on Morpho Blue (LLTV 0.625), and against the MAG7 (Aave V4 reserves 0-6) and SPCXc (reserve 8) on Aave V4. SPCXc was listed in October 2026 on harsher terms than the MAG7: 55% collateral factor, 6.5% liquidation bonus and a 10% collateral risk premium on the debt it backs. In November 2026 the cbHYPE market had about $74k of USDC free to borrow and its deepest pool held about $193k, so keep cbHYPE positions small.
 
 Apply these configuration rules; `Configure.s.sol` enforces the first, second and fourth, and does not detect breaches of the third:
 
