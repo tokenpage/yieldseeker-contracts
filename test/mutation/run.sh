@@ -45,6 +45,21 @@ FILES=(
   src/agentwalletkit/adapters/AWKSwapAdapter.sol
   src/agentwalletkit/adapters/AWKBorrowAdapter.sol
   src/agentwalletkit/adapters/AWKBaseVaultAdapter.sol
+  src/agentwalletkit/AWKAdapterTarget.sol
+  src/adapters/MerklAdapter.sol
+  src/agentwalletkit/adapters/AWKMerklAdapter.sol
+  src/agentwalletkit/adapters/AWKUniswapV3SwapAdapter.sol
+  src/agentwalletkit/adapters/AWKAerodromeCLSwapAdapter.sol
+  src/agentwalletkit/adapters/AWKAerodromeV2SwapAdapter.sol
+  src/agentwalletkit/adapters/AWKERC4626Adapter.sol
+  src/agentwalletkit/adapters/AWKAaveV3Adapter.sol
+  src/agentwalletkit/adapters/AWKCompoundV3Adapter.sol
+  src/agentwalletkit/adapters/AWKAaveV3BorrowAdapter.sol
+  src/agentwalletkit/adapters/AWKAaveV4BorrowAdapter.sol
+  src/agentwalletkit/adapters/AWKMorphoBlueBorrowAdapter.sol
+  src/AgentWalletFactory.sol
+  src/agentwalletkit/AWKSelfManagedAgentWalletV3.sol
+  src/adapters/AaveV3BorrowAdapter.sol
 )
 
 if [[ "$MODE" == "--worker" ]]; then
@@ -78,9 +93,9 @@ if [[ "$MODE" == "--worker" ]]; then
   cp -cR "$SOURCE_ROOT/src" "$SOURCE_ROOT/test" "$SOURCE_ROOT/lib" "$SOURCE_ROOT/foundry.toml" "$SCRATCH/"
   cp "$MUTANT_DIR/$MUTATED_FILE" "$SCRATCH/$MUTATED_FILE"
   WORKER_STARTED=$SECONDS
-  # NOTE(krishan711): these six files kill 92% of killed mutants and compile in a fraction of the full suite's time,
+  # NOTE(krishan711): these files kill most mutants and compile in a fraction of the full suite's time,
   # so they run first; only mutants that survive them pay for the full suite.
-  FIRST_TESTS="test/{integration/Fees,integration/Wallet,fuzz/swaps/BorrowSwapPolicyProperties,fuzz/wallet/WalletProperties,fuzz/fees/FeeAccountingFuzz,fuzz/swaps/PriceOracleProperties}.t.sol"
+  FIRST_TESTS="test/{integration/Fees,integration/Wallet,integration/VaultAdapters,integration/BorrowAdapters,integration/RewardAdapters,integration/Swaps,fuzz/swaps/SwapAdapterProperties,fuzz/swaps/BorrowSwapPolicyProperties,fuzz/wallet/WalletProperties,fuzz/fees/FeeAccountingFuzz,fuzz/swaps/PriceOracleProperties}.t.sol"
   set +e
   (
     cd "$SCRATCH"
@@ -239,6 +254,8 @@ fi
 export RESULTS_DIR TIMEOUT_SECONDS
 mkdir -p "$RESULTS_DIR/scratch-$LABEL" "$RESULTS_DIR/logs-$LABEL"
 printf 'Running %s unscored mutants (%s mode, %s parallel, %s-second timeout). Results: %s\n' "${#MUTANT_IDS[@]}" "$MODE" "$JOBS" "$TIMEOUT_SECONDS" "$STATUS_FILE"
-# NOTE(krishan711): background QoS keeps these compiles on the efficiency cores so a run doesn't drain the battery.
-printf '%s\0' "${MUTANT_IDS[@]}" | taskpolicy -b xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
+# NOTE(krishan711): on battery, background QoS keeps these compiles on the efficiency cores so a run doesn't drain it; on mains power they use every core.
+QOS="taskpolicy -b"
+if pmset -g batt | grep -q "AC Power"; then QOS=""; fi
+printf '%s\0' "${MUTANT_IDS[@]}" | $QOS xargs -0 -P "$JOBS" -I {} "$SCRIPT_PATH" --worker "$LABEL" {} "$STATUS_FILE"
 printf 'Completed %s mutant runs (%s mode). Elapsed: %s seconds.\n' "${#MUTANT_IDS[@]}" "$MODE" "$((SECONDS - STARTED_AT))"

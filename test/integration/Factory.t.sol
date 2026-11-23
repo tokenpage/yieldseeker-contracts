@@ -132,6 +132,10 @@ contract FactoryTest is IntegrationBase {
         factory.setSwapPolicy(VAULT_AGENT_PROFILE, IYieldSeekerSwapPolicy(notAContract));
         vm.expectRevert(zeroTrackerError);
         factory.setFeeTracker(VAULT_AGENT_PROFILE, FeeTracker(address(0)));
+        vm.expectRevert(nonContractError);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, AdapterRegistry(notAContract));
+        vm.expectRevert(AWKErrors.ZeroAddress.selector);
+        factory.setAdapterRegistry(VAULT_AGENT_PROFILE, AdapterRegistry(address(0)));
 
         address previousTracker = address(factory.feeTracker(VAULT_AGENT_PROFILE));
         vm.expectEmit(true, true, true, true, address(factory));

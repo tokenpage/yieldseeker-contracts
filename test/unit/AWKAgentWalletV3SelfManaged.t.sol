@@ -76,6 +76,13 @@ contract AWKAgentWalletV3SelfManagedTest is Test {
         wallet.setAgentOperators(operators);
     }
 
+    function testOwnerCannotSetARegistryWithNoCode() public {
+        address notAContract = makeAddr("notAContract");
+        vm.expectRevert(abi.encodeWithSelector(AWKErrors.NotAContract.selector, notAContract));
+        vm.prank(owner);
+        wallet.setAdapterRegistry(YieldSeekerAdapterRegistry(notAContract));
+    }
+
     function testSyncIsNoopLatestUpgradeIsForbiddenAndOwnerMayUpgradeArbitrarily() public {
         address[] memory operators = new address[](1);
         operators[0] = operator;

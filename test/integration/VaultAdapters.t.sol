@@ -9,9 +9,27 @@ import {MockAToken, MockAaveV3Pool} from "../mocks/MockAaveV3.sol";
 import {MockCompoundV3Comet} from "../mocks/MockCompoundV3.sol";
 import {MockERC20WithDecimals} from "../mocks/MockERC20.sol";
 import {MockERC4626} from "../mocks/MockERC4626.sol";
+import {MockNoReturnToken, PlainERC4626Vault} from "../mocks/MockNoReturnToken.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {IntegrationBase} from "./IntegrationBase.t.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+contract ZeroCreditComet {
+    address public immutable baseToken;
+
+    constructor(address baseToken_) {
+        baseToken = baseToken_;
+    }
+
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function supply(address asset, uint256 amount) external {
+        require(IERC20(asset).transferFrom(msg.sender, address(this), amount));
+    }
+}
 
 contract VaultAdaptersTest is IntegrationBase {
     function _decodeUint(bytes memory result) private pure returns (uint256) {
@@ -332,6 +350,65 @@ contract VaultAdaptersTest is IntegrationBase {
         bytes memory data = abi.encodeCall(compoundV3Adapter.withdraw, (1e6));
         _executeExpectRevert(wallet, address(compoundV3Adapter), address(compoundV3Market), data, abi.encodeWithSelector(AWKErrors.ZeroAmount.selector));
         assertEq(compoundV3Market.borrowBalanceOf(address(wallet)), 0);
+    }
+
+    function testAaveV3AndCompoundV3DepositsReportOnlyTheNewlyCreditedBalance() public {
+        AgentWallet wallet = _createVaultWallet(owner, 50);
+        _fundWallet(wallet, address(usdc), 400e6);
+
+        _execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (100e6)));
+        (uint256 shares, uint256 assetsDeposited) = abi.decode(_execute(wallet, address(aaveV3Adapter), address(aaveV3Vault), abi.encodeCall(aaveV3Adapter.deposit, (150e6))), (uint256, uint256));
+        assertEq(shares, 150e6);
+        assertEq(assetsDeposited, 150e6);
+
+        _execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (60e6)));
+        (shares, assetsDeposited) = abi.decode(_execute(wallet, address(compoundV3Adapter), address(compoundV3Market), abi.encodeCall(compoundV3Adapter.deposit, (90e6))), (uint256, uint256));
+        assertEq(shares, 90e6);
+        assertEq(assetsDeposited, 90e6);
+    }
+
+    function testCompoundV3DepositThatCreditsNothingReverts() public {
+        AgentWallet wallet = _createVaultWallet(owner, 51);
+        _fundWallet(wallet, address(usdc), 100e6);
+        ZeroCreditComet comet = new ZeroCreditComet(address(usdc));
+        vaultRegistry.setTargetAdapter(address(comet), address(compoundV3Adapter));
+
+        _executeExpectRevert(wallet, address(compoundV3Adapter), address(comet), abi.encodeCall(compoundV3Adapter.deposit, (100e6)), abi.encodeWithSignature("Error(string)", "AWKCompoundV3Adapter: zero balance credited"));
+        assertEq(usdc.balanceOf(address(wallet)), 100e6);
+    }
+
+    function testERC4626WithdrawalThatPaysNothingReverts() public {
+        AgentWallet wallet = _createVaultWallet(owner, 52);
+        _fundWallet(wallet, address(usdc), 100e6);
+        _execute(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.deposit, (100e6)));
+        uint256 shares = erc4626Vault.balanceOf(address(wallet));
+        erc4626Vault.setRedeemFee(10_000);
+
+        _executeExpectRevert(wallet, address(erc4626Adapter), address(erc4626Vault), abi.encodeCall(erc4626Adapter.withdraw, (shares)), abi.encodeWithSignature("Error(string)", "AWKERC4626Adapter: nothing received"));
+        assertEq(erc4626Vault.balanceOf(address(wallet)), shares);
+    }
+
+    function testBaseAssetThatReturnsNothingFromTransfersAndApprovalsWorks() public {
+        MockNoReturnToken asset = new MockNoReturnToken();
+        PlainERC4626Vault vault = new PlainERC4626Vault(address(asset));
+        vaultRegistry.setTargetAdapter(address(vault), address(erc4626Adapter));
+        AgentWallet wallet = _createWalletForAsset(owner, 1, address(asset));
+        asset.mint(address(wallet), 2_000e6);
+
+        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(erc4626Adapter.deposit, (1_000e6)));
+        _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(erc4626Adapter.deposit, (1_000e6)));
+        assertEq(asset.allowance(address(wallet), address(vault)), 0);
+        asset.mint(address(vault), 200e6);
+        bytes memory withdrawal = _execute(wallet, address(erc4626Adapter), address(vault), abi.encodeCall(erc4626Adapter.withdraw, (vault.balanceOf(address(wallet)))));
+
+        uint256 received = _decodeUint(withdrawal);
+        uint256 fee = Math.mulDiv(received - 2_000e6, YIELD_FEE_BPS, 10_000, Math.Rounding.Ceil);
+        assertGt(received, 2_000e6);
+        assertEq(asset.balanceOf(feeCollector), fee);
+        vm.prank(owner);
+        wallet.withdrawAllAssetToUser(owner, address(asset));
+        assertEq(asset.balanceOf(owner), received - fee);
+        assertEq(asset.balanceOf(address(wallet)), 0);
     }
 
     function testEightDecimalBaseAssetWorksAcrossAllVaultAdapters() public {
